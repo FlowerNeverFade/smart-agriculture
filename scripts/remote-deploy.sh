@@ -36,15 +36,11 @@ fi
 restart_on_error() {
   if [[ "$SUPERVISOR_MODE" == "1" ]]; then
     supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-api >/dev/null 2>&1 || true
-    supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-simulator >/dev/null 2>&1 || true
   fi
 }
 trap restart_on_error EXIT
 
 ./gradlew :apps:api-service:bootJar
-mkdir -p "$APP_ROOT/venv"
-python3 -m venv "$APP_ROOT/venv" || true
-"$APP_ROOT/venv/bin/pip" install -r simulator/requirements.txt
 chmod +x scripts/run-api.sh scripts/run-simulator.sh
 install -m 0644 infra/logrotate/agriloop /etc/logrotate.d/agriloop 2>/dev/null || true
 install -m 0644 infra/cron/agriloop-backup /etc/cron.d/agriloop-backup 2>/dev/null || true
@@ -52,9 +48,6 @@ if [[ "$SUPERVISOR_MODE" == "1" ]]; then
   supervisorctl -c "$APP_ROOT/supervisor.conf" reread || true
   supervisorctl -c "$APP_ROOT/supervisor.conf" update || true
   supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-api
-  # Keep the plot-level simulator running so strategy changes written by the
-  # API are consumed without a second manual service command.
-  supervisorctl -c "$APP_ROOT/supervisor.conf" start agriloop-simulator
 else
   nohup scripts/run-api.sh >>"$APP_ROOT/logs/api.log" 2>&1 &
   echo $! > "$APP_ROOT/api.pid"

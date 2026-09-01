@@ -13,13 +13,35 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
+          cache-dependency-path: |
+            **/*.gradle*
+            **/gradle-wrapper.properties
       - name: Run backend tests
-        run: ./gradlew :apps:api-service:test --no-daemon
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew :apps:api-service:test --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Gradle dependency resolution failed; retrying in $((attempt * 20))s (attempt $((attempt + 1))/3)"
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
       - name: Build boot jar
-        run: ./gradlew :apps:api-service:bootJar --no-daemon
-      - name: Validate simulator syntax
-        run: python3 -m py_compile simulator/runner.py
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew :apps:api-service:bootJar --no-daemon; then
+              exit 0
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Gradle dependency resolution failed; retrying in $((attempt * 20))s (attempt $((attempt + 1))/3)"
+              sleep $((attempt * 20))
+            fi
+          done
+          exit 1
       - name: Validate Crop Packs
         run: |
-          python3 -m pip install -r simulator/requirements.txt
+          python3 -m pip install -r scripts/requirements-dev.txt
           python3 scripts/validate_crop_packs.py

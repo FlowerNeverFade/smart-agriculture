@@ -22,11 +22,11 @@ chmod 600 "$ENV_FILE"
 # as `= ` in the protected env file.  Remove only invalid empty-key lines; all
 # real settings and secrets are preserved.
 sed -i -E '/^[[:space:]]*=[[:space:]]*$/d' "$ENV_FILE"
-update_env LLM_ENABLE_THINKING false
+update_env LLM_ENABLE_THINKING true
 update_env LLM_PRESERVE_THINKING false
 update_env LLM_REASONING_EFFORT low
 update_env LLM_TIMEOUT_MS 30000
-update_env LLM_MAX_TOKENS 192
+update_env LLM_MAX_TOKENS 768
 update_env QWEN_GPU_LIST 0,1
 update_env QWEN_TENSOR_PARALLEL_SIZE 2
 update_env QWEN_MAX_MODEL_LEN 8192
@@ -37,8 +37,9 @@ update_env VLLM_USE_FLASHINFER_SAMPLER 0
 update_env VLLM_ALLREDUCE_USE_FLASHINFER 0
 update_env QWEN_LORA_NAME agriloop-qwen38-agri
 update_env QWEN_LORA_PATH "$APP_ROOT/models/agriloop-qwen38-lora-v3"
-update_env QWEN_ENABLE_LORA "${QWEN_ENABLE_LORA:-false}"
-if [[ "${QWEN_ENABLE_LORA:-false}" == "true" ]]; then
+update_env QWEN_ENABLE_LORA false
+lora_enabled="$(awk -F= '$1 == "QWEN_ENABLE_LORA" { print $2; exit }' "$ENV_FILE")"
+if [[ "$lora_enabled" == "true" ]]; then
   update_env LLM_MODEL agriloop-qwen38-agri
 else
   update_env LLM_MODEL Qwen3.8-27B

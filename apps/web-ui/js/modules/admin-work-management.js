@@ -1,10 +1,22 @@
-import { api } from '../api.js?v=20260826-live-refresh';
-import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260827-work-order-flow-v3';
-import { AdminResourcePlanningView } from './admin-resource-planning.js';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260827-boot-fix-1';
+import { api } from '../api.js?v=20260901-v59-main-compat-v1';
+import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v59-main-compat-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v59-main-compat-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v59-main-compat-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v59-main-compat-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
+
+function newPackForm(pack = {}) {
+  const identity = pack.identity || {};
+  return {
+    cropCode: pack.cropCode || '', version: pack.version || '1.0.0', name: identity.name || '',
+    variety: identity.variety || '', region: identity.region || '',
+    stages: Array.isArray(pack.stages) && pack.stages.length ? pack.stages.map(stage => ({ ...stage, target: { SOIL_MOISTURE: { low: 30, high: 50, unit: '%' }, ...(stage.target || {}) } })) : [{ code: 'seedling', label: '苗期', sequence: 1, target: { SOIL_MOISTURE: { low: 30, high: 50, unit: '%' } } }],
+    rules: Array.isArray(pack.rules) && pack.rules.length ? pack.rules.map(rule => ({ ...rule })) : [{ code: 'soil-moisture-low', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 30, durationMinutes: 15, cooldownMinutes: 60 }],
+    taskTemplates: Array.isArray(pack.taskTemplates) && pack.taskTemplates.length ? pack.taskTemplates.map(task => ({ ...task })) : [{ actionType: 'INSPECTION', priority: 'MEDIUM', intervalDays: 1 }],
+    knowledge: Array.isArray(pack.knowledge) && pack.knowledge.length ? pack.knowledge.map(item => typeof item === 'string' ? ({ title: '', content: item }) : ({ ...item })) : [{ title: '', content: '' }]
+  };
+}
 
 function todayInput() {
   return new Date().toISOString().slice(0, 10);
@@ -28,9 +40,10 @@ export const AdminWorkManagementView = {
     const showPlanDetail = ref(false);
     const showPackDetail = ref(false);
     const showPackCreate = ref(false);
-    const packSection = ref('models');
+    const packMenuId = ref('');
     const packCreateMode = ref('DRAFT');
-    const packForm = ref({ cropCode: '', version: '1.0.0', name: '', variety: '', region: '', stagesJson: '[{"code":"seedling","label":"苗期","sequence":1,"target":{}}]', rulesJson: '[]', tasksJson: '[]', knowledgeJson: '[]' });
+    const packWizardStep = ref(1);
+    const packForm = ref(newPackForm());
     const form = ref({ plotId: '', cropCode: '', plantedAt: todayInput(), plannedCycleDays: 120 });
     const farmId = computed(() => props.state.adminContext?.farmId || '');
     const activePlots = computed(() => (props.state.allPlots || props.state.plots || []).filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE'));
@@ -56,6 +69,13 @@ export const AdminWorkManagementView = {
     const closePlanDetail = () => { if (!busy.value) showPlanDetail.value = false; };
     const closePackDetail = () => { showPackDetail.value = false; };
     const closePackCreate = () => { if (!busy.value) showPackCreate.value = false; };
+    const packKey = pack => `${pack?.farmId || 'global'}:${pack?.cropCode || ''}:${pack?.version || ''}`;
+    const canManagePack = pack => Boolean(pack?.farmId && pack.farmId === farmId.value);
+    const closePackMenu = () => { packMenuId.value = ''; };
+    const togglePackMenu = pack => {
+      const key = packKey(pack);
+      packMenuId.value = packMenuId.value === key ? '' : key;
+    };
     const closePlanCreateOnBackdrop = event => {
       if (event.target === event.currentTarget) closePlanCreate();
     };
@@ -77,13 +97,94 @@ export const AdminWorkManagementView = {
       showPlanDetail.value = false;
       showPackDetail.value = false;
       showPackCreate.value = false;
+      packMenuId.value = '';
     };
     const openPlanCreate = () => { showPlanCreate.value = true; };
     const openPackDetail = (pack) => {
+      closePackMenu();
       selectedPackCode.value = pack.cropCode;
       showPackDetail.value = true;
     };
-    const openPackCreate = () => { packForm.value = { cropCode: '', version: '1.0.0', name: '', variety: '', region: '', stagesJson: '[{"code":"seedling","label":"苗期","sequence":1,"target":{}}]', rulesJson: '[]', tasksJson: '[]', knowledgeJson: '[]' }; showPackCreate.value = true; };
+    const openPackCreate = () => { packCreateMode.value = 'DRAFT'; packForm.value = newPackForm(); packWizardStep.value = 1; showPackCreate.value = true; };
+    const openPackEdit = pack => { packCreateMode.value = 'EDIT'; packForm.value = newPackForm(pack); packWizardStep.value = 1; showPackDetail.value = false; showPackCreate.value = true; };
+    const openPackEditFromMenu = async pack => {
+      closePackMenu();
+      if (!farmId.value) { toast('请先选择当前农场', 'error'); return; }
+      if (canManagePack(pack) && String(pack.status || '').toUpperCase() === 'ACTIVE') { toast('已启用版本不能原地修改，请新建版本', 'error'); return; }
+      if (busy.value) return;
+      busy.value = true;
+      try {
+        let editablePack = pack;
+        if (!canManagePack(pack)) {
+          editablePack = await api.createFarmCropPack(farmId.value, {
+            cropCode: pack.cropCode,
+            version: pack.version || '1.0.0',
+            identity: pack.identity,
+            stages: pack.stages,
+            rules: pack.rules,
+            taskTemplates: pack.taskTemplates,
+            knowledge: pack.knowledge,
+            metrics: pack.metrics,
+            ruleVersion: pack.ruleVersion,
+            knowledgeVersion: pack.knowledgeVersion
+          });
+          props.state.cropPacks = [...(props.state.cropPacks || []).filter(item => item.cropCode !== pack.cropCode), editablePack];
+          emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview'], farmId: farmId.value, record: editablePack, reason: 'farm-crop-pack-cloned' });
+          toast('已复制为当前农场草稿，现在可以修改');
+        }
+        openPackEdit(editablePack);
+      } catch (error) { toast(error.message || '作物包复制失败', 'error'); }
+      finally { busy.value = false; }
+    };
+    const archivePackFromMenu = async pack => {
+      closePackMenu();
+      if (busy.value) return;
+      const name = pack.identity?.name || pack.cropCode || '该作物包';
+      if (!window.confirm(`确定删除“${name}”作物包吗？删除后将从当前农场列表中移除。`)) return;
+      busy.value = true;
+      try {
+        let archived;
+        if (canManagePack(pack)) {
+          archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, pack.version);
+        } else {
+          // Global packs remain platform facts. Create a farm-scoped archived
+          // override so this farm can remove it without deleting the global pack.
+          const hiddenVersion = `${pack.version || '1.0.0'}-farm-hidden-${Date.now()}`;
+          await api.createFarmCropPack(farmId.value, {
+            cropCode: pack.cropCode,
+            version: hiddenVersion,
+            identity: pack.identity,
+            stages: pack.stages,
+            rules: pack.rules,
+            taskTemplates: pack.taskTemplates,
+            knowledge: pack.knowledge,
+            metrics: pack.metrics,
+            ruleVersion: pack.ruleVersion,
+            knowledgeVersion: pack.knowledgeVersion
+          });
+          archived = await api.archiveFarmCropPack(farmId.value, pack.cropCode, hiddenVersion);
+        }
+        props.state.cropPacks = (props.state.cropPacks || []).filter(item => packKey(item) !== packKey(pack));
+        if (selectedPackCode.value === pack.cropCode) { selectedPackCode.value = ''; showPackDetail.value = false; }
+        emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview', 'rulesStrategies'], farmId: farmId.value, record: archived, reason: 'farm-crop-pack-archived' });
+        toast(canManagePack(pack) ? '作物包已删除，并已从当前农场列表移除' : '作物包已从当前农场移除，全局作物包仍保留');
+      } catch (error) { toast(error.message || '作物包删除失败', 'error'); }
+      finally { busy.value = false; }
+    };
+    const nextPackStep = () => {
+      if (packWizardStep.value === 1 && (!packForm.value.cropCode.trim() || !packForm.value.name.trim() || !packForm.value.variety.trim())) { toast('请先填写作物编号、名称和品种', 'error'); return; }
+      if (packWizardStep.value === 2 && !packForm.value.stages.length) { toast('至少添加一个生长阶段', 'error'); return; }
+      packWizardStep.value = Math.min(5, packWizardStep.value + 1);
+    };
+    const previousPackStep = () => { packWizardStep.value = Math.max(1, packWizardStep.value - 1); };
+    const addStage = () => packForm.value.stages.push({ code: '', label: '', sequence: packForm.value.stages.length + 1, target: { SOIL_MOISTURE: { low: 20, high: 50, unit: '%' } } });
+    const removeStage = index => { if (packForm.value.stages.length > 1) packForm.value.stages.splice(index, 1); };
+    const addRule = () => packForm.value.rules.push({ code: '', metric: 'SOIL_MOISTURE', operator: 'LT', threshold: 30, durationMinutes: 15, cooldownMinutes: 60 });
+    const removeRule = index => packForm.value.rules.splice(index, 1);
+    const addTaskTemplate = () => packForm.value.taskTemplates.push({ actionType: 'INSPECTION', priority: 'MEDIUM', intervalDays: 1 });
+    const removeTaskTemplate = index => packForm.value.taskTemplates.splice(index, 1);
+    const addKnowledge = () => packForm.value.knowledge.push({ title: '', content: '' });
+    const removeKnowledge = index => { if (packForm.value.knowledge.length > 1) packForm.value.knowledge.splice(index, 1); };
     const validateSelectedPack = async () => {
       if (!selectedPack.value?.farmId || selectedPack.value.farmId !== farmId.value || busy.value) return;
       busy.value = true;
@@ -98,21 +199,15 @@ export const AdminWorkManagementView = {
       catch (error) { toast(error.message || '作物包启用失败', 'error'); }
       finally { busy.value = false; }
     };
-    const transitionCandidate = async (candidate, target) => {
-      const id = candidate?.candidateId || candidate?.id; if (!id || busy.value) return;
-      busy.value = true;
-      try { await api.transitionStrategyCandidate(id, target, { expectedRevision: candidate.revision, idempotencyKey: `strategy:${id}:${target}` }); emit('data-invalidated', { domains: ['alerts', 'overview'], record: candidate }); toast(target === 'ACTIVE' ? '学习策略已启用；相似告警将生成待确认决策预览' : `学习策略已${target === 'REJECTED' ? '拒绝' : '批准'}`); }
-      catch (error) { toast(error.message || '学习策略状态更新失败', 'error'); }
-      finally { busy.value = false; }
-    };
     const submitPackCreate = async (event) => {
       event?.preventDefault();
       if (!farmId.value || !packForm.value.cropCode || !packForm.value.name || !packForm.value.variety) { toast('请填写作物编号、名称和品种', 'error'); return; }
-      const parse = (value, fallback) => { try { const parsed = JSON.parse(value); return parsed; } catch { toast('阶段、规则、任务或知识 JSON 格式不正确', 'error'); return fallback; } };
-      const stages = parse(packForm.value.stagesJson, null); const rules = parse(packForm.value.rulesJson, null); const taskTemplates = parse(packForm.value.tasksJson, null); const knowledge = parse(packForm.value.knowledgeJson, null); if (!stages || !rules || !taskTemplates || !knowledge) return;
       busy.value = true;
       try {
-        const created = await api.createFarmCropPack(farmId.value, { cropCode: packForm.value.cropCode, version: packForm.value.version || '1.0.0', identity: { name: packForm.value.name, variety: packForm.value.variety, region: packForm.value.region }, stages, rules, taskTemplates, knowledge });
+        const input = { cropCode: packForm.value.cropCode.trim(), version: packForm.value.version || '1.0.0', identity: { name: packForm.value.name.trim(), variety: packForm.value.variety.trim(), region: packForm.value.region.trim() }, stages: packForm.value.stages, rules: packForm.value.rules, taskTemplates: packForm.value.taskTemplates, knowledge: packForm.value.knowledge };
+        const created = packCreateMode.value === 'EDIT'
+          ? await api.updateFarmCropPack(farmId.value, input.cropCode, input.version, { ...input, expectedRevision: selectedPack.value?.revision })
+          : await api.createFarmCropPack(farmId.value, input);
         showPackCreate.value = false; emit('data-invalidated', { domains: ['cropPacks', 'plots', 'overview'], record: created }); toast('作物包草稿已保存，可在校验通过后启用');
       } catch (error) { toast(error.message || '作物包保存失败', 'error'); } finally { busy.value = false; }
     };
@@ -131,8 +226,14 @@ export const AdminWorkManagementView = {
       syncDefaults();
     });
     watch([activePlots, packs, batches], syncDefaults, { immediate: true });
-    onMounted(() => document.addEventListener('keydown', closeActiveDialogOnEscape));
-    onBeforeUnmount(() => document.removeEventListener('keydown', closeActiveDialogOnEscape));
+    onMounted(() => {
+      document.addEventListener('keydown', closeActiveDialogOnEscape);
+      document.addEventListener('click', closePackMenu);
+    });
+    onBeforeUnmount(() => {
+      document.removeEventListener('keydown', closeActiveDialogOnEscape);
+      document.removeEventListener('click', closePackMenu);
+    });
 
     const setTab = (tab) => {
       closeDialogs();
@@ -209,9 +310,10 @@ export const AdminWorkManagementView = {
 
     return {
       activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form,
-      showPlanCreate, showPlanDetail, showPackDetail, showPackCreate, packSection, packForm, packCreateMode, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan,
-      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, closePackDetail, openPackCreate, closePackCreate, submitPackCreate,
-      validateSelectedPack, activateSelectedPack, transitionCandidate,
+      showPlanCreate, showPlanDetail, showPackDetail, showPackCreate, packForm, packCreateMode, packWizardStep, setTab, syncCropForPlot, createPlan, loadPlan, reviewPlan,
+      openPlanCreate, closePlanCreate, closePlanDetail, openPackDetail, openPackEdit, openPackEditFromMenu, closePackDetail, openPackCreate, closePackCreate, submitPackCreate,
+      packMenuId, packKey, canManagePack, togglePackMenu, archivePackFromMenu,
+      validateSelectedPack, activateSelectedPack, nextPackStep, previousPackStep, addStage, removeStage, addRule, removeRule, addTaskTemplate, removeTaskTemplate, addKnowledge, removeKnowledge,
       closePlanCreateOnBackdrop, closePlanDetailOnBackdrop, closePackDetailOnBackdrop,
       submitPlanCreate,
       taskLabel, stageLabel, metricLabel, value, plotName, cropName, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
@@ -275,17 +377,22 @@ export const AdminWorkManagementView = {
           <div><span>农场级作物模型与告警治理</span><h2 id="admin-pack-collection-title">Crop Pack</h2></div>
           <em>{{ packs.length }} 个版本</em>
         </div>
-        <nav class="admin-local-tabs admin-pack-tabs" aria-label="Crop Pack 内容">
-          <button type="button" :class="{active: packSection === 'models'}" @click="packSection = 'models'">作物模型</button>
-          <button type="button" :class="{active: packSection === 'rules'}" @click="packSection = 'rules'">告警规则</button>
-          <button type="button" :class="{active: packSection === 'candidates'}" @click="packSection = 'candidates'">学习候选</button>
-        </nav>
-        <div v-if="packSection === 'models'" class="admin-pack-card-grid">
-          <button v-for="pack in packs" :key="pack.cropCode" type="button" class="admin-pack-summary-card"
-            :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" @click="openPackDetail(pack)">
+        <div class="admin-pack-card-grid">
+          <article v-for="pack in packs" :key="packKey(pack)" class="admin-pack-summary-card"
+            :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" role="button" tabindex="0"
+            @click="openPackDetail(pack)" @keydown.enter="openPackDetail(pack)" @keydown.space.prevent="openPackDetail(pack)">
             <header>
               <span class="admin-pack-glyph">{{ (pack.identity?.name || pack.cropCode || 'P').slice(0, 1) }}</span>
-              <span>v{{ pack.version || '—' }}</span>
+              <span>{{ pack.farmId ? (String(pack.status || 'DRAFT').toUpperCase() === 'ACTIVE' ? '已启用' : '农场草稿') : '全局' }} · v{{ pack.version || '—' }}</span>
+              <div class="admin-pack-menu-wrap" @click.stop>
+                <button type="button" class="admin-pack-menu-trigger" aria-label="打开作物包菜单" :aria-expanded="packMenuId === packKey(pack)" @click.stop="togglePackMenu(pack)"><app-icon name="more_vertical"></app-icon></button>
+                <div v-if="packMenuId === packKey(pack)" class="admin-pack-menu" role="menu" @click.stop>
+                  <button type="button" role="menuitem" @click="openPackEditFromMenu(pack)">修改作物包</button>
+                  <button type="button" role="menuitem" @click="archivePackFromMenu(pack)">删除作物包</button>
+                  <small v-if="!canManagePack(pack)">修改会先复制为当前农场草稿；删除只对当前农场生效</small>
+                  <small v-else-if="String(pack.status || '').toUpperCase() === 'ACTIVE'">已启用版本不可原地修改</small>
+                </div>
+              </div>
             </header>
             <div class="admin-work-card-identity">
               <h3>{{ pack.identity?.name || pack.cropCode }}</h3>
@@ -298,22 +405,14 @@ export const AdminWorkManagementView = {
               <div><dt>指标阈值</dt><dd>{{ pack.metrics?.length || 0 }} 项</dd></div>
             </dl>
             <footer><span>{{ value(pack.identity?.variety) }}</span><strong>查看详情 <app-icon name="chevron_right"></app-icon></strong></footer>
-          </button>
+          </article>
           <button type="button" class="admin-pack-summary-card admin-add-work-card" @click="openPackCreate">
             <span class="admin-add-work-icon"><app-icon name="add"></app-icon></span>
             <strong>添加作物</strong>
             <small>创建当前农场专属 Crop Pack 草稿</small>
           </button>
         </div>
-        <p v-if="packSection === 'models' && !packs.length" class="admin-empty">后端没有返回 Crop Pack，可使用“添加作物”创建农场草稿。</p>
-        <div v-else-if="packSection === 'rules'" class="admin-compact-table admin-governance-table">
-          <div v-for="rule in (state.adminRules || [])" :key="rule.ruleId || rule.id || rule.code"><strong>{{ rule.name || rule.code || '告警规则' }}</strong><span>{{ rule.cropCode || '全局' }}</span><span>{{ rule.ruleVersion || '—' }}</span></div>
-          <p v-if="!(state.adminRules || []).length" class="admin-empty">暂无可展示的告警规则。</p>
-        </div>
-        <div v-else class="admin-compact-table admin-governance-table">
-          <div v-for="candidate in (state.adminStrategyCandidates || [])" :key="candidate.candidateId || candidate.id"><strong>{{ candidate.summary || candidate.description || candidate.signature || candidate.candidateId || candidate.id }}</strong><span>{{ candidate.status || 'DRAFT' }}</span><span>{{ candidate.evidenceCount || 0 }} 条案例</span><button v-if="['OFFLINE_VALIDATED','APPROVED','VERIFIED'].includes(String(candidate.status || '').toUpperCase())" type="button" class="g-btn small primary" :disabled="busy" @click="transitionCandidate(candidate, 'ACTIVE')">批准并启用</button><button v-else-if="String(candidate.status || '').toUpperCase() === 'DRAFT'" type="button" class="g-btn small secondary" :disabled="busy" @click="transitionCandidate(candidate, 'REJECTED')">拒绝</button></div>
-          <p v-if="!(state.adminStrategyCandidates || []).length" class="admin-empty">尚未形成学习候选；完成同类告警闭环后自动生成。</p>
-        </div>
+        <p v-if="!packs.length" class="admin-empty">后端没有返回 Crop Pack，可使用“添加作物”创建农场草稿。</p>
       </section>
 
       <div v-if="showPlanCreate" class="g-modal-overlay admin-work-dialog-overlay" @click="closePlanCreateOnBackdrop">
@@ -373,15 +472,22 @@ export const AdminWorkManagementView = {
             <div class="admin-work-detail-heading"><div><h4>指标与阈值</h4><p>已知指标优先显示中文，接口编码保持不变。</p></div><em>{{ selectedPack.metrics?.length || 0 }} 项</em></div>
             <div class="admin-compact-table"><div v-for="metric in selectedPack.metrics" :key="metric.code"><strong>{{ metricLabel(metric) }}</strong><span>{{ metricStatusLabel(metric.availability, '未知') }}</span><span>{{ metric.range ? metric.range.min + '–' + metric.range.max + ' ' + (metric.unit || '') : '—' }}</span></div></div>
           </div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackDetail">关闭</button><template v-if="selectedPack.farmId === farmId && String(selectedPack.status || '').toUpperCase() !== 'ACTIVE'"><button type="button" class="g-btn secondary" :disabled="busy" @click="validateSelectedPack">校验草稿</button><button type="button" class="g-btn primary" :disabled="busy" @click="activateSelectedPack">启用作物包</button></template></div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackDetail">关闭</button><template v-if="selectedPack.farmId === farmId && String(selectedPack.status || '').toUpperCase() !== 'ACTIVE'"><button type="button" class="g-btn secondary" :disabled="busy" @click="openPackEdit(selectedPack)">编辑草稿</button><button type="button" class="g-btn secondary" :disabled="busy" @click="validateSelectedPack">校验草稿</button><button type="button" class="g-btn primary" :disabled="busy" @click="activateSelectedPack">启用作物包</button></template></div>
         </section>
       </div>
 
       <div v-if="showPackCreate" class="g-modal-overlay admin-work-dialog-overlay" @click.self="closePackCreate">
         <form class="g-modal admin-work-data-dialog admin-pack-create-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pack-create-title" @submit="submitPackCreate">
-          <div class="g-modal-header"><div><small>当前农场 · 草稿</small><h3 id="admin-pack-create-title">添加作物</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePackCreate"><app-icon name="close"></app-icon></button></div>
-          <div class="g-modal-body"><div class="admin-form-grid"><label><span>作物编号</span><input v-model.trim="packForm.cropCode" placeholder="例如 basil"></label><label><span>版本</span><input v-model.trim="packForm.version" placeholder="1.0.0"></label><label><span>名称</span><input v-model.trim="packForm.name" placeholder="作物名称"></label><label><span>品种</span><input v-model.trim="packForm.variety" placeholder="品种"></label><label><span>地区</span><input v-model.trim="packForm.region" placeholder="地区"></label></div><div class="admin-form-grid admin-form-grid-wide"><label><span>生长阶段 JSON</span><textarea v-model="packForm.stagesJson" rows="3"></textarea></label><label><span>告警规则 JSON</span><textarea v-model="packForm.rulesJson" rows="3"></textarea></label><label><span>任务模板 JSON</span><textarea v-model="packForm.tasksJson" rows="3"></textarea></label><label><span>知识文档 JSON</span><textarea v-model="packForm.knowledgeJson" rows="3"></textarea></label></div><p class="admin-hint">草稿可先保存；启用前后端会校验阶段顺序、阈值、规则与任务模板。</p></div>
-          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackCreate">取消</button><button type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '保存中…' : '保存草稿' }}</button></div>
+          <div class="g-modal-header"><div><small>当前农场 · {{ packCreateMode === 'EDIT' ? '编辑草稿' : '新建草稿' }}</small><h3 id="admin-pack-create-title">添加作物</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePackCreate"><app-icon name="close"></app-icon></button></div>
+          <div class="admin-pack-wizard-steps"><button v-for="step in [{n:1,label:'基础信息'},{n:2,label:'生长阶段'},{n:3,label:'告警规则'},{n:4,label:'任务模板'},{n:5,label:'知识与预览'}]" :key="step.n" type="button" :class="{active: packWizardStep === step.n, done: packWizardStep > step.n}" @click="packWizardStep = step.n"><span>{{ step.n }}</span>{{ step.label }}</button></div>
+          <div class="g-modal-body admin-pack-wizard-body">
+            <section v-if="packWizardStep === 1" class="admin-pack-wizard-panel"><h4>基础信息</h4><p>先建立当前农场专属的作物身份和版本。</p><div class="admin-form-grid"><label><span>作物编号</span><input v-model.trim="packForm.cropCode" pattern="[a-z0-9_-]{2,64}" placeholder="例如 basil"></label><label><span>版本</span><input v-model.trim="packForm.version" placeholder="1.0.0"></label><label><span>名称</span><input v-model.trim="packForm.name" placeholder="作物名称"></label><label><span>品种</span><input v-model.trim="packForm.variety" placeholder="品种"></label><label><span>地区</span><input v-model.trim="packForm.region" placeholder="地区"></label></div></section>
+            <section v-else-if="packWizardStep === 2" class="admin-pack-wizard-panel"><div class="admin-pack-wizard-panel-head"><div><h4>生长阶段与目标</h4><p>阶段顺序必须递增；目标区间将用于预测和告警规则。</p></div><button type="button" class="g-btn secondary compact" @click="addStage"><app-icon name="add"></app-icon>添加阶段</button></div><div class="admin-pack-repeat-list"><article v-for="(stage, index) in packForm.stages" :key="index" class="admin-pack-repeat-card"><div class="admin-pack-repeat-head"><strong>阶段 {{ index + 1 }}</strong><button type="button" class="g-btn icon-only compact" :disabled="packForm.stages.length <= 1" aria-label="删除阶段" @click="removeStage(index)"><app-icon name="delete"></app-icon></button></div><div class="admin-form-grid"><label><span>阶段编号</span><input v-model.trim="stage.code" placeholder="seedling"></label><label><span>阶段名称</span><input v-model.trim="stage.label" placeholder="苗期"></label><label><span>顺序</span><input v-model.number="stage.sequence" type="number" min="1"></label><label><span>湿度下限 (%)</span><input v-model.number="stage.target.SOIL_MOISTURE.low" type="number" min="0" max="100"></label><label><span>湿度上限 (%)</span><input v-model.number="stage.target.SOIL_MOISTURE.high" type="number" min="0" max="100"></label></div></article></div></section>
+            <section v-else-if="packWizardStep === 3" class="admin-pack-wizard-panel"><div class="admin-pack-wizard-panel-head"><div><h4>告警规则</h4><p>规则只用于确定性判断，启用前会校验阈值和引用。</p></div><button type="button" class="g-btn secondary compact" @click="addRule"><app-icon name="add"></app-icon>添加规则</button></div><div class="admin-pack-repeat-list"><article v-for="(rule, index) in packForm.rules" :key="index" class="admin-pack-repeat-card"><div class="admin-pack-repeat-head"><strong>规则 {{ index + 1 }}</strong><button type="button" class="g-btn icon-only compact" aria-label="删除规则" @click="removeRule(index)"><app-icon name="delete"></app-icon></button></div><div class="admin-form-grid"><label><span>规则编号</span><input v-model.trim="rule.code" placeholder="soil-moisture-low"></label><label><span>指标</span><select v-model="rule.metric"><option value="SOIL_MOISTURE">土壤湿度</option><option value="AIR_TEMPERATURE">空气温度</option><option value="AIR_HUMIDITY">空气湿度</option><option value="LIGHT">光照强度</option></select></label><label><span>运算</span><select v-model="rule.operator"><option value="LT">低于</option><option value="LTE">不高于</option><option value="GT">高于</option><option value="GTE">不低于</option></select></label><label><span>阈值</span><input v-model.number="rule.threshold" type="number"></label><label><span>持续分钟</span><input v-model.number="rule.durationMinutes" type="number" min="0"></label><label><span>冷却分钟</span><input v-model.number="rule.cooldownMinutes" type="number" min="0"></label></div></article></div></section>
+            <section v-else-if="packWizardStep === 4" class="admin-pack-wizard-panel"><div class="admin-pack-wizard-panel-head"><div><h4>农务任务模板</h4><p>定义告警或阶段触发后的人工任务建议。</p></div><button type="button" class="g-btn secondary compact" @click="addTaskTemplate"><app-icon name="add"></app-icon>添加模板</button></div><div class="admin-pack-repeat-list"><article v-for="(task, index) in packForm.taskTemplates" :key="index" class="admin-pack-repeat-card"><div class="admin-pack-repeat-head"><strong>模板 {{ index + 1 }}</strong><button type="button" class="g-btn icon-only compact" aria-label="删除模板" @click="removeTaskTemplate(index)"><app-icon name="delete"></app-icon></button></div><div class="admin-form-grid"><label><span>任务类型</span><select v-model="task.actionType"><option value="INSPECTION">现场巡田</option><option value="IRRIGATION_CHECK">灌溉巡检</option><option value="FERTILIZATION">施肥检查</option></select></label><label><span>优先级</span><select v-model="task.priority"><option value="LOW">低</option><option value="MEDIUM">中</option><option value="HIGH">高</option></select></label><label><span>建议周期（天）</span><input v-model.number="task.intervalDays" type="number" min="1"></label></div></article></div></section>
+            <section v-else class="admin-pack-wizard-panel"><div class="admin-pack-wizard-panel-head"><div><h4>知识文档与预览</h4><p>知识只作为解释证据，模型不会据此越过规则和人工确认。</p></div><button type="button" class="g-btn secondary compact" @click="addKnowledge"><app-icon name="add"></app-icon>添加文档</button></div><div class="admin-pack-repeat-list"><article v-for="(doc, index) in packForm.knowledge" :key="index" class="admin-pack-repeat-card"><div class="admin-pack-repeat-head"><strong>文档 {{ index + 1 }}</strong><button type="button" class="g-btn icon-only compact" :disabled="packForm.knowledge.length <= 1" aria-label="删除文档" @click="removeKnowledge(index)"><app-icon name="delete"></app-icon></button></div><label><span>标题</span><input v-model.trim="doc.title" placeholder="阶段管理要点"></label><label><span>内容</span><textarea v-model="doc.content" rows="3" placeholder="填写该作物的管理知识和证据边界"></textarea></label></article></div><div class="admin-pack-preview"><strong>{{ packForm.name || '未命名作物' }} · v{{ packForm.version || '—' }}</strong><span>{{ packForm.stages.length }} 个阶段 · {{ packForm.rules.length }} 条规则 · {{ packForm.taskTemplates.length }} 个任务模板</span></div></section>
+          </div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePackCreate">取消</button><button v-if="packWizardStep > 1" type="button" class="g-btn secondary" :disabled="busy" @click="previousPackStep">上一步</button><button v-if="packWizardStep < 5" type="button" class="g-btn primary" :disabled="busy" @click="nextPackStep">下一步</button><button v-else type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '保存中…' : '保存草稿' }}</button></div>
         </form>
       </div>
     </section>

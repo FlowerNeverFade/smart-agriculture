@@ -4,7 +4,8 @@ info:
   version: 1.3.1
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
-    require JWT; command actions require idempotencyKey and approval.
+    require JWT; command actions require idempotencyKey and an explicit
+    current-operator confirmation. The executor is virtual in this release.
 servers:
   - url: http://localhost:8080
   - url: http://127.0.0.1:8080
@@ -69,12 +70,16 @@ paths:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
+  /api/v1/system/ai-mode:
+    put: {tags: [management], description: 仅系统管理员可切换智能模型运行模式（full/openai-compatible、rules-only、mock、maxkb），运行期生效、重启后还原为配置文件 AI_MODE 值, requestBody: {required: true, content: {application/json: {schema: {type: object, properties: {aiMode: {type: string, example: full}}}}}}, responses: {'200': {description: 模式保存成功，返回 aiMode/previous/changed}, '400': {description: AI_MODE_INVALID 不支持的智能模型模式}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/simulator/status:
-    get: {tags: [management], responses: {'200': {description: Supervisor 管理的遥测模拟器状态}}}
+    get: {tags: [management], responses: {'200': {description: 进程内遥测模拟器状态（running、采样间隔、时间流速、已发送事件）}}}
   /api/v1/simulator/start:
-    post: {tags: [management], description: 仅农场管理员或系统管理员可启动默认 normal 情景模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], description: 仅农场管理员或系统管理员可启动进程内模拟器, responses: {'200': {description: 模拟器已启动}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/simulator/stop:
-    post: {tags: [management], description: 仅农场管理员或系统管理员可停止遥测模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], description: 仅农场管理员或系统管理员可停止进程内模拟器, responses: {'200': {description: 模拟器已停止}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/simulator/settings:
+    put: {tags: [management], description: 仅管理员可更新全局采样间隔（5–60 秒）和时间流速（1–288x），运行中下一拍生效, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设置已保存}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/overview:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前授权农场的多地块风险总览}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/farms:
@@ -102,7 +107,7 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
     put:
       tags: [scenario]
-      description: 仅管理员可修改单个地块的场景；保存后 API 原子写入模拟器配置文件，运行中的模拟器会热加载。
+      description: 仅管理员可修改单个地块的场景；保存后由进程内模拟器在下一拍读取，不经 MQTT。
       parameters: [{$ref: '#/components/parameters/PlotId'}]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/PlotSimulationUpdateRequest'}}}}
       responses:
@@ -121,8 +126,35 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/crop-packs:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: includeDrafts, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 全局与当前农场 Crop Pack 文档；缺失字段不会由 Mock 补齐}}}
+    post: {tags: [farm], description: 系统管理员新增一个由数据库持久化并供三个角色共用的作物包, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 作物包已创建}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 相同作物编号和版本已存在}}}
+  /api/v1/crop-packs/{cropCode}/{version}:
+    put:
+      tags: [farm]
+      description: 系统管理员更新作物包；未出现在简化编辑表单中的规则与农艺字段会保留
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses: {'200': {description: 作物包已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
+    delete:
+      tags: [farm]
+      description: 删除用户维护的作物包版本；内置目录不会被物理删除
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      responses: {'200': {description: 用户维护版本已删除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}, '409': {description: 内置作物包不可删除}}
+  /api/v1/crop-packs/{cropCode}/{version}/status:
+    patch:
+      tags: [farm]
+      description: 系统管理员发布作物包或转为草稿；状态通过数据库在三个角色间共享
+      parameters:
+        - {name: cropCode, in: path, required: true, schema: {type: string}}
+        - {name: version, in: path, required: true, schema: {type: string}}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses: {'200': {description: 作物包状态已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
   /api/v1/rule-sets:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 全局及当前农场启用的确定性告警规则集}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已保存当前农场告警规则}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 规则编号已存在}}}
   /api/v1/alert-learning-cases:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: candidateId, in: query, schema: {type: string}}], responses: {'200': {description: 农场级告警闭环学习案例}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/farms/{farmId}/crop-packs:
@@ -195,7 +227,23 @@ paths:
   /api/v1/plots/{plotId}/timeline:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 决策时间轴}}}
   /api/v1/forecasts/evaluate:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: forecast_snapshot}}}
+    post:
+      tags: [decision]
+      description: 使用当前遥测锚点和未保存策略执行只读确定性试算；不会写入 forecast、地块策略、事件或审计记录。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ForecastEvaluationRequest'}}}}
+      responses:
+        '200':
+          description: 只读试算快照；persisted 固定为 false，requestVersion 原样回显
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiEnvelope'}
+                  - type: object
+                    properties:
+                      data: {$ref: '#/components/schemas/ForecastEvaluationResult'}
+        '400': {description: 场景、参数或干旱/积水阈值无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/rules/evaluate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 规则评估}}}
   /api/v1/rules:
@@ -227,7 +275,7 @@ paths:
               properties:
                 files: {type: array, items: {type: string, format: binary}, maxItems: 6}
       responses:
-        '200': {description: 含 photos[] 的巡田记录}
+        '200': {description: '含 photos[] 的巡田记录'}
         '400': {description: 类型、大小或数量不符合要求}
   /api/v1/inspections/{inspectionId}/photos/{photoId}:
     get:
@@ -236,40 +284,94 @@ paths:
         - {name: inspectionId, in: path, required: true, schema: {type: string}}
         - {name: photoId, in: path, required: true, schema: {type: string}}
       responses:
-        '200': {description: 现场照片二进制; content: {image/jpeg: {}, image/png: {}, image/webp: {}}}
+        '200':
+          description: 现场照片二进制
+          content:
+            image/jpeg: {}
+            image/png: {}
+            image/webp: {}
         '404': {description: 照片不存在}
   /api/v1/plots/{plotId}/inspections:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
+  /api/v1/plots/{plotId}/irrigation-guard:
+    get:
+      tags: [decision]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      responses:
+        '200': {description: 当前阶段迟滞状态、无时间冷却的灌溉可用状态、自动浇水阈值和最近有效命令；仅限授权地块}
+  /api/v1/plots/{plotId}/automatic-watering:
+    get:
+      tags: [decision]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      responses:
+        '200': {description: 当前地块自动浇水开关、阈值和来源；仅限授权地块}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [decision]
+      description: 按当前操作人确认开启或关闭自动浇水；关闭只阻断自动触发，不改变手动灌溉的安全确认流程。
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: 已保存的自动浇水开关状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/estimate:
     post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+  /api/v1/irrigation/auto:
+    post: {tags: [decision], description: 土壤含水量低于 10% 且通过数据质量、设备、资源和权限校验时发起一次虚拟浇水；同一遥测事件使用幂等键避免重复命令, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 自动浇水触发、未触发或阻断结果}}}
+  /api/v1/irrigation/plans/{planId}:
+    get:
+      tags: [decision]
+      parameters:
+        - name: planId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: 按地块权限读取原始灌溉处方}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出}}}
+    post: {tags: [decision], description: 携带 message、plotId、conversationId；可选 displayMessage 用于保存用户可读问题，避免将模型提示词写入历史；可选 images 最多 4 张 JPG/PNG/WebP 原文件 data URL，单张最大 8MB、总计最大 24MB，浏览器不缩放、不转码、不压缩；由原生多模态模型读取且不持久化原图；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出、可选 vision 元数据与 actionProposal}, '400': {description: 图片格式、数量或体积不符合限制}, '409': {description: 旧浏览器识图组件已停用，需刷新页面}}}
   /api/v1/agent/conversations:
     get:
       tags: [decision]
-      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；正式模式只返回当前账号拥有的 agent-conversation 记录。
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；农户仅能看到自己的会话。
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
       responses:
-        '200': {description: 会话摘要列表（conversationId、title、plotId、messageCount、updatedAt）}
+        '200': {description: 会话标题、关联地块、最后时间和消息数}
         '401': {$ref: '#/components/responses/Unauthorized'}
+  /api/v1/agent/conversations/{conversationId}:
+    delete:
+      tags: [decision]
+      description: 删除当前账号拥有的 Agent 对话及其消息；服务端校验会话归属。
+      parameters:
+        - {name: conversationId, in: path, required: true, schema: {type: string, maxLength: 120}}
+      responses:
+        '200': {description: 对话及消息已删除}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 对话不存在}
   /api/v1/agent/history:
     get:
       tags: [decision]
-      description: 读取当前 JWT 账号指定会话的最近消息；会话归属由服务端校验，越权读取返回 403。
+      description: 按 conversationId 返回当前账号可见的消息历史；会话归属由服务端校验。
       parameters:
-        - {name: conversationId, in: query, schema: {type: string, maxLength: 120}}
+        - {name: conversationId, in: query, required: false, schema: {type: string, maxLength: 120}}
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 100, default: 40}}
       responses:
-        '200': {description: conversation 摘要及 USER/ASSISTANT 消息列表}
+        '200': {description: 连续消息、来源和可选 actionProposal}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
+  /api/v1/agent/actions/{actionId}:
+    get: {tags: [decision], description: 查询当前操作所有者的预览、执行中或最终状态, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: Agent 操作状态与结果}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 操作不存在}}}
   /api/v1/agent/actions/{actionId}/confirm:
-    post: {tags: [decision], description: 管理员确认 10 分钟内的 Agent 操作预览；服务端重新校验权限、范围和幂等键后执行白名单工具, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
+    post: {tags: [decision], description: 当前操作所有者确认 10 分钟内的 Agent 操作预览；服务端按工具与角色重新校验权限、范围、安全门和幂等键, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 执行结果与受影响事实}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已过期、已处理或状态冲突}}}
   /api/v1/agent/actions/{actionId}/cancel:
-    post: {tags: [decision], description: 取消待确认的 Agent 操作预览, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 操作已取消}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已处理}}}
+    post: {tags: [decision], description: 当前操作所有者取消待确认的 Agent 操作预览, parameters: [{name: actionId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 操作已取消}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 操作已处理}}}
   /api/v1/agent/tools:
-    get: {tags: [decision], responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
+    get: {tags: [decision], description: 按当前身份返回白名单工具及 JSON Schema 版本；农户不返回管理员写工具, responses: {'200': {description: 白名单工具及 JSON Schema 版本}}}
   /api/v1/agent/runs/{traceId}:
     get: {tags: [decision], parameters: [{$ref: '#/components/parameters/TraceId'}], responses: {'200': {description: Agent trace}}}
   /api/v1/decision-passports/{traceId}:
@@ -282,7 +384,7 @@ paths:
     post:
       tags: [execution]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualCommandRequest'}}}}
-      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等/冷却冲突}, '422': {description: 就绪度/安全拒绝}}
+      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等或自动浇水资格冲突}, '422': {description: 就绪度/安全拒绝}}
   /api/v1/commands/{commandId}:
     get: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], responses: {'200': {description: 命令与 ACK}}}
   /api/v1/commands/{commandId}/ack:
@@ -297,7 +399,13 @@ paths:
   /api/v1/scenarios/runs/{runId}/snapshot:
     get: {tags: [scenario], parameters: [{$ref: '#/components/parameters/RunId'}], responses: {'200': {description: 冻结只读快照}}}
   /api/v1/scenarios/compare:
-    post: {tags: [scenario], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: EXECUTE/NO_ACTION 双轨比较}}}
+    post:
+      tags: [scenario]
+      description: 使用同一 plotId、冻结快照和 seed 生成只读 EXECUTE/NO_ACTION 双轨；农户仅能比较授权地块且不写回主遥测
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: branches、frozenSnapshot、seed 与兼容的 leftBranch/rightBranch 双轨结果}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/work-items/today:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: plotId, in: query, schema: {type: string}}], responses: {'200': {description: 按当前农场和地块范围过滤的今日农务}}}
   /api/v1/work-orders:
@@ -325,6 +433,8 @@ paths:
     delete: {tags: [management], description: 从当前农场移除种植农户并保留其其他农场范围, parameters: [{name: userId, in: path, required: true, schema: {type: string}}, {name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 成员已从当前农场移除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 成员不存在或不属于当前农场}}}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
+  /api/v1/users/{userId}:
+    delete: {tags: [management], description: 系统管理员删除任意角色账号（含农场管理员/系统管理员）；不可删除自己, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 账号不存在}}}
   /api/v1/alerts:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前农场范围内的告警列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/alerts/{alertId}/ack:
@@ -457,14 +567,41 @@ components:
           type: object
           description: 地块专属参数；服务端按参数边界裁剪并拒绝干旱阈值不小于积水阈值。
           additionalProperties: {type: number}
+    ForecastEvaluationRequest:
+      type: object
+      required: [plotId]
+      properties:
+        plotId: {type: string}
+        metric: {type: string, enum: [SOIL_MOISTURE, AIR_TEMPERATURE, AIR_HUMIDITY, LIGHT, CO2, PH, WATER_LEVEL, RAINFALL], default: SOIL_MOISTURE}
+        scenario: {type: string, enum: [NORMAL, DROUGHT, HEAVY_RAIN, SENSOR_DRIFT, DEVICE_OFFLINE], description: 省略时继承当前地块策略}
+        parameters: {type: object, additionalProperties: {type: number}, description: 仅作用于本次试算，越界值会被裁剪并在 warnings 中说明}
+        requestVersion: {description: 客户端竞态序号，服务端不解释并原样回显, oneOf: [{type: string}, {type: integer}]}
+    ForecastEvaluationResult:
+      type: object
+      required: [plotId, metric, status, persisted, modelMode, dataSource, inputSnapshot, warnings]
+      properties:
+        plotId: {type: string}
+        metric: {type: string}
+        status: {type: string, enum: [AVAILABLE, UNAVAILABLE]}
+        persisted: {type: boolean, enum: [false]}
+        requestVersion: {nullable: true, oneOf: [{type: string}, {type: integer}]}
+        modelMode: {type: string, enum: [DETERMINISTIC_WHAT_IF]}
+        dataSource: {type: string, enum: [OBSERVED_PLUS_STRATEGY, SIMULATION_STRATEGY]}
+        curve: {type: array, items: {type: object, additionalProperties: true}}
+        inputSnapshot: {type: object, additionalProperties: true}
+        explanation: {type: object, additionalProperties: true}
+        warnings: {type: array, items: {type: string}}
     VirtualCommandRequest:
       type: object
-      required: [plotId, idempotencyKey, approved]
+      required: [plotId, idempotencyKey, confirmed]
       properties:
         plotId: {type: string}
         planId: {type: string}
         idempotencyKey: {type: string, minLength: 8}
-        approved: {type: boolean}
+        confirmed: {type: boolean, description: 当前操作人已核对处方并确认执行；不要求管理员审批}
+        approved: {type: boolean, deprecated: true, description: 旧版管理员页面兼容字段；新调用请使用 confirmed}
+        approvalRequired: {type: boolean, default: false, description: 固定为 false，保留安全确认而非管理员审批}
+        confirmationMode: {type: string, enum: [OPERATOR_CONFIRMED]}
         outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
     CommandAck:
       type: object

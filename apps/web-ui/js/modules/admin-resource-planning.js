@@ -1,5 +1,43 @@
-import { api } from '../api.js';
-import { roleCan } from '../roles.js';
+import { api } from '../api.js?v=20260901-v59-main-compat-v1';
+import { roleCan } from '../roles.js?v=20260901-v59-main-compat-v1';
+
+// Compatibility helpers retained from the previous resource-planning view.
+function numberOr(value, fallback = 0) { const numeric = Number(value); return Number.isFinite(numeric) ? numeric : fallback; }
+function recommendedWater(plot) {
+  const moisture = numberOr(plot?.metrics?.SOIL_MOISTURE?.value, 25);
+  const area = numberOr(plot?.areaM2, 80);
+  const target = numberOr(String(plot?.metrics?.SOIL_MOISTURE?.target || '30').match(/(\d+(?:\.\d+)?)/)?.[1], 30);
+  return Math.max(20, Math.round(Math.max(0, target - moisture) * area * .08));
+}
+function deviceForPlot(plotId, devices = []) {
+  const matches = devices.filter((device) => String(device?.plotId || '') === String(plotId || ''));
+  return matches.find((device) => String(device?.status || '').toUpperCase() === 'ONLINE') || matches[0] || null;
+}
+export function buildResourceRows(plots = [], devices = [], previousRows = []) {
+  const previous = new Map((previousRows || []).map((row) => [row.plotId, row]));
+  return (plots || []).map((plot, index) => {
+    const old = previous.get(plot.plotId); const moisture = numberOr(plot?.metrics?.SOIL_MOISTURE?.value, 30);
+    const riskLevel = String(plot?.riskLevel || '').toUpperCase() || (moisture < 18 ? 'HIGH' : moisture < 24 ? 'MEDIUM' : 'LOW');
+    const demand = recommendedWater(plot); const device = deviceForPlot(plot.plotId, devices);
+    return { plotId: plot.plotId, name: plot.name || plot.plotId, cropName: plot.cropName || plot.cropCode || '未设置作物', included: old?.included ?? true, confirmed: old?.confirmed ?? false, requestedLitres: old?.requestedLitres ?? demand, aiSuggestedLitres: demand, priority: old?.priority || (riskLevel === 'HIGH' ? 'HIGH' : riskLevel === 'MEDIUM' ? 'MEDIUM' : 'LOW'), riskLevel, riskScore: ({ CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 }[riskLevel] || 0), soilMoisture: moisture, deviceId: device?.deviceId || device?.id || '', deviceStatus: String(device?.status || 'UNBOUND').toUpperCase(), windowStart: old?.windowStart || String(6 + (index % 3) * 2).padStart(2, '0') + ':00', windowEnd: old?.windowEnd || String(8 + (index % 3) * 2).padStart(2, '0') + ':00', adjustmentReason: old?.adjustmentReason || '', provenance: old?.provenance || 'ESTIMATED' };
+  }).sort((a, b) => b.riskScore - a.riskScore || b.aiSuggestedLitres - a.aiSuggestedLitres || a.name.localeCompare(b.name, 'zh-CN'));
+}
+export function resourceQuotaSummary(profile = {}, result = null, selectedRows = [], ledgers = []) {
+  const capacity = Number(result?.constraints?.waterCapacityLitres ?? profile.capacityLitres ?? profile.dailyQuotaLitres); const actual = Number(profile.usedTodayLitres ?? profile.actualUsedLitres);
+  const reserved = (result?.allocations || []).reduce((sum, row) => sum + numberOr(row.allocatedLitres), 0);
+  const requested = (selectedRows || []).reduce((sum, row) => sum + numberOr(row.requestedLitres), 0);
+  const ledgerActual = (ledgers || []).reduce((sum, ledger) => sum + numberOr(ledger?.metrics?.actualWaterLitres), 0);
+  return { capacity: Number.isFinite(capacity) ? capacity : null, actual: Number.isFinite(actual) ? actual : (ledgers.length ? ledgerActual : null), reserved, requested, balance: Number.isFinite(capacity) ? Math.max(0, capacity - reserved) : null };
+}
+export function mergeAllocationRows(rows = [], result = null) {
+  return rows.map((row) => { const allocation = (result?.allocations || []).find((item) => item.plotId === row.plotId) || {}; const unmet = (result?.unmetDemands || []).find((item) => item.plotId === row.plotId) || {}; const allocatedLitres = numberOr(allocation.allocatedLitres); const shortageLitres = numberOr(unmet.unmetLitres, Math.max(0, numberOr(row.requestedLitres) - allocatedLitres)); return { ...row, allocatedLitres, shortageLitres, allocationStatus: !result ? 'WAITING' : shortageLitres > 0 ? 'SHORTAGE' : 'ALLOCATED' }; });
+}
+export function validateResourceAdjustment(draft = {}) {
+  if (!(numberOr(draft.requestedLitres) > 0)) return '申请水量必须大于 0 升';
+  if (!String(draft.windowStart || '').trim() || !String(draft.windowEnd || '').trim()) return '请填写完整执行窗口';
+  if (!String(draft.reason || '').trim()) return '人工调整必须填写原因';
+  return '';
+}
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } = Vue;
 
@@ -69,6 +107,14 @@ export const AdminResourcePlanningView = {
     const selectedTarget = computed(() => selectedPlot.value?.metrics?.[selectedMetric.value]?.target || selectedAllocation.value?.targetMoisture || '—');
     const forecastReady = computed(() => String(forecast.value?.status || '').toUpperCase() === 'AVAILABLE' && Array.isArray(forecast.value?.curve) && forecast.value.curve.length > 0);
     const forecastProvenance = computed(() => forecast.value?.dataOrigin === 'SIMULATED' || forecast.value?.provenance === 'SIMULATED' ? '演示模型' : '后端模型');
+    const forecastExplanation = computed(() => {
+      const explanation = forecast.value?.explanation;
+      if (typeof explanation === 'string' && explanation.trim()) return explanation;
+      if (explanation && typeof explanation === 'object') {
+        return explanation.summary || explanation.message || explanation.text || '后端模型已返回趋势、目标和置信区间。';
+      }
+      return '曲线以最新实测值为起点，等待后端模型返回阶段目标、趋势和置信区间。';
+    });
 
     const renderForecast = async () => {
       await nextTick();
@@ -94,7 +140,13 @@ export const AdminResourcePlanningView = {
       const [historyResult, forecastResult] = await Promise.allSettled([api.getTelemetry(plotId, selectedMetric.value, 120), api.getRiskForecast(plotId, selectedMetric.value)]);
       if (requestId !== forecastRequestSerial) return;
       telemetry.value = historyResult.status === 'fulfilled' ? (historyResult.value || []) : [];
-      if (forecastResult.status === 'fulfilled') forecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+      if (forecastResult.status === 'fulfilled') {
+        forecast.value = forecastResult.value || { status: 'UNAVAILABLE', reason: '预测响应为空' };
+        const explanation = forecast.value?.explanation;
+        if (explanation && typeof explanation === 'object') {
+          forecast.value = { ...forecast.value, explanation: explanation.summary || explanation.message || explanation.text || '后端模型已返回趋势、目标和置信区间。' };
+        }
+      }
       else { forecast.value = { status: 'UNAVAILABLE', reason: forecastResult.reason?.message || '预测服务暂不可用' }; forecastError.value = forecast.value.reason; }
       forecastBusy.value = false; await renderForecast();
     };
@@ -128,7 +180,7 @@ export const AdminResourcePlanningView = {
     watch(() => props.state?.resourceProfile, next => { if (next?.farmId === farmId.value) { profile.value = next; lastSyncedAt.value = new Date(); } }, { deep: true });
     watch([selectedPlotId, selectedMetric], loadSelectedForecast); watch(farmId, refresh); onMounted(refresh);
     onBeforeUnmount(() => { forecastRequestSerial += 1; forecastChart.value?.dispose(); forecastChart.value = null; });
-    return { loading, planBusy, quotaBusy, error, profile, plans, requests, plots, sortedPlots, farmId, canManage, currentPlan, allocations, selectedPlotId, selectedPlanId, selectedAllocation, selectedPlot, selectedMetric, selectedMetricMeta, selectedTarget, forecast, forecastBusy, forecastError, forecastChartEl, forecastReady, forecastProvenance, quota, reserved, used, remaining, balancePercent, hasDraft, canConfirm, manualTaskCount, autoLedgerCount, submittedRequestCount, conflictRequestCount, pendingAckCount, acknowledgedCount, lastSyncedAt, quotaForm, adjustmentReason, adjustmentDraft, adjustmentOpen, plotName, allocationFor, requestsFor, requestForAllocation, allocationStatus, readinessLabel, planStatusLabel, requestStatusLabel, readableTime, litres, METRICS, refresh, analyze, openAdjustment, adjust, confirm, cancel, updateQuota };
+    return { loading, planBusy, quotaBusy, error, profile, plans, requests, plots, sortedPlots, farmId, canManage, currentPlan, allocations, selectedPlotId, selectedPlanId, selectedAllocation, selectedPlot, selectedMetric, selectedMetricMeta, selectedTarget, forecast, forecastBusy, forecastError, forecastChartEl, forecastReady, forecastProvenance, forecastExplanation, quota, reserved, used, remaining, balancePercent, hasDraft, canConfirm, manualTaskCount, autoLedgerCount, submittedRequestCount, conflictRequestCount, pendingAckCount, acknowledgedCount, lastSyncedAt, quotaForm, adjustmentReason, adjustmentDraft, adjustmentOpen, plotName, allocationFor, requestsFor, requestForAllocation, allocationStatus, readinessLabel, planStatusLabel, requestStatusLabel, readableTime, litres, METRICS, refresh, analyze, openAdjustment, adjust, confirm, cancel, updateQuota };
   },
   template: `
     <section class="resource-ops rp-root" aria-labelledby="resource-title">

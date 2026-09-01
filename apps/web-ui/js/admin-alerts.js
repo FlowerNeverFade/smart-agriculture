@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260826-live-refresh';
-import { adminMetricLabel } from './admin-state.js';
-import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260827-boot-fix-1';
+import { api } from './api.js?v=20260901-v59-main-compat-v1';
+import { adminMetricLabel } from './admin-state.js?v=20260901-v59-main-compat-v1';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260901-v59-main-compat-v1';
 
 const { ref, computed, inject, watch } = Vue;
 
@@ -221,6 +221,9 @@ export const AdminAlertCenter = {
     const reviewActionsVisible = alert => filter.value === 'REVIEW'
       && Boolean(alert) && !isClosed(alert) && !isDispatched(alert);
     const confidenceText = audit => audit ? `${Math.round(audit.score * 100)}%` : '未分析';
+    const strategyText = audit => audit?.strategyMatched
+      ? (audit.strategyDescription || audit.strategyId || '已启用学习策略')
+      : '';
     const nextStep = alert => {
       if (isClosed(alert)) return '告警已结束';
       if (isVerificationTask(existingTask(alert))) return '核查任务已下发，等待现场结果';
@@ -272,11 +275,12 @@ export const AdminAlertCenter = {
       let task = existingTask(alert);
       if (task?.assigneeId) return task;
       if (!task) {
+        const strategyNote = audit?.strategyMatched ? `；参考已启用学习策略：${strategyText(audit)}` : '';
         const draft = {
           farmId: props.state.adminContext?.farmId || alert.farmId || '',
           plotId: alert.plotId,
           title: `处理：${alert.title || '地块告警'}`,
-          reason: alert.message || '根据告警分析安排现场检查与处理',
+          reason: `${alert.message || '根据告警分析安排现场检查与处理'}${strategyNote}`,
           sourceType: 'ALERT',
           sourceRef: alertKey(alert),
           actionType: actionTypeFor(alert, audit),
@@ -298,7 +302,7 @@ export const AdminAlertCenter = {
       replaceById(props.state.workOrders, 'workOrderId', task);
       const response = await api.assignWorkOrder(taskId, {
         assigneeId: assignment.member.userId,
-        note: `智能派单依据：${assignment.reason}`
+        note: `智能派单依据：${assignment.reason}${audit?.strategyMatched ? `；策略预览：${strategyText(audit)}` : ''}`
       });
       const assigned = finalizedAssignedTask(task, response, alert, assignment.member);
       replaceById(props.state.workOrders, 'workOrderId', assigned);
@@ -420,13 +424,26 @@ export const AdminAlertCenter = {
       let failed = 0;
       for (const alert of alerts) {
         try {
-          const diagnosis = await api.evaluateDiagnosis(alert.plotId, {
-            traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`,
-            ...(props.state.sessionMode === 'demo' && alert.diagnosisScenario
-              ? { scenarioId: alert.diagnosisScenario }
-              : {})
-          });
-          const audit = assessAlertCredibility(alert, diagnosis);
+          const [diagnosis, strategyPreview] = await Promise.all([
+            api.evaluateDiagnosis(alert.plotId, {
+              traceId: `alert-analysis-${Date.now()}-${alertKey(alert)}`,
+              ...(props.state.sessionMode === 'demo' && alert.diagnosisScenario
+                ? { scenarioId: alert.diagnosisScenario }
+                : {})
+            }),
+            api.getStrategyPreview(props.state.adminContext?.farmId || alert.farmId || '', alertKey(alert))
+              .catch(() => ({ matched: false, candidate: {} }))
+          ]);
+          const baseAudit = assessAlertCredibility(alert, diagnosis);
+          const candidate = strategyPreview?.candidate || {};
+          const audit = {
+            ...baseAudit,
+            strategyMatched: strategyPreview?.matched === true,
+            strategyId: candidate.candidateId || candidate.id || '',
+            strategyDescription: candidate.description || candidate.summary || candidate.recommendation || '',
+            strategyEvidenceCount: Number(candidate.evidenceCount || candidate.evidenceCaseIds?.length || 0),
+            strategyPreviewOnly: strategyPreview?.previewOnly !== false
+          };
           const assignment = audit.highConfidence ? selectFarmer(alert) : null;
           if (audit.highConfidence && assignment) {
             await ensureDispatched(alert, assignment, audit);
@@ -500,6 +517,7 @@ export const AdminAlertCenter = {
       sourceLabel,
       auditFor,
       confidenceText,
+      strategyText,
       nextStep,
       readableTime,
       normalized,
@@ -586,6 +604,7 @@ export const AdminAlertCenter = {
             <div class="admin-alert-audit" v-if="auditFor(alert)" :class="auditFor(alert).highConfidence ? 'is-ready' : 'needs-review'">
               <strong>可信度 {{ confidenceText(auditFor(alert)) }} · {{ auditFor(alert).label }}</strong>
               <span>{{ auditFor(alert).farmerName ? '已下发给 ' + auditFor(alert).farmerName + '。' : '' }}{{ auditFor(alert).reason }}</span>
+              <span v-if="auditFor(alert).strategyMatched">策略参考：{{ strategyText(auditFor(alert)) }}{{ auditFor(alert).strategyEvidenceCount ? ' · ' + auditFor(alert).strategyEvidenceCount + ' 条合格案例' : '' }}（仅预览，仍需确认）</span>
             </div>
           </div>
           <footer class="admin-alert-card-footer">
@@ -622,6 +641,7 @@ export const AdminAlertCenter = {
             <div class="admin-alert-audit admin-alert-detail-audit" v-if="auditFor(activeAlert)" :class="auditFor(activeAlert).highConfidence ? 'is-ready' : 'needs-review'">
               <strong>AI 分析可信度 {{ confidenceText(auditFor(activeAlert)) }} · {{ auditFor(activeAlert).label }}</strong>
               <span>{{ auditFor(activeAlert).farmerName ? '已下发给 ' + auditFor(activeAlert).farmerName + '。' : '' }}{{ auditFor(activeAlert).reason }}</span>
+              <span v-if="auditFor(activeAlert).strategyMatched">命中已启用策略：{{ strategyText(auditFor(activeAlert)) }}{{ auditFor(activeAlert).strategyEvidenceCount ? ' · ' + auditFor(activeAlert).strategyEvidenceCount + ' 条合格案例' : '' }}。该结果只参与处置预览，不替代诊断与人工确认。</span>
             </div>
             <p class="admin-alert-detail-note" v-if="isClosed(activeAlert)">这条告警已经结束，处理记录继续保留为只读事实。</p>
           </div>

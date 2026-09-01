@@ -4,10 +4,17 @@ import assert from 'node:assert/strict';
 // api.js is browser code.  These tiny shims let the contract test exercise the
 // session boundary without starting a browser or a real HTTP server.
 const storage = new Map();
+const agentSessionStorage = new Map();
 globalThis.localStorage = {
   getItem: (key) => storage.get(key) || null,
   setItem: (key, value) => storage.set(key, String(value)),
   removeItem: (key) => storage.delete(key)
+};
+globalThis.sessionStorage = {
+  getItem: (key) => agentSessionStorage.get(key) || null,
+  setItem: (key, value) => agentSessionStorage.set(key, String(value)),
+  removeItem: (key) => agentSessionStorage.delete(key),
+  clear: () => agentSessionStorage.clear()
 };
 globalThis.fetch = async () => {
   throw new Error('backend offline');
@@ -226,4 +233,135 @@ test('demo Agent mutation uses preview then explicit confirmation', async () => 
   assert.equal(result.status, 'SUCCEEDED');
   const repeated = await service.confirmAgentAction(response.actionProposal.actionId);
   assert.equal(repeated.status, 'SUCCEEDED');
+});
+
+test('farmer demo Agent persists conversations and safe action lifecycle in session storage', async () => {
+  sessionStorage.clear();
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'farmer-agent-session', username: 'farmer-agent-session', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+
+  const inspection = await service.agentChat('帮我记录一次巡田：叶片正常，土壤表面偏干', 'plot-a01', 'conversation-ui-agent');
+  assert.equal(inspection.actionProposal.toolName, 'create_inspection_record');
+  assert.equal(inspection.actionProposal.actorRole, 'FARMER');
+  assert.equal(inspection.actionProposal.sourceMode, 'USER_PROVIDED');
+  const saved = await service.confirmAgentAction(inspection.actionProposal.actionId, { idempotencyKey: `agent-confirm:${inspection.actionProposal.actionId}` });
+  assert.equal(saved.status, 'SUCCEEDED');
+  assert.equal((await service.getAgentAction(inspection.actionProposal.actionId)).status, 'SUCCEEDED');
+
+  const conversations = await service.getAgentConversations();
+  assert.equal(conversations.length, 1);
+  assert.equal(conversations[0].conversationId, 'conversation-ui-agent');
+  assert.equal(conversations[0].messageCount, 2);
+
+  const reloaded = new ApiService();
+  reloaded.sessionMode = 'demo';
+  reloaded.user = { userId: 'farmer-agent-session', username: 'farmer-agent-session', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const history = await reloaded.getAgentHistory('conversation-ui-agent');
+  assert.equal(history.messages.length, 2);
+  assert.equal((await reloaded.getAgentAction(inspection.actionProposal.actionId)).status, 'SUCCEEDED');
+
+  const refused = await reloaded.agentChat('帮我绑定设备 sensor-01', 'plot-a01', 'conversation-ui-refused');
+  assert.equal(refused.intent, 'CLARIFICATION');
+  assert.equal(refused.actionProposal, undefined);
+});
+
+test('farmer demo Agent irrigation keeps execution source simulated and idempotent', async () => {
+  sessionStorage.clear();
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'farmer-agent-irrigation', username: 'farmer-agent-irrigation', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const response = await service.agentChat('启动灌溉', 'plot-a01', 'conversation-ui-irrigation');
+  const proposal = response.actionProposal;
+  assert.equal(proposal.toolName, 'execute_virtual_irrigation');
+  assert.equal(proposal.riskLevel, 'HIGH');
+  assert.equal(proposal.sourceMode, 'SIMULATED');
+  const key = `agent-confirm:${proposal.actionId}`;
+  const first = await service.confirmAgentAction(proposal.actionId, { idempotencyKey: key });
+  const second = await service.confirmAgentAction(proposal.actionId, { idempotencyKey: key });
+  assert.equal(first.status, 'SUCCEEDED');
+  assert.equal(second.status, 'SUCCEEDED');
+  assert.equal(first.result.executionMode, 'SIMULATED');
+  assert.equal(first.result.provenance, 'SIMULATED');
+});
+
+test('confirmed demo irrigation survives a farmer page reload with completed action and moisture effect', async () => {
+  sessionStorage.clear();
+  const user = { userId: 'farmer-reload-irrigation', username: 'farmer-reload-irrigation', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user });
+  const before = (await service.getPlots()).find((plot) => plot.plotId === 'plot-a01').metrics.SOIL_MOISTURE.value;
+  const response = await service.agentChat('启动灌溉', 'plot-a01', 'conversation-reload-irrigation');
+  const action = await service.confirmAgentAction(response.actionProposal.actionId, { idempotencyKey: `agent-confirm:${response.actionProposal.actionId}` });
+  assert.equal(action.status, 'SUCCEEDED');
+  const after = (await service.getPlots()).find((plot) => plot.plotId === 'plot-a01').metrics.SOIL_MOISTURE.value;
+  assert.ok(after > before, `expected simulated irrigation to increase moisture (${before} -> ${after})`);
+
+  const reloaded = new ApiService();
+  reloaded.saveSession({ mode: 'demo', user });
+  const persistedPlot = (await reloaded.getPlots()).find((plot) => plot.plotId === 'plot-a01');
+  assert.equal(persistedPlot.metrics.SOIL_MOISTURE.value, after);
+  const history = await reloaded.getAgentHistory('conversation-reload-irrigation');
+  assert.equal(history.messages.at(-1).actionProposal.status, 'SUCCEEDED');
+  assert.equal((await reloaded.getAgentAction(response.actionProposal.actionId)).status, 'SUCCEEDED');
+  sessionStorage.clear();
+  localStorage.removeItem('agriloop_user');
+  localStorage.removeItem('agriloop_session_mode');
+});
+
+test('farmer demo irrigation has no cooldown and auto-waters below ten percent', async () => {
+  sessionStorage.clear();
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'farmer-emergency-ui', username: 'farmer-emergency-ui', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-emergency-ui'] };
+  const base = service.demoPlots.get('plot-a01');
+  const autoPlot = JSON.parse(JSON.stringify({ ...base, plotId: 'plot-auto-ui', name: '演示自动浇水田' }));
+  autoPlot.metrics.SOIL_MOISTURE.value = 4;
+  service.demoPlots.set(autoPlot.plotId, autoPlot);
+  const automatic = await service.autoWaterIfNeeded(autoPlot.plotId);
+  assert.equal(automatic.status, 'TRIGGERED');
+  assert.equal(automatic.command.automaticWatering, true);
+  assert.equal(automatic.command.confirmationMode, 'AUTOMATIC_THRESHOLD');
+
+  const emergencyPlot = JSON.parse(JSON.stringify({ ...base, plotId: 'plot-emergency-ui', name: '演示应急补水田' }));
+  emergencyPlot.metrics.SOIL_MOISTURE.value = 4;
+  service.demoPlots.set(emergencyPlot.plotId, emergencyPlot);
+
+  const firstPlan = await service.estimateIrrigation({ plotId: emergencyPlot.plotId, scenarioId: 'NORMAL' });
+  assert.equal(firstPlan.emergency.eligible, true);
+  const first = await service.executeIrrigation(firstPlan.planId, emergencyPlot.plotId, { confirmed: true, idempotencyKey: 'ui-emergency-first' });
+  assert.equal(first.emergencyMode, 'NORMAL');
+  const guard = await service.getIrrigationGuard(emergencyPlot.plotId);
+  assert.equal(guard.state, 'AVAILABLE');
+  assert.equal(guard.cooldownMinutes, 0);
+
+  // Keep the latest reading below the automatic threshold so this second,
+  // distinct request proves that no time-based duplicate guard remains.
+  const refreshedEmergencyPlot = service.demoPlots.get(emergencyPlot.plotId);
+  service.demoPlots.set(emergencyPlot.plotId, {
+    ...refreshedEmergencyPlot,
+    metrics: {
+      ...refreshedEmergencyPlot.metrics,
+      SOIL_MOISTURE: { ...refreshedEmergencyPlot.metrics.SOIL_MOISTURE, value: 4 }
+    }
+  });
+  const secondPlan = await service.estimateIrrigation({ plotId: emergencyPlot.plotId, scenarioId: 'NORMAL' });
+  const repeated = await service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, { confirmed: true, idempotencyKey: 'ui-emergency-repeat' });
+  assert.equal(repeated.status, 'SUCCEEDED');
+  const lowMoistureAgain = service.demoPlots.get(emergencyPlot.plotId);
+  service.demoPlots.set(emergencyPlot.plotId, {
+    ...lowMoistureAgain,
+    metrics: {
+      ...lowMoistureAgain.metrics,
+      SOIL_MOISTURE: { ...lowMoistureAgain.metrics.SOIL_MOISTURE, value: 4 }
+    }
+  });
+  const legacyFlag = await service.executeIrrigation(secondPlan.planId, emergencyPlot.plotId, {
+    confirmed: true,
+    emergencyOverride: true,
+    idempotencyKey: 'ui-emergency-legacy-flag'
+  });
+  assert.equal(legacyFlag.emergencyMode, 'AUTOMATIC_SOIL_MOISTURE');
+  assert.equal(legacyFlag.riskLevel, 'HIGH');
+  assert.equal(legacyFlag.cooldownMinutes, 0);
 });
