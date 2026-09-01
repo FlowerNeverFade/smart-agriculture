@@ -551,14 +551,23 @@ export const AdminAiChatView = {
       if (loadingOlder.value || visibleMessageCount.value >= messages.value.length) return;
       loadingOlder.value = true;
       const el = messageList.value;
-      const before = el ? el.scrollHeight : 0;
+      // 锚定当前视口内第一条可见消息：加载更早内容后把它放回原位，位置不突变
+      let anchorEl = null;
+      let anchorOffset = 0;
+      if (el) {
+        const containerTop = el.getBoundingClientRect().top;
+        for (const m of el.querySelectorAll('.admin-ai-message')) {
+          const t = m.getBoundingClientRect().top - containerTop;
+          if (t >= -1) { anchorEl = m; anchorOffset = Math.max(0, t); break; }
+        }
+      }
       visibleMessageCount.value += 20;
       await nextTick();
-      if (el) {
-        // 位置补偿同样要瞬间完成（禁用 smooth），否则上滚加载会带滚动动画
+      if (el && anchorEl) {
+        // 瞬间回位（禁用 smooth），锚定消息回到加载前的视口位置
         const prev = el.style.scrollBehavior;
         el.style.scrollBehavior = 'auto';
-        el.scrollTop += (el.scrollHeight - before);
+        el.scrollTop += (anchorEl.getBoundingClientRect().top - el.getBoundingClientRect().top) - anchorOffset;
         el.style.scrollBehavior = prev;
       }
       loadingOlder.value = false;
