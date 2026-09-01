@@ -772,20 +772,20 @@ export const AdminAiChatView = {
             <button v-else class="g-btn text sm admin-ai-archived-toggle" type="button" @click="exitArchivedView">返回活跃对话</button>
           </div>
         </div>
-          <div class="admin-ai-sidebar-tools" style="display: flex; justify-content: flex-end; gap: 6px; padding: 0 10px 8px; align-items: center;">
+          <div class="admin-ai-sidebar-tools" style="display: flex; justify-content: flex-end; gap: 4px; padding: 0 8px 4px; align-items: center;">
             <div style="display: flex; align-items: center; justify-content: flex-end; gap: 4px; width: 100%;">
-              <div :class="{'is-active': searchActive || searchQuery}" style="display: flex; align-items: center; border-radius: 16px; background: var(--g-bg-subtle); transition: max-width 0.3s ease; max-width: 32px; overflow: hidden; height: 32px; flex: 0 0 auto;" :style="{ maxWidth: (searchActive || searchQuery) ? '200px' : '32px', flex: (searchActive || searchQuery) ? '1' : '0 0 auto' }">
-                <button type="button" class="g-btn icon-only sm text" style="border: 0; background: transparent; flex-shrink: 0;" @click="focusSearch()" title="搜索">
-                  <app-icon name="search" style="font-size: 18px; color: var(--g-text-secondary);"></app-icon>
+              <div :class="{'is-active': searchActive || searchQuery}" style="display: flex; align-items: center; border-radius: 12px; background: var(--g-bg-subtle); transition: max-width 0.3s ease; max-width: 24px; overflow: hidden; height: 24px; flex: 0 0 auto;" :style="{ maxWidth: (searchActive || searchQuery) ? '180px' : '24px', flex: (searchActive || searchQuery) ? '1' : '0 0 auto' }">
+                <button type="button" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; padding: 0; outline: none;" @click="focusSearch()" title="搜索">
+                  <app-icon name="search" style="font-size: 15px; color: var(--g-text-secondary);"></app-icon>
                 </button>
-                <input type="text" ref="searchInput" v-model="searchQuery" placeholder="搜索历史对话..." style="border: 0; background: transparent; outline: none; width: 100%; font-size: 13px; color: var(--g-text-primary); padding-right: 8px; opacity: 1;" @blur="if(!searchQuery) searchActive = false">
+                <input type="text" ref="searchInput" v-model="searchQuery" placeholder="搜索历史对话..." style="border: 0 !important; background-color: transparent !important; box-shadow: none !important; appearance: none; outline: none; width: 100%; font-size: 12px; color: var(--g-text-primary); padding: 0 8px 0 0; margin: 0; opacity: 1;" @blur="!searchQuery && (searchActive = false)">
               </div>
-              <button type="button" class="g-btn icon-only sm text" style="flex-shrink: 0;" @click="bulkMode ? exitBulkMode() : enterBulkMode()" :title="bulkMode ? '退出多选' : '批量选择'">
-                <app-icon :name="bulkMode ? 'close' : 'checklist'" style="font-size: 18px; color: var(--g-text-secondary);"></app-icon>
+              <button type="button" style="display: flex; align-items: center; justify-content: center; width: 24px; height: 24px; border: 0; background: transparent; cursor: pointer; flex-shrink: 0; padding: 0; outline: none; border-radius: 4px;" @click="bulkMode ? exitBulkMode() : enterBulkMode()" :title="bulkMode ? '退出多选' : '批量选择'">
+                <app-icon :name="bulkMode ? 'close' : 'checklist'" style="font-size: 16px; color: var(--g-text-secondary);"></app-icon>
               </button>
             </div>
           </div>
-        <div v-if="bulkMode" class="admin-ai-bulk-bar admin-ai-bulk-bar-top">
+          <div v-if="bulkMode" class="admin-ai-bulk-bar admin-ai-bulk-bar-top">
           <span>已选 {{ bulkSelected.size }} 项</span>
           <button class="g-btn text sm" type="button" @click="exitBulkMode">取消</button>
           <button v-if="!archivedView" class="g-btn text sm" type="button" :disabled="!bulkSelected.size || sending" @click="requestBulkArchive">归档所选</button>

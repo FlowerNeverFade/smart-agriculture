@@ -102,6 +102,8 @@ const ICON_CLASS = Object.freeze({
   nutrition: 'ph-plant',
   remove_circle_outline: 'ph-minus-circle',
   close: 'ph-x',
+    search: 'ph-magnifying-glass',
+    checklist: 'ph-list-checks',
   psychology: 'ph-brain',
   receipt_long: 'ph-receipt',
   bolt: 'ph-lightning',

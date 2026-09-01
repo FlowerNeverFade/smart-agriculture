@@ -96,7 +96,7 @@
 .admin-ai-conversation-item:hover .admin-ai-conversation-delete { opacity: 1; }
 .admin-ai-conversation-delete:hover { background: var(--g-danger-bg); color: var(--g-danger); }
 .admin-ai-conversation-delete:disabled { opacity: .4; cursor: default; }
-.admin-ai-archived-toggle { padding: 4px 8px; }
+.admin-ai-archived-toggle { padding: 2px 6px; }
 .admin-ai-load-older { display: block; width: fit-content; margin: 8px auto; padding: 5px 12px; border: 1px solid var(--g-border); border-radius: 999px; background: var(--g-bg-surface); color: var(--g-text-secondary); font: inherit; font-size: 12px; cursor: pointer; transition: color .18s ease, border-color .18s ease; }
 .admin-ai-load-older:hover { color: var(--g-primary); border-color: var(--g-primary); }
 .admin-ai-conversation-item.archived .admin-ai-conversation-delete { color: var(--g-danger); opacity: .7; }
@@ -105,7 +105,7 @@
 .admin-ai-sidebar-state .material-symbols-outlined { color: var(--admin-orange, var(--g-primary)); font-size: 21px; }
 
 /* ---- 历史对话管理：批量 / 菜单 / 重命名 / 置顶 ---- */
-.admin-ai-bulk-toggle { padding: 4px 8px; }
+.admin-ai-bulk-toggle { padding: 2px 6px; }
 .admin-ai-conversation-check { position: absolute; top: 10px; left: 9px; display: grid; place-items: center; z-index: 1; }
 .admin-ai-conversation-check input { width: 15px; height: 15px; accent-color: var(--admin-orange, var(--g-primary)); cursor: pointer; }
 .admin-ai-conversation-item.is-selected { border-color: var(--admin-orange, var(--g-primary)); background: color-mix(in srgb, var(--admin-orange-bg, var(--g-primary-bg)) 70%, var(--g-bg-surface)); }
@@ -124,11 +124,13 @@
 .admin-ai-conversation-menu-pop button:hover { background: var(--g-bg-subtle); }
 .admin-ai-conversation-menu-pop button.danger { color: var(--g-danger); }
 .admin-ai-conversation-menu-pop button.danger:hover { background: var(--g-danger-bg); }
-.admin-ai-bulk-bar { display: flex; align-items: center; gap: 8px; padding: 8px; border-bottom: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); }
+.admin-ai-bulk-bar { display: flex; align-items: center; gap: 8px; padding: 2px 6px; border-bottom: 1px solid var(--g-border-subtle); background: var(--g-bg-surface); }
 .admin-ai-bulk-bar-top { position: relative; z-index: 3; flex: 0 0 auto; }
 .admin-ai-bulk-bar-top > span { min-width: 0; }
-.admin-ai-bulk-bar > span { flex: 1; font-size: 12px; color: var(--g-text-secondary); }
+.admin-ai-bulk-bar > span { flex: 1; font-size: 11px; color: var(--g-text-secondary); }
 .admin-ai-bulk-bar .danger-text { color: var(--g-danger); }
+.admin-ai-bulk-bar .g-btn { height: 20px; line-height: 20px; padding: 0 6px; font-size: 11px; min-height: 20px; }
+.admin-ai-bulk-bar { padding: 2px 8px; min-height: 28px; }
 
 /* Codex-inspired workspace details: the list scrolls, while the archive
    destination remains fixed at the bottom of the sidebar. */

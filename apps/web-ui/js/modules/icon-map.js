@@ -11,6 +11,8 @@ export const ICON_CLASS = Object.freeze({
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
   close: 'ph-x',
+    search: 'ph-magnifying-glass',
+    checklist: 'ph-list-checks',
   agriculture: 'ph-plant',
   plot_open_field: 'ph-rows',
   plot_greenhouse: 'ph-barn',
