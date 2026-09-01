@@ -337,12 +337,15 @@ paths:
   /api/v1/agent/conversations:
     get:
       tags: [decision]
-      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；农户仅能看到自己的会话。
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；可按地块过滤，过滤发生在排序和数量限制之前；农户仅能看到自己的会话。
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+        - {name: archived, in: query, schema: {type: boolean, default: false}}
+        - {name: plotId, in: query, required: false, schema: {type: string}}
       responses:
         '200': {description: 会话标题、关联地块、最后时间和消息数}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/conversations/{conversationId}:
     delete:
       tags: [decision]
@@ -476,6 +479,9 @@ paths:
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
     post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
+  /api/v1/devices/{deviceId}:
+    patch: {tags: [management], description: 仅修改设备名称和设备类型；设备编号、所属农场和接入来源不可变, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的设备事实}, '400': {description: 名称或类型无效}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    delete: {tags: [management], description: 永久删除设备主记录；必须离线、未绑定且没有待回执控制命令，并通过 confirmName 精确确认；遥测、命令和审计历史保留, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}, {name: confirmName, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 设备已删除且历史记录保留}, '400': {description: 名称确认不匹配}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备在线、已绑定或控制回执未完成}}}
   /api/v1/devices/{deviceId}/bind:
     post: {tags: [management], description: 设备与地块必须属于同一农场，且地块必须为 ACTIVE, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备但不改变心跳状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 跨农场或停用地块绑定被拒绝}}}
   /api/v1/devices/{deviceId}/unbind:

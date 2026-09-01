@@ -115,6 +115,80 @@ class AdminManagementService {
         return device;
     }
 
+    /**
+     * Only the human-facing label and device type are mutable after
+     * registration.  The identifier, farm and source mode are immutable
+     * because they are the join keys for telemetry and control audit data.
+     */
+    Map<String, Object> updateDevice(String deviceId, Map<String, Object> input, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> device = require("device", deviceId, "设备不存在");
+        requireManagedFarm(deviceFarmId(device), principal);
+        if (input == null) input = Map.of();
+        for (String field : input.keySet()) {
+            if (!Set.of("name", "type").contains(field)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "DEVICE_FIELD_IMMUTABLE", "只能修改设备名称和设备类型");
+            }
+        }
+        String name = input.containsKey("name") ? Jsons.text(input, "name", "").trim() : Jsons.text(device, "name", deviceId);
+        String type = input.containsKey("type") ? Jsons.text(input, "type", "").trim() : Jsons.text(device, "type", "");
+        if (name.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_NAME_REQUIRED", "请填写设备名称");
+        if (type.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_TYPE_REQUIRED", "请选择设备类型");
+        device.put("name", name);
+        device.put("type", type);
+        device.put("updatedAt", Instant.now().toString());
+        device.put("updatedBy", principal.userId);
+        store.save("device", deviceId, device);
+        publish("device.updated", device);
+        return device;
+    }
+
+    /**
+     * Permanent deletion deliberately has a narrow safety gate.  Historical
+     * telemetry, commands and audit events live in separate records and are
+     * therefore left untouched when only the device record is removed.
+     */
+    Map<String, Object> deleteDevice(String deviceId, String confirmationName, UserPrincipal principal) {
+        requireFarmAdmin(principal);
+        Map<String, Object> device = require("device", deviceId, "设备不存在");
+        requireManagedFarm(deviceFarmId(device), principal);
+        String status = Jsons.text(device, "status", "OFFLINE").toUpperCase(Locale.ROOT);
+        if (!"OFFLINE".equals(status)) {
+            throw new ApiException(HttpStatus.CONFLICT, "DEVICE_MUST_BE_OFFLINE", "请先关闭设备，再执行永久删除");
+        }
+        String plotId = Jsons.text(device, "plotId", "").trim();
+        if (!plotId.isBlank() || "BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", ""))) {
+            throw new ApiException(HttpStatus.CONFLICT, "DEVICE_MUST_BE_UNBOUND", "请先解除设备与地块的绑定");
+        }
+        if (hasPendingControlCommand(deviceId) || "PENDING".equalsIgnoreCase(Jsons.text(device, "controlStatus", ""))) {
+            throw new ApiException(HttpStatus.CONFLICT, "DEVICE_CONTROL_PENDING", "请等待设备控制回执完成后再删除");
+        }
+        String name = Jsons.text(device, "name", deviceId);
+        if (!Objects.equals(name, String.valueOf(confirmationName == null ? "" : confirmationName).trim())) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "DEVICE_CONFIRMATION_MISMATCH", "请输入完整设备名称进行确认");
+        }
+        store.delete("device", deviceId);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("deviceId", deviceId);
+        result.put("name", name);
+        result.put("farmId", deviceFarmId(device));
+        result.put("deleted", true);
+        result.put("deletedAt", Instant.now().toString());
+        result.put("deletedBy", principal.userId);
+        publish("device.deleted", result);
+        return result;
+    }
+
+    private boolean hasPendingControlCommand(String deviceId) {
+        Set<String> terminal = Set.of("SUCCEEDED", "FAILED", "TIMEOUT", "CANCELLED", "REJECTED");
+        return store.list("command").stream()
+                .filter(command -> deviceId.equals(Jsons.text(command, "deviceId", "")))
+                .filter(command -> "DEVICE_STATUS_SET".equalsIgnoreCase(Jsons.text(command, "type", ""))
+                        || "DEVICE_STATUS_SET".equalsIgnoreCase(Jsons.text(command, "commandType", "")))
+                .map(command -> Jsons.text(command, "commandStatus", Jsons.text(command, "status", "PENDING")).toUpperCase(Locale.ROOT))
+                .anyMatch(status -> !terminal.contains(status));
+    }
+
     Map<String, Object> bindDevice(String deviceId, Map<String, Object> input, UserPrincipal principal) {
         requireFarmAdmin(principal);
         Map<String, Object> device = require("device", deviceId, "设备不存在");

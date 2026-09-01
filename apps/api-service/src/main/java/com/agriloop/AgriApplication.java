@@ -7007,10 +7007,13 @@ class AgriEngine {
         return result;
     }
 
-    List<Map<String, Object>> agentConversations(int limit, boolean archived, UserPrincipal principal) {
+    List<Map<String, Object>> agentConversations(int limit, boolean archived, String plotId, UserPrincipal principal) {
+        String normalizedPlotId = plotId == null ? "" : plotId.trim();
+        if (!normalizedPlotId.isBlank()) ensurePlotAccess(principal, normalizedPlotId);
         return store.list("agent-conversation").stream()
                 .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
                 .filter(item -> archived == Boolean.TRUE.equals(item.get("archived")))
+                .filter(item -> normalizedPlotId.isBlank() || normalizedPlotId.equals(Jsons.text(item, "plotId", "")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
                 .limit(Math.max(1, Math.min(limit, 50)))
                 .map(item -> {
@@ -8106,8 +8109,10 @@ class AgriController {
     }
 
     @GetMapping("/agent/conversations")
-    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, @RequestParam(defaultValue = "false") boolean archived, Authentication a) {
-        return ok(engine.agentConversations(limit, archived, principal(a)));
+    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit,
+                                         @RequestParam(defaultValue = "false") boolean archived,
+                                         @RequestParam(required = false) String plotId, Authentication a) {
+        return ok(engine.agentConversations(limit, archived, plotId, principal(a)));
     }
 
     @DeleteMapping("/agent/conversations/{conversationId}")
@@ -8316,6 +8321,16 @@ class AgriController {
 
     @PostMapping("/devices")
     ResponseEntity<?> device(@RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.registerDevice(body, principal(a))); }
+
+    @PatchMapping("/devices/{deviceId}")
+    ResponseEntity<?> updateDevice(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.updateDevice(deviceId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @DeleteMapping("/devices/{deviceId}")
+    ResponseEntity<?> deleteDevice(@PathVariable String deviceId, @RequestParam(required = false) String confirmName, Authentication a) {
+        return ok(adminManagement.deleteDevice(deviceId, confirmName, principal(a)));
+    }
 
     @PostMapping("/devices/{deviceId}/bind")
     ResponseEntity<?> bindDevice(@PathVariable String deviceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.bindDevice(deviceId, body, principal(a))); }

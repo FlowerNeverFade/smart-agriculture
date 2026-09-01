@@ -75,6 +75,44 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(index, /keep-alive include="AdminAiChatView"/);
 });
 
+test('设备菜单支持安全编辑/删除，助手历史按地块过滤并在顶部批量操作', async () => {
+  const deviceSource = readFileSync(new URL('../js/modules/admin-resource-center.js', import.meta.url), 'utf8');
+  const deviceCss = readFileSync(new URL('../css/modules/admin-management.css', import.meta.url), 'utf8');
+  const chatSource = readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8');
+  const chatCss = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
+  const apiSource = readFileSync(new URL('../js/api.js', import.meta.url), 'utf8');
+  assert.match(deviceSource, /toggleDeviceMenu/);
+  assert.match(deviceSource, /openDeviceEdit/);
+  assert.match(deviceSource, /confirmDeleteDevice/);
+  assert.match(deviceSource, /deleteDeviceBlockers/);
+  assert.match(deviceSource, /manager-plot-menu/);
+  assert.match(deviceCss, /admin-device-card\.has-open-menu/);
+  assert.match(apiSource, /async updateDevice\(deviceId/);
+  assert.match(apiSource, /async deleteDevice\(deviceId/);
+  assert.match(apiSource, /plotId = String\(normalized\.plotId/);
+  assert.match(chatSource, /getAgentConversations\(20, \{ plotId: selectedPlotId\.value/);
+  assert.match(chatSource, /visibleArchivedConversations/);
+  assert.match(chatSource, /requestBulkUnarchive/);
+  assert.match(chatSource, /admin-ai-bulk-bar admin-ai-bulk-bar-top/);
+  assert.doesNotMatch(chatSource, /admin-ai-sidebar-collapse/);
+  assert.match(chatCss, /admin-ai-sidebar-toggle[^}]*border:\s*0/);
+  assert.match(chatCss, /admin-ai-bulk-bar-top/);
+});
+
+test('演示设备更新只修改允许字段，删除保留安全门并按名称确认', async () => {
+  api.sessionMode = 'demo';
+  api.user = { userId: 'device-admin', username: '设备管理员', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  const id = `device-test-${Date.now().toString(36)}`;
+  const created = await api.registerDevice({ farmId: 'farm-demo', deviceId: id, name: '待删除设备', type: 'FLOW_METER', sourceMode: 'SIMULATION' });
+  const updated = await api.updateDevice(id, { name: '已修改设备', type: 'ENVIRONMENTAL_SENSOR' });
+  assert.equal(updated.name, '已修改设备');
+  assert.equal(updated.sourceMode, 'SIMULATION');
+  await assert.rejects(() => api.deleteDevice(id, '待删除设备'), { code: 'DEVICE_CONFIRMATION_MISMATCH' });
+  const deleted = await api.deleteDevice(id, '已修改设备');
+  assert.equal(deleted.deleted, true);
+  assert.equal((await api.getDevices({ farmId: 'farm-demo' })).some(device => device.deviceId === id), false);
+});
+
 test('演示 Agent 创建地块在确认后写入同一地块事实集合', async () => {
   api.sessionMode = 'demo';
   api.user = { userId: 'user-plot-create', username: '管理员', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
