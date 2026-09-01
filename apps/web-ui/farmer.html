@@ -544,8 +544,8 @@
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
             <div class="farmer-page-header">
               <div>
-                <h2>灌溉系统</h2>
-                <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
+                <h2>操作系统</h2>
+                <p class="role-summary">按地块查看风险提醒、土壤湿度与光照趋势，确认后执行虚拟灌溉或补光操作。</p>
               </div>
               <div class="farmer-page-actions">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)">
@@ -601,8 +601,9 @@
                 </div>
                 <div class="farmer-risk-mini-body">
                   <span class="farmer-risk-mini-moist" :class="'metric-' + card.moistureStatus">{{ card.moisture }}<small>%</small></span>
-                  <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.moistureTarget }}</span>
+                  <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>湿度 {{ card.moistureTarget }} · 光照 {{ card.lightValue ?? '—' }} lux</span>
                 </div>
+                <div v-if="card.lightStatus !== 'NORMAL'" class="farmer-risk-mini-light-warning" :class="card.lightStatus.includes('LOW') ? 'is-low' : 'is-high'"><span class="material-symbols-outlined">{{ card.lightStatus.includes('LOW') ? 'light_mode' : 'wb_sunny' }}</span>{{ card.lightLabel }} · 目标 {{ card.lightTarget }}</div>
               </button>
             </div>
 
@@ -666,10 +667,21 @@
               <article class="g-card farmer-advice-card farmer-irrigation-card">
                 <div class="farmer-panel-header">
                   <div>
-                    <span class="farmer-section-kicker">灌溉建议</span>
-                    <h3>{{ advice_plot ? advice_plot.name : '选择地块' }}补水建议</h3>
+                    <span class="farmer-section-kicker">操作系统 · 灌溉</span>
+                    <h3>{{ advice_plot ? advice_plot.name : '选择地块' }}操作建议</h3>
                   </div>
                   <span class="g-badge success">就绪度 {{ irrigation_readiness }}%</span>
+                </div>
+                <div v-if="advice_light_status" class="farmer-light-operation-card" :class="{ 'is-attention': advice_light_status.needsAttention, 'is-low': advice_light_status.status.includes('LOW'), 'is-high': advice_light_status.status.includes('HIGH') }">
+                  <div class="farmer-light-operation-icon"><span class="material-symbols-outlined">{{ advice_light_status.status.includes('LOW') ? 'light_mode' : advice_light_status.status.includes('HIGH') ? 'wb_sunny' : 'check_circle' }}</span></div>
+                  <div class="farmer-light-operation-copy">
+                    <span class="farmer-section-kicker">操作系统 · 补光</span>
+                    <strong>{{ advice_light_status.label }}</strong>
+                    <p>当前 {{ advice_light_status.value === null ? '—' : advice_light_status.value.toLocaleString() }} lux · 阶段目标 {{ advice_light_status.low === null ? '—' : advice_light_status.low.toLocaleString() }}~{{ advice_light_status.high === null ? '—' : advice_light_status.high.toLocaleString() }} lux</p>
+                    <small v-if="advice_light_status.deviceOffline">设备离线；仅允许本地演示的虚拟补光，不会控制真实补光灯。</small>
+                  </div>
+                  <span class="g-badge" :class="advice_light_status.needsAttention ? 'warning' : 'success'">{{ advice_light_status.needsAttention ? '需要处理' : '正常' }}</span>
+                  <button v-if="light_operation_available" type="button" class="g-btn secondary farmer-btn-light" @click="open_virtual_lighting" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>虚拟补光（离线演示）</button>
                 </div>
                 <p v-if="advice_loading" class="farmer-panel-hint">正在读取诊断、处方与相似案例…</p>
                 <p v-else-if="advice_error" class="farmer-form-error">{{ advice_error }}</p>
@@ -1796,6 +1808,45 @@
           </article>
         </div>
 
+        <div v-if="show_virtual_lighting" class="farmer-form-overlay" @click.self="close_virtual_lighting">
+          <article class="farmer-form-card farmer-manual-irrigation-modal" role="dialog" aria-modal="true" aria-labelledby="virtual-lighting-title">
+            <div class="farmer-detail-header">
+              <div>
+                <span class="farmer-section-kicker">操作系统 · 离线演示</span>
+                <h3 id="virtual-lighting-title">虚拟补光</h3>
+                <p class="farmer-detail-meta">{{ advice_plot ? advice_plot.name + ' · ' + advice_plot.cropName : '当前地块' }}</p>
+              </div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_virtual_lighting" :disabled="virtual_lighting_busy" title="关闭"><app-icon name="close"></app-icon></button>
+            </div>
+            <section v-if="virtual_lighting_stage === 'FORM'" class="farmer-suggestion-stage">
+              <div class="farmer-manual-warning">
+                <span class="material-symbols-outlined">light_mode</span>
+                <div><strong>补光设备当前离线</strong><p>本次只在本地演示环境创建虚拟命令，模拟光照恢复到 Crop Pack 阶段目标，不会连接或控制真实灯具。</p></div>
+              </div>
+              <div class="farmer-suggestion-facts farmer-manual-facts">
+                <div><small>当前光照</small><strong>{{ virtual_lighting_preview.value === null ? '—' : virtual_lighting_preview.value.toLocaleString() }} lux</strong></div>
+                <div><small>目标范围</small><strong>{{ virtual_lighting_preview.low === null ? '—' : virtual_lighting_preview.low.toLocaleString() }}~{{ virtual_lighting_preview.high === null ? '—' : virtual_lighting_preview.high.toLocaleString() }} lux</strong></div>
+                <div><small>预计补光后</small><strong>{{ virtual_lighting_preview.after === null ? '—' : virtual_lighting_preview.after.toLocaleString() }} lux</strong></div>
+              </div>
+              <label class="farmer-manual-water-input">模拟补光增量（lux）<input v-model.number="virtual_lighting_boost" type="number" min="1000" step="500" inputmode="numeric" required></label>
+              <p class="farmer-form-hint">光照指标当前属于 <b>SIMULATION_ONLY</b>，结果会以带有事件、命令 ACK 和效果评价的模拟遥测写回页面。</p>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="virtual_lighting_confirmed" type="checkbox"><span>我已确认地块和补光增量，并理解这是设备离线时的虚拟演示，不会控制真实补光灯。</span></label>
+              <p v-if="virtual_lighting_error" class="farmer-form-error">{{ virtual_lighting_error }}</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_virtual_lighting" :disabled="virtual_lighting_busy">取消</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="submit_virtual_lighting" :disabled="virtual_lighting_busy || !virtual_lighting_confirmed">{{ virtual_lighting_busy ? '执行中…' : '确认并虚拟补光' }}<span class="material-symbols-outlined">verified_user</span></button></div>
+            </section>
+            <section v-else class="farmer-suggestion-stage">
+              <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>虚拟补光命令已完成</strong><p>系统已写入模拟光照遥测并生成效果评价；设备离线状态保持不变。</p></div></div>
+              <div class="farmer-execution-evidence is-modal">
+                <div><span>命令状态</span><b>{{ virtual_lighting_result?.commandId || '—' }}</b><em>{{ virtual_lighting_result?.ack?.status || virtual_lighting_result?.status || '—' }}</em></div>
+                <div><span>ACK 实际增量</span><b>{{ virtual_lighting_result?.ack?.actualLightLux ?? virtual_lighting_result?.evaluation?.actual?.lightLux ?? '—' }} lux</b><em>{{ virtual_lighting_result?.ack?.receivedAt ? format_suggestion_time(virtual_lighting_result.ack.receivedAt) : '已回执' }}</em></div>
+                <div><span>光照变化</span><b>{{ virtual_lighting_result?.evaluation?.actual?.lightLuxBefore ?? '—' }} → {{ virtual_lighting_result?.evaluation?.actual?.lightLuxAfter ?? '—' }} lux</b><em>效果分 {{ virtual_lighting_result?.evaluation?.effectivenessScore ? Math.round(virtual_lighting_result.evaluation.effectivenessScore * 100) : '—' }}</em></div>
+                <div><span>执行来源</span><b>离线演示</b><em>SIMULATED</em></div>
+              </div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_virtual_lighting">关闭</button></div>
+            </section>
+          </article>
+        </div>
+
         <div class="g-toast-container">
           <transition-group name="toast">
             <div v-for="toast in toasts" :key="toast.id" class="g-toast">
@@ -1808,6 +1859,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v592-main-merge-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-v593-operation-system-v1"></script>
 </body>
 </html>

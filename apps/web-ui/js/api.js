@@ -3992,6 +3992,59 @@ export class ApiService {
     return command;
   }
 
+  async executeVirtualLighting({ plotId, boostLux, durationSeconds = 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
+    if (!plotId) throw new ApiError('执行补光前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有补光执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    if (confirmed !== true) throw new ApiError('执行补光前需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
+    const key = idempotencyKey || `virtual-lighting-${plotId}-${Date.now()}`;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/lighting/virtual', { method: 'POST', body: JSON.stringify({ plotId, boostLux, durationSeconds, confirmed: true, allowOfflineDemo, idempotencyKey: key, source, ...(outcome ? { outcome } : {}) }) });
+      const command = resp?.data || resp;
+      if (!command?.commandId) throw new ApiError('后端返回了无效的补光命令', { code: 'LIGHTING_COMMAND_INVALID', payload: resp });
+      const normalized = { ...command, executionMode: command.executionMode || 'SIMULATED', provenance: command.provenance || 'SIMULATED' };
+      this.decisionCache.commands.set(normalized.commandId, normalized);
+      return normalized;
+    }
+
+    this._demoHydrateWorkspaceState();
+    const plot = this.demoPlots.get(plotId) || this.mockPlot(plotId);
+    if (!plot) throw new ApiError('没有找到当前地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const light = plot.metrics?.LIGHT || {};
+    const before = Number(light.value);
+    if (!Number.isFinite(before)) throw new ApiError('当前没有可用的光照模拟值', { status: 422, code: 'LIGHT_UNAVAILABLE' });
+    const stage = (MOCK_DATA.cropPackDetails || []).find((pack) => pack.cropCode === plot.cropCode)?.stages?.find((item) => item.code === plot.stageCode);
+    const low = Number(stage?.target?.lightLow ?? 15000);
+    const high = Number(stage?.target?.lightHigh ?? 30000);
+    if (before >= high && !allowOfflineDemo) throw new ApiError('当前光照已高于阶段目标，不应继续补光', { status: 409, code: 'LIGHT_ALREADY_HIGH' });
+    const amount = Math.min(50000, Math.max(1000, Number(boostLux) || Math.max(1000, (low + high) / 2 - before)));
+    const requestedOutcome = String(outcome || 'SUCCEEDED').toUpperCase();
+    const finalOutcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const actual = finalOutcome === 'SUCCEEDED' ? amount : finalOutcome === 'PARTIAL' ? Number((amount * .55).toFixed(0)) : 0;
+    const after = ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) ? Number(Math.min(high, before + actual).toFixed(0)) : before;
+    const existing = [...this.decisionCache.commands.values()].find((command) => command.idempotencyKey === key);
+    if (existing) {
+      if (existing.plotId !== plotId || existing.type !== 'LIGHT_BOOST') throw new ApiError('幂等键已绑定其他操作上下文', { status: 409, code: 'IDEMPOTENCY_CONTEXT_MISMATCH' });
+      return { ...existing };
+    }
+    const command = {
+      commandId: `cmd-light-${Math.random().toString(36).substring(2, 9)}`, plotId, idempotencyKey: key, type: 'LIGHT_BOOST',
+      durationSeconds: Math.max(1, Math.min(900, Number(durationSeconds) || 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
+      targetLightLow: low, targetLightHigh: high, deviceStatusAtRequest: plot.deviceStatus || 'UNKNOWN', offlineDemoOverride: allowOfflineDemo && String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE',
+      approvalRequired: false, confirmationMode: 'OPERATOR_CONFIRMED', confirmedBy: this._demoActorId(), confirmedAt: new Date().toISOString(), status: finalOutcome,
+      transport: 'MQTT_VIRTUAL_ACTUATOR', executionMode: 'SIMULATED', provenance: 'SIMULATED', sourceMode: 'SIMULATION', virtualOnly: true, riskLevel: 'MEDIUM', source,
+      ack: { ackId: `ack-light-${Math.random().toString(36).substring(2, 8)}`, status: finalOutcome, actualLightLux: actual, result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome, provenance: 'SIMULATED', receivedAt: new Date().toISOString() },
+      evaluation: { effectivenessScore: finalOutcome === 'SUCCEEDED' ? .94 : finalOutcome === 'PARTIAL' ? .45 : 0, status: ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) ? (finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'COMPLETED') : 'INCONCLUSIVE', result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome, expected: { lightLuxBefore: before, lightLuxAfter: after, lightLux: amount }, actual: { lightLuxBefore: before, lightLuxAfter: after, lightLux: actual }, executionMode: 'SIMULATED', provenance: 'SIMULATED' }
+    };
+    this.decisionCache.commands.set(command.commandId, command);
+    this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId });
+    if (['SUCCEEDED', 'PARTIAL'].includes(finalOutcome)) {
+      const metrics = { ...(plot.metrics || {}), LIGHT: { ...light, value: after, status: 'NORMAL', updatedAt: new Date().toISOString() } };
+      this.demoPlots.set(plotId, { ...plot, metrics, updatedAt: new Date().toISOString() });
+    }
+    this._demoSaveWorkspaceState();
+    return command;
+  }
+
   async executeManualIrrigation({ plotId, sourcePlanId, waterLitre, confirmed = false, idempotencyKey = '', source = 'farmer-manual-fallback', outcome = 'SUCCEEDED' } = {}) {
     if (!plotId) throw new ApiError('人工浇灌前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     if (!sourcePlanId) throw new ApiError('人工浇灌必须关联被阻塞的灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });

@@ -2022,6 +2022,9 @@
   .farmer-task-tool-card { grid-template-columns: auto 1fr; }
   .farmer-task-tool-card .g-btn { grid-column: 2; justify-self: start; }
   .farmer-auto-water-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .farmer-light-operation-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .farmer-light-operation-card > .g-badge,
+  .farmer-light-operation-card > .g-btn { grid-column: 2; justify-self: start; }
   .farmer-auto-water-card > .g-badge, .farmer-auto-water-toggle, .farmer-auto-water-check { grid-column: 2; justify-self: start; }
 }
 
@@ -2560,7 +2563,7 @@
 .farmer-shared-tool-copy small { color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
 .farmer-shared-tool-arrow { margin-left: auto; color: var(--g-text-secondary); font-size: 18px; }
 
-/* 灌溉系统页：按地块的风险小卡片 */
+/* 操作系统页：按地块的风险小卡片 */
 .farmer-risk-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -2627,8 +2630,41 @@
   line-height: 1.4;
   color: var(--g-text-secondary);
 }
+.farmer-risk-mini-light-warning {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--g-border-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.farmer-risk-mini-light-warning .material-symbols-outlined { font-size: 15px; }
+.farmer-risk-mini-light-warning.is-low { color: var(--g-warning); }
+.farmer-risk-mini-light-warning.is-high { color: var(--g-danger); }
 
-/* 灌溉系统页：土壤湿度-时间曲线图（含作物阈值线） */
+.farmer-light-operation-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+.farmer-light-operation-card.is-attention { border-color: color-mix(in srgb, var(--g-warning) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-warning-bg) 55%, var(--g-bg-base)); }
+.farmer-light-operation-card.is-high { border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border)); background: color-mix(in srgb, var(--g-danger-bg) 45%, var(--g-bg-base)); }
+.farmer-light-operation-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-light-operation-card.is-low .farmer-light-operation-icon { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-light-operation-card.is-high .farmer-light-operation-icon { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-light-operation-copy { min-width: 0; }
+.farmer-light-operation-copy strong { display: block; font-size: 13px; }
+.farmer-light-operation-copy p, .farmer-light-operation-copy small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-light-operation-copy small { color: var(--g-warning); }
+
+/* 操作系统页：土壤湿度-时间曲线图（含作物阈值线） */
 .farmer-moisture-chart-card { min-width: 0; }
 .farmer-moisture-chart-wrap { margin-top: 6px; }
 .farmer-moisture-svg { height: 260px; }

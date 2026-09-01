@@ -578,6 +578,62 @@ class AgriApplicationTest {
     }
 
     @Test
+    void lightTelemetryCreatesLowAndHighAlerts() {
+        Instant now = Instant.now();
+        Map<String, Object> low = engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "light-low-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
+                Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 1000.0), Map.entry("unit", "lux"),
+                Map.entry("ts", now.toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
+        Map<String, Object> lowRule = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), low.get("ruleResult")));
+        assertThat(lowRule).containsEntry("risk", "LIGHT_DEFICIT");
+
+        Map<String, Object> high = engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "light-high-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
+                Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 100000.0), Map.entry("unit", "lux"),
+                Map.entry("ts", now.plusSeconds(1).toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
+        Map<String, Object> highRule = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), high.get("ruleResult")));
+        assertThat(highRule).containsEntry("risk", "LIGHT_EXCESS");
+    }
+
+    @Test
+    void offlineDemoCanExecuteVirtualLightingAndKeepsDeviceOffline() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "light-baseline-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
+                Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 1000.0), Map.entry("unit", "lux"),
+                Map.entry("ts", Instant.now().toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
+        List<Map<String, Object>> originals = store.list("device").stream()
+                .filter(device -> "plot-a01".equals(Jsons.text(device, "plotId", "")))
+                .map(device -> Jsons.copy(new ObjectMapper(), device)).toList();
+        String deviceId = originals.isEmpty() ? "mock-plot-a01" : Jsons.text(originals.get(0), "deviceId", "mock-plot-a01");
+        if (originals.isEmpty()) {
+            store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of("deviceId", deviceId, "plotId", "plot-a01", "status", "OFFLINE")));
+        } else {
+            originals.forEach(original -> {
+                Map<String, Object> offline = new java.util.LinkedHashMap<>(original);
+                offline.put("status", "OFFLINE");
+                store.save("device", Jsons.text(original, "deviceId", deviceId), offline);
+            });
+        }
+        try {
+            Map<String, Object> command = engine.virtualLighting(Map.of(
+                    "plotId", "plot-a01", "idempotencyKey", "test-lighting-" + System.nanoTime(), "confirmed", true,
+                    "allowOfflineDemo", true, "boostLux", 6000, "durationSeconds", 1), farmer);
+            assertThat(command).containsEntry("type", "LIGHT_BOOST").containsEntry("offlineDemoOverride", true);
+            Thread.sleep(250);
+            Map<String, Object> saved = store.find("command", Jsons.text(command, "commandId", ""));
+            assertThat(Jsons.text(Jsons.map(new ObjectMapper(), saved.get("ack")), "status", "")).isEqualTo("SUCCEEDED");
+            assertThat(Jsons.text(store.find("device", deviceId), "status", "")).isEqualTo("OFFLINE");
+            assertThat(store.list("evaluation").stream().anyMatch(item -> Jsons.text(item, "commandId", "").equals(Jsons.text(command, "commandId", "")))).isTrue();
+        } finally {
+            originals.forEach(original -> store.save("device", Jsons.text(original, "deviceId", deviceId), original));
+        }
+    }
+
+    @Test
     void telemetryLimitReturnsTheNewestWindowInChronologicalOrder() {
         Instant base = Instant.parse("2026-08-24T00:00:00Z");
         for (int index = 0; index < 4; index++) {

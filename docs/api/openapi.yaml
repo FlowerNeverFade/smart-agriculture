@@ -327,6 +327,12 @@ paths:
       description: 当前地块处于数据冲突、数据质量、设备状态或决策就绪度阻塞时，由有权限的操作人输入水量并确认一次虚拟人工浇灌；仅绕过决策门，仍校验地块权限、幂等、单次/每日水量、资源容量和最大执行时长。新的幂等键不受次数或冷却限制；结果沿用命令、ACK、效果评价和模拟遥测链路。
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationRequest'}}}}
       responses: {'200': {description: 带 manualOverride、sourcePlanId、bypassedGates、ACK 和效果评价的虚拟人工浇灌命令, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationCommand'}}}}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键、处方上下文或人工兜底状态冲突}, '422': {description: 水量、时长或资源安全约束拒绝}}
+  /api/v1/lighting/virtual:
+    post:
+      tags: [execution]
+      description: 农户操作系统的虚拟补光入口。光照低于当前 Crop Pack 阶段下限时可由本人确认执行；设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualLightingRequest'}}}}
+      responses: {'200': {description: 带离线演示标记、ACK、光照效果评价和模拟遥测的 LIGHT_BOOST 命令}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键或阶段光照状态冲突}, '422': {description: 光照不可用、未确认或设备不满足离线演示条件}}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -619,6 +625,18 @@ components:
         idempotencyKey: {type: string, minLength: 1}
         confirmed: {type: boolean, description: 当前操作人已核对地块、原因和水量并确认虚拟人工浇灌}
         source: {type: string, default: farmer-manual-fallback}
+    VirtualLightingRequest:
+      type: object
+      required: [plotId, idempotencyKey, confirmed]
+      properties:
+        plotId: {type: string}
+        boostLux: {type: number, minimum: 1000, description: 模拟补光增量，服务端按阶段上限裁剪}
+        durationSeconds: {type: integer, minimum: 1, maximum: 900, default: 60}
+        idempotencyKey: {type: string, minLength: 8}
+        confirmed: {type: boolean, description: 当前农户已核对地块并确认虚拟补光}
+        allowOfflineDemo: {type: boolean, default: false, description: 仅本地 standalone/simulation 模式允许离线设备虚拟执行}
+        source: {type: string, default: farmer-operation-system}
+        outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
     ManualIrrigationCommand:
       type: object
       required: [commandId, plotId, planId, sourcePlanId, manualOverride, waterLitre, manualWaterLitre, confirmationMode, executionMode, provenance, virtualOnly, cooldownMinutes]

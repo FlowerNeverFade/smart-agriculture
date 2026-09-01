@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v593-operation-system-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
 import { presentRoleUser } from './roles.js?v=20260901-v592-main-merge-v1';
@@ -950,6 +950,29 @@ function resolve_moisture_band_status(plot) {
   return 'NORMAL';
 }
 
+/** 光照相对 Crop Pack 阶段目标的状态：NORMAL | WARN_LOW | ALERT_LOW | WARN_HIGH | ALERT_HIGH */
+function resolve_light_band_status(plot) {
+  const value = Number(plot?.metrics?.LIGHT?.value);
+  if (!Number.isFinite(value)) return 'NORMAL';
+  const range = stage_target_band(plot, 'LIGHT');
+  if (!range) return 'NORMAL';
+  const [low, high] = range;
+  const margin = Math.max(500, (high - low) * 0.08);
+  if (value < low - margin) return 'ALERT_LOW';
+  if (value < low) return 'WARN_LOW';
+  if (value > high + margin) return 'ALERT_HIGH';
+  if (value > high) return 'WARN_HIGH';
+  return 'NORMAL';
+}
+
+const LIGHT_STATUS_LABELS = Object.freeze({
+  NORMAL: '光照正常',
+  WARN_LOW: '光照偏低',
+  ALERT_LOW: '光照不足',
+  WARN_HIGH: '光照偏高',
+  ALERT_HIGH: '光照过强'
+});
+
 const BAND_STATUS_LABELS = {
   NORMAL: '正常',
   WARN: '偏离目标',
@@ -1849,9 +1872,11 @@ const app = createApp({
     };
     const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '1d'));
 
-    // 灌溉系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
+    // 操作系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
     const risk_plot_cards = computed(() => plots.value.map((plot) => {
       const bandStatus = resolve_moisture_band_status(plot);
+      const lightStatus = resolve_light_band_status(plot);
+      const lightRange = stage_target_band(plot, 'LIGHT');
       return {
         plotId: plot.plotId,
         name: plot.name,
@@ -1866,11 +1891,15 @@ const app = createApp({
         moistureTarget: plot.metrics?.SOIL_MOISTURE?.target,
         moistureStatus: bandStatus,
         healthScore: health_score(plot),
+        lightStatus,
+        lightLabel: LIGHT_STATUS_LABELS[lightStatus] || '光照正常',
+        lightValue: plot.metrics?.LIGHT?.value,
+        lightTarget: lightRange ? `${Math.round(lightRange[0]).toLocaleString()}~${Math.round(lightRange[1]).toLocaleString()} lux` : (plot.metrics?.LIGHT?.target || '—'),
         selected: advice_selected_plot.value?.plotId === plot.plotId
       };
     }));
 
-    // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
+    // 操作系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
     const moisture_range = ref('1d');
     const moisture_range_options = CHART_RANGE_OPTIONS;
     const irrigation_plan = ref(null);
@@ -1914,6 +1943,8 @@ const app = createApp({
       let cropLabel = plot.cropName;
       let stageLabel = plot.stageLabel;
       let alertThreshold = null;
+      let lightLow = null;
+      let lightHigh = null;
       if (pack) {
         const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
         low = Number(stage?.target?.soilMoistureLow ?? 0);
@@ -1921,6 +1952,8 @@ const app = createApp({
         cropLabel = pack.identity?.name || plot.cropName;
         stageLabel = stage?.label || plot.stageLabel;
         alertThreshold = resolve_water_deficit_threshold(pack, stage);
+        lightLow = Number(stage?.target?.lightLow);
+        lightHigh = Number(stage?.target?.lightHigh);
       } else {
         const targetText = plot.metrics?.SOIL_MOISTURE?.target || '';
         const nums = String(targetText).match(/(\d+(?:\.\d+)?)/g);
@@ -1938,8 +1971,40 @@ const app = createApp({
         low,
         high,
         targetText: `${low}~${high}%`,
-        alertThreshold
+        alertThreshold,
+        lightLow: Number.isFinite(lightLow) ? lightLow : null,
+        lightHigh: Number.isFinite(lightHigh) ? lightHigh : null
       };
+    });
+    const advice_light_status = computed(() => {
+      const plot = advice_plot.value;
+      const status = resolve_light_band_status(plot);
+      const metric = plot?.metrics?.LIGHT;
+      const range = stage_target_band(plot, 'LIGHT');
+      return {
+        status,
+        label: LIGHT_STATUS_LABELS[status] || '光照正常',
+        value: Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null,
+        low: range?.[0] ?? null,
+        high: range?.[1] ?? null,
+        deviceOffline: String(plot?.deviceStatus || '').toUpperCase() === 'OFFLINE',
+        needsAttention: status !== 'NORMAL'
+      };
+    });
+    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && advice_light_status.value.deviceOffline && Boolean(advice_plot.value?.plotId));
+    const show_virtual_lighting = ref(false);
+    const virtual_lighting_stage = ref('FORM');
+    const virtual_lighting_confirmed = ref(false);
+    const virtual_lighting_result = ref(null);
+    const virtual_lighting_error = ref('');
+    const virtual_lighting_busy = ref(false);
+    const virtual_lighting_idempotency_key = ref('');
+    const virtual_lighting_boost = ref(6000);
+    const virtual_lighting_preview = computed(() => {
+      const info = advice_light_status.value;
+      const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
+      const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
+      return { ...info, boost, after };
     });
     const irrigation_readiness = computed(() => {
       const score = irrigation_readiness_detail.value?.score ?? advice_readiness.value?.score;
@@ -2301,7 +2366,7 @@ const app = createApp({
         { id: 'plots', label: '我的地块', icon: 'grass' },
         { id: 'tasks', label: '今日农务', icon: 'task', badge: pending || undefined },
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
-        { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
+        { id: 'advice', label: '操作系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
         { id: 'assistant', label: '农智助手', icon: 'smart_toy' },
         { id: 'tools', label: '更多工具', icon: 'apps', is_footer: true },
@@ -3759,6 +3824,63 @@ const app = createApp({
         show_toast(manual_irrigation_error.value, 'error');
       } finally {
         manual_irrigation_busy.value = false;
+      }
+    };
+
+    const open_virtual_lighting = () => {
+      if (!light_operation_available.value) {
+        show_toast('只有光照不足且设备离线时，才可使用离线演示补光', 'error');
+        return;
+      }
+      virtual_lighting_stage.value = 'FORM';
+      virtual_lighting_confirmed.value = false;
+      virtual_lighting_result.value = null;
+      virtual_lighting_error.value = '';
+      virtual_lighting_busy.value = false;
+      virtual_lighting_boost.value = Math.max(1000, Math.round((Number(advice_light_status.value.high || 30000) - Number(advice_light_status.value.value || 0)) * .65));
+      virtual_lighting_idempotency_key.value = `virtual-lighting-${advice_plot.value.plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      show_virtual_lighting.value = true;
+    };
+
+    const close_virtual_lighting = () => {
+      if (virtual_lighting_busy.value) return;
+      show_virtual_lighting.value = false;
+    };
+
+    const submit_virtual_lighting = async () => {
+      if (virtual_lighting_busy.value) return;
+      const plotId = advice_plot.value?.plotId;
+      const preview = virtual_lighting_preview.value;
+      virtual_lighting_error.value = '';
+      if (!light_operation_available.value || !plotId) {
+        virtual_lighting_error.value = '当前地块不满足离线演示补光条件，请刷新后重试';
+        return;
+      }
+      if (!virtual_lighting_confirmed.value) {
+        virtual_lighting_error.value = '请先确认这是离线虚拟演示，不会控制真实补光灯';
+        return;
+      }
+      virtual_lighting_busy.value = true;
+      try {
+        let result = await api.executeVirtualLighting({
+          plotId,
+          boostLux: preview.boost,
+          durationSeconds: 60,
+          confirmed: true,
+          allowOfflineDemo: true,
+          idempotencyKey: virtual_lighting_idempotency_key.value,
+          source: 'farmer-operation-system'
+        });
+        virtual_lighting_result.value = result;
+        virtual_lighting_stage.value = 'RESULT';
+        await load_live_workspace({ announce: false });
+        show_toast('离线设备已完成虚拟补光，结果已写入模拟遥测');
+      } catch (error) {
+        virtual_lighting_error.value = error?.message || '虚拟补光失败，请稍后重试';
+        virtual_lighting_confirmed.value = false;
+        show_toast(virtual_lighting_error.value, 'error');
+      } finally {
+        virtual_lighting_busy.value = false;
       }
     };
 
@@ -5298,6 +5420,15 @@ const app = createApp({
       advice_is_no_action,
       advice_readiness_summary,
       advice_execution_summary,
+      advice_light_status,
+      light_operation_available,
+      virtual_lighting_stage,
+      virtual_lighting_confirmed,
+      virtual_lighting_result,
+      virtual_lighting_error,
+      virtual_lighting_busy,
+      virtual_lighting_boost,
+      virtual_lighting_preview,
       irrigation_guard,
       automatic_watering_status,
       automatic_watering_result,
@@ -5445,6 +5576,9 @@ const app = createApp({
       open_manual_irrigation,
       close_manual_irrigation,
       submit_manual_irrigation,
+      open_virtual_lighting,
+      close_virtual_lighting,
+      submit_virtual_lighting,
       prepare_suggestion_confirmation,
       confirm_suggestion_action,
       open_suggestion_inspection,
