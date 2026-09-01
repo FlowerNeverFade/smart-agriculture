@@ -208,7 +208,9 @@ export const AdminAlertCenter = {
     const selectableAlerts = computed(() => filter.value === 'REVIEW'
       ? visibleAlerts.value.filter(alert => !isClosed(alert))
       : []);
-    const selectedAlerts = computed(() => sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert)));
+    const selectedAlerts = computed(() => filter.value === 'REVIEW'
+      ? sortedAlerts.value.filter(alert => selectedIds.value.includes(alertKey(alert)) && !isClosed(alert) && !isDispatched(alert))
+      : []);
     const allVisibleSelected = computed(() => selectableAlerts.value.length > 0
       && selectableAlerts.value.every(alert => selectedIds.value.includes(alertKey(alert))));
     const activeAlert = computed(() => sortedAlerts.value.find(alert => alertKey(alert) === activeAlertId.value) || null);
@@ -310,11 +312,11 @@ export const AdminAlertCenter = {
     };
 
     const publishVerificationTasks = async (targetAlerts = null) => {
-      const requested = Array.isArray(targetAlerts)
-        ? targetAlerts
-        : (selectedAlerts.value.length
-          ? selectedAlerts.value
-          : reviewAlerts.value.filter(alert => auditFor(alert) && !auditFor(alert).highConfidence));
+      const hasExplicitTargets = Array.isArray(targetAlerts);
+      if (!hasExplicitTargets && !selectedAlerts.value.length) {
+        return toast('请先选择需要发布核查任务的告警', 'error');
+      }
+      const requested = hasExplicitTargets ? targetAlerts : selectedAlerts.value;
       const alerts = requested.filter(alert => !isClosed(alert) && !existingTask(alert)?.assigneeId);
       if (!alerts.length) return toast('请先选择需要现场核查的告警，或先运行 AI 智能处理', 'error');
       if (busyKey.value) return;
@@ -410,9 +412,11 @@ export const AdminAlertCenter = {
 
     const aiProcess = async (targetAlerts = null) => {
       const selectedPending = selectedAlerts.value.filter(alert => !existingTask(alert)?.assigneeId);
-      const requested = Array.isArray(targetAlerts)
-        ? targetAlerts
-        : (selectedAlerts.value.length ? selectedPending : reviewAlerts.value);
+      const hasExplicitTargets = Array.isArray(targetAlerts);
+      if (!hasExplicitTargets && !selectedAlerts.value.length) {
+        return toast('请先选择需要智能处理的告警', 'error');
+      }
+      const requested = hasExplicitTargets ? targetAlerts : selectedPending;
       const alerts = requested.filter(alert => !isClosed(alert) && !existingTask(alert)?.assigneeId);
       if (!alerts.length) return toast(selectedAlerts.value.length
         ? '选中的告警均已下发，无需重复智能处理'
@@ -565,10 +569,10 @@ export const AdminAlertCenter = {
           <span class="admin-alert-selection">已选 {{ selectedAlerts.length }} 条</span>
         </div>
         <div class="admin-alert-batch-actions">
-          <button class="g-btn primary" type="button" :disabled="busyKey !== '' || (!selectedAlerts.length && !reviewCount)" @click="aiProcess">
+          <button class="g-btn primary" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="aiProcess">
             <app-icon name="auto_awesome"></app-icon><span>{{ busyKey === 'batch:ai' ? '正在分析…' : 'AI智能处理' }}</span>
           </button>
-          <button class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== '' || (!selectedAlerts.length && !reviewCount)" @click="publishVerificationTasks()">
+          <button class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="publishVerificationTasks()">
             <app-icon name="fact_check"></app-icon><span>{{ busyKey === 'batch:verify' ? '正在发布…' : '一键发布核查任务' }}</span>
           </button>
           <button class="g-btn secondary admin-alert-close-action" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="closeAlerts(selectedAlerts)">
@@ -608,10 +612,10 @@ export const AdminAlertCenter = {
             </div>
           </div>
           <footer class="admin-alert-card-footer">
-            <span>来源：{{ sourceLabel(alert.source) }}</span>
+            <span class="admin-alert-card-source">来源：{{ sourceLabel(alert.source) }}</span>
             <div class="admin-alert-card-actions">
               <button v-if="filter === 'REVIEW' && !isClosed(alert) && !existingTask(alert)?.assigneeId" class="g-btn compact admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click.stop="publishVerificationTasks([alert])">{{ verificationBusy(alert) ? '发布中…' : '发布核查任务' }}</button>
-              <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
+              <button class="g-btn compact secondary admin-alert-detail-action" type="button" @click.stop="openDetail(alert)">查看详情 <app-icon name="arrow_forward"></app-icon></button>
             </div>
           </footer>
         </article>

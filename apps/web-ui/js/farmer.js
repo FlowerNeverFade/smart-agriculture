@@ -5,7 +5,7 @@ import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -2834,17 +2834,13 @@ const app = createApp({
       show_toast(report_subscribed.value ? '已开启本机周报提醒（演示）' : '已关闭本机周报提醒');
     };
 
-    const update_user_setting = (key, value, announce = true) => {
+    const update_user_setting = (key, value) => {
       const next = saveUserSettings({ ...user_settings.value, [key]: value });
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (['autoRefresh', 'refreshInterval'].includes(key) && typeof start_live_polling === 'function') {
         start_live_polling();
-      }
-      if (announce && ['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
-        show_toast(`${labels[key]}已更新`);
       }
     };
 
@@ -2854,7 +2850,6 @@ const app = createApp({
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
       if (typeof start_live_polling === 'function') start_live_polling();
-      show_toast('工作台设置已恢复默认');
     };
 
     const toggle_theme = () => {
@@ -4908,7 +4903,6 @@ const app = createApp({
       user_settings,
       accent_options: ACCENT_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
-      plot_background_options: PLOT_BACKGROUND_OPTIONS,
       current_accent_label,
       current_surface_style_label,
       update_user_setting,

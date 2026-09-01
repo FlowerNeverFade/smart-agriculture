@@ -4,7 +4,7 @@ import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260831-sync-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-admin-ops-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
@@ -13,7 +13,6 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-sync-v1';
-import { cropBackgroundFor } from './plot-background.js?v=20260831-sync-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-sync-v1';
 import {
   agentResponseSource,
@@ -1241,11 +1240,9 @@ const SettingsView = {
   props: ['state'],
   emits: ['settings-changed'],
   setup(props, { emit }) {
-    const toast = inject('toast');
     const settings = ref(readUserSettings());
     const accentOptions = ACCENT_OPTIONS;
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
-    const plotBackgroundOptions = PLOT_BACKGROUND_OPTIONS;
     const themeOptions = [
       { value: 'light', label: '白色', hint: '清爽明亮，适合日常工作（默认）' },
       { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
@@ -1256,27 +1253,21 @@ const SettingsView = {
     const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '白色');
     const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-    const plotBackgroundLabel = computed(() => plotBackgroundOptions.find((item) => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const updateSetting = (key, value) => {
       const next = saveUserSettings({ ...settings.value, [key]: value });
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      if (['theme', 'accent', 'density', 'layout', 'surfaceStyle', 'plotBackground'].includes(key)) {
-        const labels = { theme: '主题', accent: '强调色', density: '显示密度', layout: '内容宽度', surfaceStyle: '卡片风格', plotBackground: '地块背景' };
-        toast(`${labels[key]}已更新`);
-      }
     };
     const resetSettings = () => {
       const next = saveUserSettings(DEFAULT_USER_SETTINGS);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast('工作台设置已恢复默认');
     };
     return {
-      settings, accentOptions, surfaceStyleOptions, plotBackgroundOptions, themeOptions, refreshOptions,
-      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, plotBackgroundLabel, updateSetting, resetSettings
+      settings, accentOptions, surfaceStyleOptions, themeOptions, refreshOptions,
+      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings
     };
   }
 };

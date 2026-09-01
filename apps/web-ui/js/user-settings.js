@@ -8,7 +8,7 @@ export const SETTINGS_MIGRATION_KEY = 'agriloop-user-settings-v2-migrated';
 
 export const DEFAULT_USER_SETTINGS = Object.freeze({
   theme: 'light', preset: 'codex', accent: 'green', customAccent: '',
-  surfaceStyle: 'classic', surfaceStyleVersion: 6, fontFamily: 'system', density: 'comfortable', layout: 'standard',
+  surfaceStyle: 'classic', surfaceStyleVersion: 7, fontFamily: 'system', density: 'comfortable', layout: 'standard',
   reducedMotion: false, autoRefresh: true, refreshInterval: 15, showDataOrigin: true,
   plotBackground: 'none'
 });
@@ -28,13 +28,12 @@ export const ACCENT_OPTIONS = Object.freeze([
   Object.freeze({ value: 'purple', label: '果实紫', color: '#7657c4', hover: '#5d439f', background: '#eee8fb' })
 ]);
 
-// Surface material is independent from the colour theme.  This lets a user
-// keep a black (or white) canvas while choosing the 4e9326a farm-manager
-// material, a restrained transitional glass treatment, or the newer main
-// liquid-glass treatment.
+// Surface material is independent from the colour theme. Keep the choices
+// deliberately distinct: a solid card surface or the newer liquid-glass
+// treatment. The former soft-glass variant was too close to both and is
+// normalized back to classic for existing browser profiles.
 export const SURFACE_STYLE_OPTIONS = Object.freeze([
   Object.freeze({ value: 'classic', label: '经典卡片', hint: '清爽白色卡片，边界明确' }),
-  Object.freeze({ value: 'glass-soft', label: '柔和玻璃', hint: '轻透明、低反光，层次更柔和' }),
   Object.freeze({ value: 'glass-latest', label: '液态玻璃', hint: '更强的景深与层次效果' })
 ]);
 
@@ -51,12 +50,6 @@ const PRESET_VALUES = new Set(PRESET_OPTIONS.map(item => item.value));
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map(item => item.value));
 const SURFACE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map(item => item.value));
 const FONT_VALUES = new Set(FONT_FAMILY_OPTIONS.map(item => item.value));
-export const PLOT_BACKGROUND_OPTIONS = Object.freeze([
-  Object.freeze({ value: 'none', label: '纯色背景', hint: '默认关闭图片，信息更清晰' }),
-  Object.freeze({ value: 'crop', label: '作物背景', hint: '按作物显示地块照片' })
-]);
-
-const PLOT_BACKGROUND_VALUES = new Set(PLOT_BACKGROUND_OPTIONS.map((item) => item.value));
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
 const REFRESH_INTERVALS = new Set([5, 15, 30, 60]);
@@ -113,7 +106,7 @@ export function normalizeUserSettings(input = {}) {
     accent: ACCENT_VALUES.has(source.accent) ? source.accent : DEFAULT_USER_SETTINGS.accent,
     customAccent: isHexColor(source.customAccent) ? source.customAccent.trim().toLowerCase() : DEFAULT_USER_SETTINGS.customAccent,
     surfaceStyle: SURFACE_VALUES.has(source.surfaceStyle) ? source.surfaceStyle : DEFAULT_USER_SETTINGS.surfaceStyle,
-    surfaceStyleVersion: 6,
+    surfaceStyleVersion: 7,
     fontFamily: FONT_VALUES.has(source.fontFamily) ? source.fontFamily : DEFAULT_USER_SETTINGS.fontFamily,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
@@ -121,7 +114,9 @@ export function normalizeUserSettings(input = {}) {
     autoRefresh: booleanValue(source.autoRefresh, DEFAULT_USER_SETTINGS.autoRefresh),
     refreshInterval: REFRESH_INTERVALS.has(interval) ? interval : DEFAULT_USER_SETTINGS.refreshInterval,
     showDataOrigin: booleanValue(source.showDataOrigin, DEFAULT_USER_SETTINGS.showDataOrigin),
-    plotBackground: PLOT_BACKGROUND_VALUES.has(source.plotBackground) ? source.plotBackground : DEFAULT_USER_SETTINGS.plotBackground
+    // Plot imagery is no longer a user-facing preference. Always migrate old
+    // `crop` selections to the solid workspace surface.
+    plotBackground: DEFAULT_USER_SETTINGS.plotBackground
   };
 }
 
