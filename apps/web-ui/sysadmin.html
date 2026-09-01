@@ -352,6 +352,7 @@
             </select>
             <select v-model="statusFilter" aria-label="按健康状态筛选">
               <option value="all">全部状态</option>
+              <option value="abnormal">仅异常</option>
               <option value="HEALTHY">健康 {{ plotSummary.healthy }}</option>
               <option value="WARNING">预警 {{ plotSummary.warning }}</option>
               <option value="CRITICAL">告警 {{ plotSummary.critical }}</option>
