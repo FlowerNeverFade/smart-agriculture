@@ -1104,6 +1104,30 @@ const AdminSimulatorView = {
     }, { immediate: true });
 
     const simHistory = computed(() => props.state.adminSimHistory || []);
+    // 运行历史按地块分组（A 方案）：每地块只显示最新一条运行，历史折叠展开
+    const expandedSimPlots = ref({});
+    const simGrouped = computed(() => {
+      const groups = new Map();
+      (props.state.adminSimHistory || []).forEach((run) => {
+        const key = run.plotId || '未分配';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(run);
+      });
+      const list = [];
+      groups.forEach((runs, plotId) => {
+        runs.sort((a, b) => {
+          const ta = new Date(a.timeIso || 0).getTime() || 0;
+          const tb = new Date(b.timeIso || 0).getTime() || 0;
+          return tb - ta;
+        });
+        // 默认只显示最新一条（RUNNING 优先）；展开后显示全部
+        const latest = runs[0];
+        const displayRuns = expandedSimPlots.value[plotId] ? runs : (latest ? [latest] : []);
+        list.push({ plotId, name: plotNameOf(plotId), runs, displayRuns, expanded: !!expandedSimPlots.value[plotId] });
+      });
+      return list;
+    });
+    const toggleSimGroup = (plotId) => { expandedSimPlots.value[plotId] = !expandedSimPlots.value[plotId]; };
     const { pageSize: simPageSize, pageSizeOptions: simPageSizeOptions, currentPage: simPage, jumpInput: simJumpInput,
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
@@ -1135,7 +1159,7 @@ const AdminSimulatorView = {
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
-      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf
+      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf, simGrouped, expandedSimPlots, toggleSimGroup
     };
   }
 };
@@ -2231,6 +2255,7 @@ const app = createApp({
           typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
           seed: run.seed,
           plotId: run.plotId,
+          timeIso: run.startedAt || run.createdAt || null,
           startTime: formatSimTime(run.startedAt || run.createdAt),
           endTime: running ? null : formatSimTime(run.completedAt || run.endedAt),
           events: Number(run.events || run.mainEvents || run.replayEvents || 0),
