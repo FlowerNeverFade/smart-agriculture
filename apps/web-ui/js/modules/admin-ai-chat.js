@@ -87,6 +87,15 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
 
 function createConversationId() { return `conversation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`; }
 
+export function plotFacilityIcon(plot = {}) {
+  const raw = String(plot.facilityType || plot.plotType || plot.facilityLabel || plot.name || '').trim().toUpperCase();
+  if (raw.includes('GREENHOUSE') || /温室|大棚/.test(raw)) return 'plot_greenhouse';
+  if (raw.includes('SHADE_HOUSE') || raw.includes('SHADEHOUSE') || /遮阳棚/.test(raw)) return 'plot_shade_house';
+  if (raw.includes('ORCHARD') || /果园/.test(raw)) return 'plot_orchard';
+  if (raw.includes('OPEN_FIELD') || /露地|裸地/.test(raw)) return 'plot_open_field';
+  return 'location_on';
+}
+
 function conversationTime(value) {
   const date = new Date(value || 0);
   if (Number.isNaN(date.getTime()) || date.getTime() < Date.UTC(2000, 0, 1)) return '刚刚';
@@ -231,6 +240,7 @@ export const AdminAiChatView = {
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
         messages.value.push(assistant);
         if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: `请分析我上传的${count}张现场照片`, assistantResponse: response });
+        upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
@@ -332,8 +342,35 @@ export const AdminAiChatView = {
     };
 
     const refreshConversations = async () => {
-      try { conversations.value = (await api.getAgentConversations(50, { archived: false }) || []).map(item => ({ ...item })); }
-      catch (error) { /* keep current chat usable */ }
+      try {
+        const serverItems = (await api.getAgentConversations(50, { archived: false }) || []).map(item => ({ ...item, pendingSync: false }));
+        const serverIds = new Set(serverItems.map(item => item.conversationId));
+        const now = Date.now();
+        const pending = conversations.value.filter(item => item.pendingSync && item.conversationId && !serverIds.has(item.conversationId)
+          && now - Number(item.pendingSyncAt || now) < 30_000);
+        conversations.value = [...serverItems, ...pending];
+      } catch (error) { /* keep the optimistic row usable while the store catches up */ }
+    };
+
+    const upsertConversationSummary = ({ conversationId: id, plotId, title, response } = {}) => {
+      if (!id) return;
+      const now = new Date().toISOString();
+      const existing = conversations.value.find(item => item.conversationId === id);
+      const cleanTitle = String(title || '已上传现场图片').replace(/\s+/g, ' ').trim().slice(0, 36);
+      const summary = {
+        ...(existing || {}),
+        ...(response && typeof response === 'object' ? response : {}),
+        conversationId: id,
+        title: existing?.title || response?.title || cleanTitle,
+        plotId: plotId || existing?.plotId || response?.plotId || '',
+        messageCount: Number(response?.messageCount || existing?.messageCount || 0) + 2,
+        updatedAt: response?.updatedAt || now,
+        lastMessageAt: response?.lastMessageAt || now,
+        pendingSync: true,
+        pendingSyncAt: existing?.pendingSyncAt || Date.now()
+      };
+      conversations.value = [summary, ...conversations.value.filter(item => item.conversationId !== id)];
+      if (summary.plotId) expandedPlotIds.value = new Set([...expandedPlotIds.value, String(summary.plotId)]);
     };
 
     const switchPlotContext = async (plotId, oldPlotId) => {
@@ -384,6 +421,7 @@ export const AdminAiChatView = {
           const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请补充照片位置、症状和拍摄时间。') }, props.state.sessionMode, currentRole.value);
           messages.value.push(assistant);
           if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+          upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
           await refreshConversations();
           updateRoute(conversationId.value);
           return;
@@ -394,6 +432,7 @@ export const AdminAiChatView = {
         const assistant = normalizeAgentMessage({ ...response, role: 'ASSISTANT', agentRole: response.agentRole || response.role, content: agentResponseText(response, '暂时没有生成有效回答，请换一种问法。') }, props.state.sessionMode, currentRole.value);
         messages.value.push(assistant);
         if (props.state.sessionMode !== 'live') api.persistDemoAgentTurn({ conversationId: conversationId.value, plotId: selectedPlotId.value, userMessage: text || '已上传现场图片', assistantResponse: response });
+        upsertConversationSummary({ conversationId: conversationId.value, plotId: selectedPlotId.value, title: displayMessage, response: response?.conversation });
         await refreshConversations();
         updateRoute(conversationId.value);
       } catch (error) {
@@ -519,11 +558,11 @@ export const AdminAiChatView = {
     });
     const plotFolders = computed(() => {
       const folderMap = new Map();
-      (props.state.plots || []).forEach(plot => folderMap.set(String(plot.plotId), { plotId: plot.plotId, name: plot.name || plot.plotId, conversations: [] }));
+      (props.state.plots || []).forEach(plot => folderMap.set(String(plot.plotId), { plotId: plot.plotId, name: plot.name || plot.plotId, icon: plotFacilityIcon(plot), conversations: [] }));
       const source = archivedView.value ? orderedArchivedConversations.value : orderedConversations.value;
       source.forEach(item => {
         const key = String(item.plotId || '__unassigned');
-        if (!folderMap.has(key)) folderMap.set(key, { plotId: item.plotId || '', name: item.plotId ? item.plotId : '未关联地块', conversations: [] });
+        if (!folderMap.has(key)) folderMap.set(key, { plotId: item.plotId || '', name: item.plotId ? item.plotId : '未关联地块', icon: item.plotId ? 'location_on' : 'chat_bubble_outline', conversations: [] });
         folderMap.get(key).conversations.push(item);
       });
       return [...folderMap.values()].map(folder => ({ ...folder, expanded: expandedPlotIds.value.has(String(folder.plotId)) }));
@@ -701,7 +740,7 @@ export const AdminAiChatView = {
           <div v-if="!loadingConversations && !plotFolders.length" class="admin-ai-sidebar-state"><app-icon name="chat_bubble_outline"></app-icon><span>{{ archivedView ? '暂无已归档对话' : rolePresentation.historyEmpty }}</span></div>
           <section v-for="folder in plotFolders" :key="folder.plotId || '__unassigned'" class="admin-ai-plot-folder" :class="{ 'is-current': folder.plotId === selectedPlotId }">
             <button type="button" class="admin-ai-plot-folder-heading" :aria-expanded="folder.expanded ? 'true' : 'false'" @click="togglePlotFolder(folder)">
-              <app-icon :name="folder.expanded ? 'expand_more' : 'chevron_right'"></app-icon><app-icon name="agriculture" class="admin-ai-plot-icon"></app-icon><span>{{ folder.name }}</span><small>{{ folder.conversations.length }}</small>
+              <app-icon :name="folder.expanded ? 'expand_more' : 'chevron_right'"></app-icon><app-icon :name="folder.icon" class="admin-ai-plot-icon" :title="folder.name"></app-icon><span>{{ folder.name }}</span><small>{{ folder.conversations.length }}</small>
             </button>
             <div v-if="folder.expanded" class="admin-ai-plot-folder-list">
               <div v-if="!folder.conversations.length" class="admin-ai-folder-empty">暂无对话</div>

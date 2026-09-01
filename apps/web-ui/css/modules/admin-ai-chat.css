@@ -138,7 +138,7 @@
 .admin-ai-archived-entry .ph { flex: 0 0 auto; font-size: 17px; }
 .admin-ai-archived-manage { flex: 0 0 auto; padding: 7px 8px; border: 0; border-radius: 7px; background: transparent; color: var(--g-primary); font: 600 11px/1.2 var(--g-font-family); cursor: pointer; }
 .admin-ai-archived-manage:hover, .admin-ai-archived-manage:focus-visible { background: var(--g-primary-bg); outline: none; }
-.admin-ai-plot-folder-heading .admin-ai-plot-icon { color: var(--g-primary); }
+.admin-ai-plot-folder-heading .admin-ai-plot-icon { flex: 0 0 17px; width: 17px; color: var(--g-primary); font-size: 17px; text-align: center; }
 .admin-ai-session-title { min-width: 0; overflow: hidden; color: var(--g-text-secondary); text-overflow: ellipsis; white-space: nowrap; }
 .admin-ai-chat-tools { display: none; }
 .admin-ai-compose-context { display: flex; align-items: center; gap: 8px; width: min(var(--ai-content-max), 100%); margin: 0 auto 8px; padding: 0 2px; color: var(--g-text-secondary); font: 600 12px/1.2 var(--g-font-family); }

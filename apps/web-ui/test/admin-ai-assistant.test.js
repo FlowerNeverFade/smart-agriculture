@@ -11,7 +11,8 @@ globalThis.localStorage = {
 globalThis.Vue = { ref: value => ({ value }), computed: getter => ({ get value() { return getter(); } }), inject: () => () => {}, watch: () => {}, onMounted: () => {}, onBeforeUnmount: () => {}, nextTick: async () => {} };
 
 const { api } = await import('../js/api.js?assistant-history-test');
-const { AdminAiChatView } = await import('../js/modules/admin-ai-chat.js?assistant-history-test');
+const { AdminAiChatView, plotFacilityIcon } = await import('../js/modules/admin-ai-chat.js?assistant-history-test');
+const { ruleCodeValue } = await import('../js/modules/admin-rules-strategies.js?assistant-rule-display-test');
 const { legacyAdminTabTarget } = await import('../js/admin-state.js?assistant-history-test');
 
 test('管理员旧聊天地址跳转到独立 AI 助手并保留上下文', () => {
@@ -73,6 +74,24 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-sidebar-resizer\s*\{\s*display:\s*none/);
   assert.match(css, /\.admin-ai-control-label\s*\{[^}]*white-space:\s*nowrap/);
   assert.match(index, /keep-alive include="AdminAiChatView"/);
+});
+
+test('首条消息保留乐观历史摘要，并按设施类型选择地块图标', () => {
+  assert.match(readFileSync(new URL('../js/modules/admin-ai-chat.js', import.meta.url), 'utf8'), /upsertConversationSummary/);
+  assert.equal(plotFacilityIcon({ facilityType: 'OPEN_FIELD' }), 'plot_open_field');
+  assert.equal(plotFacilityIcon({ facilityType: 'GREENHOUSE' }), 'plot_greenhouse');
+  assert.equal(plotFacilityIcon({ facilityType: 'SHADE_HOUSE' }), 'plot_shade_house');
+  assert.equal(plotFacilityIcon({ facilityType: 'ORCHARD' }), 'plot_orchard');
+  assert.equal(plotFacilityIcon({ facilityType: 'UNKNOWN' }), 'location_on');
+});
+
+test('规则展示编号稳定区分同一底层规则，且不改写底层 code', () => {
+  const source = readFileSync(new URL('../js/modules/admin-rules-strategies.js', import.meta.url), 'utf8');
+  assert.match(source, /displayRules = computed/);
+  assert.match(source, /displayKey:/);
+  assert.match(source, /底层编号/);
+  assert.equal(ruleCodeValue({ code: 'WATER_DEFICIT' }), 'WATER_DEFICIT');
+  assert.equal(ruleCodeValue({ ruleId: 'HEAT_STRESS' }), 'HEAT_STRESS');
 });
 
 test('设备菜单支持安全编辑/删除，助手历史按地块过滤并在顶部批量操作', async () => {

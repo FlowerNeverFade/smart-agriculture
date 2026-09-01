@@ -61,7 +61,7 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 // Apply browser-scoped presentation preferences before the standalone system
 // administrator shell mounts, so its sidebar and cards use the same material,
 // theme and density as the other role workspaces from the first paint.
-const initialUserSettings = readUserSettings();
+const initialUserSettings = readUserSettings(undefined, guardUser);
 applyUserSettings(initialUserSettings);
 
 
@@ -2348,7 +2348,7 @@ const app = createApp({
       }
       // Preferences were applied before mount; re-read once in case another
       // role tab changed them while this page was loading.
-      userSettings.value = readUserSettings();
+      userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
       isLive.value = await api.checkHealth();
