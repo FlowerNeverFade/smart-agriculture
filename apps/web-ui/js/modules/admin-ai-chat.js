@@ -257,7 +257,7 @@ export const AdminAiChatView = {
       loadingHistory.value = true;
       // 切换会话时先清空旧消息与分页计数，避免上一会话内容残留导致"先看到旧消息再下拉到最新"
       messages.value = [];
-      visibleMessageCount.value = 1;
+      visibleMessageCount.value = 20;
       try {
         const history = await api.getAgentHistory(id, 100);
         conversationId.value = history?.conversation?.conversationId || id;
@@ -532,8 +532,8 @@ export const AdminAiChatView = {
       const plot = (props.state.plots || []).find(p => p.plotId === plotId);
       return plot?.name || plotId;
     };
-    // 消息向上加载（内存分页：打开会话只显示最新 1 条，向上触顶自动加载更早）
-    const visibleMessageCount = ref(1);
+    // 消息向上加载（打开会话自动显示最新 20 条并定位最新；向上触顶自动加载更早，无需按钮）
+    const visibleMessageCount = ref(20);
     const visibleMessages = computed(() => messages.value.slice(-Math.max(1, visibleMessageCount.value)));
     const loadingOlder = ref(false);
     const loadOlderMessages = async () => {
@@ -596,7 +596,6 @@ export const AdminAiChatView = {
         <div class="admin-ai-chat-toolbar"><div class="admin-ai-chat-session"><button class="g-btn icon-only compact admin-ai-sidebar-toggle" type="button" :aria-label="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" :title="sidebarCollapsed ? '显示历史对话' : '隐藏历史对话'" @click="toggleSidebar"><app-icon :name="sidebarCollapsed ? 'chevron_right' : 'chevron_left'"></app-icon></button><span class="admin-ai-online-dot" aria-hidden="true"></span><strong>{{ rolePresentation.assistantName }}</strong><span aria-hidden="true">·</span><span>{{ selectedPlotName }}</span></div><div class="admin-ai-chat-tools"><label class="admin-ai-plot-picker"><app-icon name="location_on"></app-icon><span class="admin-ai-control-label">{{ rolePresentation.code === 'SYSTEM_ADMIN' ? rolePresentation.contextLabel : '当前地块' }}</span><select class="g-select" v-model="selectedPlotId"><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><button class="g-btn secondary admin-ai-new-chat" type="button" :disabled="sending" @click="startNewConversation()"><app-icon name="add"></app-icon><span>新对话</span></button></div></div>
         <div class="admin-ai-message-list" :class="{ 'is-empty': !messages.length && !loadingHistory }" ref="messageList" aria-live="polite">
           <div class="admin-ai-history-loading" v-if="loadingHistory"><app-icon name="hourglass_empty"></app-icon><span>正在读取对话记录…</span></div>
-          <button v-else-if="visibleMessages.length && visibleMessages.length < messages.length" type="button" class="admin-ai-load-older" @click="loadOlderMessages">加载更早消息</button>
           <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in visibleMessages" :key="message.id" class="admin-ai-message ai-chat-message" :class="[message.role, { error: message.error }]">
             <div class="admin-ai-avatar ai-chat-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><div v-if="message.role !== 'user'" class="admin-ai-message-meta ai-chat-message-meta"><span class="admin-ai-message-author"><strong>{{ rolePresentation.assistantName }}</strong></span><span class="admin-ai-source ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.source || '智能助手' }}</span><span v-if="message.intentLabel" class="admin-ai-intent ai-chat-intent">{{ message.intentLabel }}</span></div><div v-else class="ai-chat-user-bubble">{{ message.content }}</div><p v-if="message.role !== 'user'" class="ai-chat-answer">{{ message.content }}</p><div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div><div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
