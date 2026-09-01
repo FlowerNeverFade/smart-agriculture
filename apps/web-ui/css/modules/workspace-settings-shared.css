@@ -321,3 +321,146 @@ html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *
     padding: 16px 14px 28px !important;
   }
 }
+
+/* Mobile shell ------------------------------------------------------------
+ * Keep the drawer and the content canvas independent.  Flex items otherwise
+ * inherit the intrinsic width of tables, long ids and chart legends and can
+ * make the whole page scroll sideways on a phone. */
+:is(#app, #farmer_app) .g-body {
+  position: relative;
+  min-width: 0;
+}
+:is(#app, #farmer_app) :is(.g-main, .farmer-main) {
+  min-width: 0;
+  max-width: 100%;
+}
+:is(#app, #farmer_app) :is(.admin-table-wrap, .market-table-wrap, .work-summary) {
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+}
+.g-sidebar-backdrop {
+  display: none;
+}
+
+@media (max-width: 760px) {
+  :is(#app, #farmer_app) :is(.g-main, .farmer-main) {
+    overflow-x: hidden;
+  }
+  :is(#app, #farmer_app) :is(.g-main, .farmer-main) > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  :is(#app, #farmer_app) .work-summary {
+    overflow-x: auto !important;
+    overflow-y: hidden;
+  }
+  .g-sidebar-backdrop {
+    display: block;
+    position: fixed;
+    z-index: 90;
+    inset: var(--g-header-height, 58px) 0 0;
+    width: 100%;
+    height: auto;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: rgba(15, 23, 42, .28);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  :is(#app, #farmer_app) .g-sidebar {
+    z-index: 95;
+    max-width: min(230px, calc(100vw - 18px));
+  }
+}
+
+@media (max-width: 380px) {
+  .g-header {
+    gap: 4px;
+    padding-inline: 6px;
+  }
+  .g-header-left {
+    min-width: 0;
+    gap: 4px;
+  }
+  .g-header-left > .g-btn.icon-only,
+  .g-header-right > .g-btn.icon-only {
+    width: 30px;
+    height: 30px;
+    padding: 0;
+  }
+  .g-brand-logo {
+    width: 64px;
+  }
+  .g-header-center {
+    flex: 0 1 86px;
+    width: 86px;
+    max-width: 86px;
+  }
+  .g-header .g-header-farm-select-btn {
+    gap: 1px;
+    padding-inline: 3px;
+    font-size: 10px;
+  }
+  .g-header .g-header-farm-select-btn .material-symbols-outlined,
+  .g-header .g-header-farm-select-btn app-icon {
+    font-size: 16px !important;
+  }
+  .g-header-right {
+    gap: 2px;
+  }
+  .account-profile-trigger {
+    gap: 2px;
+    padding-inline: 2px;
+  }
+  .account-profile-trigger .account-profile-chevron,
+  .farmer-account-trigger .farmer-account-chevron {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  /* The simulator summary is a flex row on desktop.  Let each fact occupy a
+     compact cell and give the action its own row so it remains tappable. */
+  :is(#app, #farmer_app) .admin-sim-control-bar {
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px;
+  }
+  :is(#app, #farmer_app) .admin-sim-control-bar > .sim-info {
+    flex: 1 1 112px;
+    min-width: 0;
+  }
+  :is(#app, #farmer_app) .admin-sim-control-bar > div:has(.g-btn) {
+    display: flex !important;
+    flex: 1 1 100%;
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-end;
+  }
+  :is(#app, #farmer_app) .admin-sim-scenario-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  :is(#app, #farmer_app) .admin-sim-scenario-controls {
+    display: flex !important;
+    flex: 1 1 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 6px !important;
+  }
+  :is(#app, #farmer_app) .admin-sim-scenario-controls select {
+    flex: 1 1 118px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  :is(#app, #farmer_app) .admin-sim-scenario-controls > span {
+    flex: 0 1 auto;
+    max-width: 100%;
+  }
+}

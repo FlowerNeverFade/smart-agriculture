@@ -3304,6 +3304,19 @@ const app = createApp({
       isSidebarOpen.value = !isSidebarOpen.value;
     };
 
+    const closeSidebarOnMobile = () => {
+      if (typeof window === 'undefined') return;
+      const isMobile = window.innerWidth <= 760
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
+      if (isMobile) isSidebarOpen.value = false;
+    };
+
+    const handleSidebarKeydown = (event) => {
+      if (event.key === 'Escape' && isSidebarOpen.value) closeSidebarOnMobile();
+    };
+    onMounted(() => window.addEventListener('keydown', handleSidebarKeydown));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handleSidebarKeydown));
+
     const toggleProfileMenu = () => {
       showProfileMenu.value = !showProfileMenu.value;
     };
@@ -4020,6 +4033,7 @@ const app = createApp({
       selectedPlotId.value = '';
       currentView.value = viewId;
       routeParams.value = nextParams;
+      closeSidebarOnMobile();
       const targetHash = routeHash(viewId, nextParams);
       if (window.location.hash === targetHash) return;
       window.location.hash = targetHash.slice(1);
@@ -4318,6 +4332,7 @@ const app = createApp({
       toggleTheme,
       handleSettingsChanged,
       toggleSidebar,
+      closeSidebarOnMobile,
       toggleProfileMenu,
       closeProfileMenu,
       openAccountModal,

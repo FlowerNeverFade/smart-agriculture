@@ -19,7 +19,7 @@
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260901-v600-motion-fix">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-mobile-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -154,6 +154,7 @@
     </header>
 
     <div class="g-body">
+      <button v-if="isSidebarOpen" type="button" class="g-sidebar-backdrop" aria-label="关闭导航" @click="closeSidebarOnMobile"></button>
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
         <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
           <button v-for="nav in mainNavItems" :key="nav.id" type="button"
@@ -234,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260901-v600-motion-fix&rev=20260902-performance"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-v600-motion-fix&rev=20260902-mobile-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -666,7 +667,7 @@
       <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真模拟</h2>
 
       <!-- Control Bar -->
-      <div class="sim-control-bar">
+      <div class="sim-control-bar admin-sim-control-bar">
         <span class="sim-status-dot" :class="simRunning ? 'running' : 'stopped'"></span>
         <div class="sim-info">
           <div class="sim-info-label">模拟器状态</div>
@@ -715,9 +716,9 @@
       </div>
 
       <!-- Scenario Selection -->
-      <div class="admin-section-head">
+      <div class="admin-section-head admin-sim-scenario-head">
         <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置</div>
-        <div style="display:flex; gap: 8px; align-items: center">
+        <div class="admin-sim-scenario-controls" style="display:flex; gap: 8px; align-items: center">
           <span style="font-size: 13px; color: var(--g-text-secondary)">按场景筛选：</span>
           <select v-model="scenarioFilter" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
             <option value="all">全部场景</option>

@@ -2972,6 +2972,31 @@
   border-radius: 12px;
   background: var(--g-bg);
 }
+.farmer-cm-documents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.farmer-cm-documents h4 {
+  flex: 0 0 100%;
+}
+.farmer-cm-documents > span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 6px;
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .farmer-cm-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

@@ -2936,9 +2936,23 @@ const app = createApp({
       return { ...base, items, sourceLabel: sourceLabel(base.source), generatedAt: data_updated_label.value };
     });
 
+    const close_sidebar_on_mobile = () => {
+      if (typeof window === 'undefined') return;
+      const is_mobile = window.innerWidth <= 760
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
+      if (is_mobile) is_sidebar_open.value = false;
+    };
+
+    const handle_sidebar_keydown = (event) => {
+      if (event.key === 'Escape' && is_sidebar_open.value) close_sidebar_on_mobile();
+    };
+    onMounted(() => window.addEventListener('keydown', handle_sidebar_keydown));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handle_sidebar_keydown));
+
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       current_view.value = next_view;
+      close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
         const target = farmer_hash_for(next_view, tools_tab.value);
@@ -6040,6 +6054,7 @@ const app = createApp({
       account_profile,
       navigate,
       toggle_sidebar,
+      close_sidebar_on_mobile,
       toggle_profile_menu,
       close_profile_menu,
       open_report,
