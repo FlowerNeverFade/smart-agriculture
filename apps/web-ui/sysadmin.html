@@ -352,6 +352,7 @@
             </select>
             <select v-model="statusFilter" aria-label="按健康状态筛选">
               <option value="all">全部状态</option>
+              <option value="abnormal">仅异常</option>
               <option value="HEALTHY">健康 {{ plotSummary.healthy }}</option>
               <option value="WARNING">预警 {{ plotSummary.warning }}</option>
               <option value="CRITICAL">告警 {{ plotSummary.critical }}</option>
@@ -446,7 +447,7 @@
             <tbody>
               <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
-                <td>{{ d.plotId }}</td>
+                <td>{{ d.plotId }}<template v-if="plotNameOf(d.plotId) !== d.plotId"> · {{ plotNameOf(d.plotId) }}</template></td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
                 <td>{{ d.lastHeartbeat }}</td>
                 <td><span class="status-pill" :class="d.status.toLowerCase()">{{ d.statusLabel || serviceStatusLabel(d.status) }}</span></td>
@@ -497,10 +498,7 @@
                 <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
                 <td>{{ displayText(a.summary) }}</td>
                 <td><span class="status-pill" :class="a.status === 'OPEN' ? 'warning' : a.status === 'ACK' ? 'info' : 'completed'">{{ a.statusLabel || alertStatusLabel(a.status) }}</span></td>
-                <td>
-                  <button v-if="a.status==='OPEN'" class="g-btn text sm" @click="transitionAlert(a, 'ack')">确认</button>
-                  <button v-if="a.status==='ACK'" class="g-btn text sm" @click="transitionAlert(a, 'close')">关闭</button>
-                </td>
+                <td><span style="color:var(--g-muted);font-size:12px">—</span></td>
               </tr>
             </tbody>
           </table>
@@ -598,15 +596,16 @@
             <th>时间</th><th>追踪编号</th><th>操作人</th><th>地块</th><th>类型</th><th>摘要</th><th>结果</th><th></th>
           </tr></thead>
           <tbody>
+            <tr v-if="!auditPageRecords.length"><td colspan="8" style="text-align:center;color:var(--g-muted);padding:24px">暂无决策审计记录</td></tr>
             <template v-for="record in auditPageRecords" :key="record.traceId">
               <tr @click="togglePassport(record.traceId)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ record.time }}</td>
                 <td style="font-family:var(--g-mono);font-size:11px;color:var(--g-primary)">{{ record.traceId }}</td>
                 <td><span class="status-pill agent">{{ record.operator }}</span></td>
-                <td>{{ record.plotId }}</td>
+                <td>{{ plotNameOf(record.plotId) }}</td>
                 <td>{{ record.typeLabel }}</td>
                 <td>{{ displayText(record.summary) }}</td>
-                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '待审' }}</span></td>
+                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '未决' }}</span></td>
                 <td><app-icon name="expand_more" style="font-size:18px;transition:transform 0.2s" :style="{transform: expandedPassport===record.traceId?'rotate(180deg)':''}"></app-icon></td>
               </tr>
               <!-- Decision Passport Expansion -->
@@ -787,12 +786,13 @@
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>
-            <th>场景编号</th><th>场景类型</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
+            <th>场景编号</th><th>场景类型</th><th>地块</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>
             <tr v-for="run in simPageRecords" :key="run.scenarioId">
-              <td style="font-family:var(--g-mono);font-size:11px">{{ run.scenarioId }}</td>
+              <td style="font-family:var(--g-mono);font-size:11px" :title="run.scenarioId">{{ shortId(run.scenarioId) }}</td>
               <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
+              <td>{{ plotNameOf(run.plotId) }}</td>
               <td>{{ run.startTime }}</td>
               <td>{{ run.endTime || '—' }}</td>
               <td>{{ run.events }}</td>
@@ -946,7 +946,7 @@
             </tr></thead>
             <tbody>
               <tr v-for="rule in rulePageRecords" :key="rule.cropCode + '@' + rule.id">
-                <td><span class="status-pill info">{{ rule.cropName || rule.cropCode }}</span></td>
+                <td><span class="status-pill info">{{ ruleCropName(rule) }}</span></td>
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>
@@ -1223,10 +1223,7 @@
         <div class="admin-filter-bar">
           <select v-model="logFilter">
             <option value="all">全部操作</option>
-            <option value="LOGIN">登录</option>
-            <option value="USER_CREATE">创建用户</option>
-            <option value="CONFIG_CHANGE">修改配置</option>
-            <option value="RULE_PUBLISH">发布规则</option>
+            <option v-for="opt in logFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </div>
         <div class="admin-table-wrap">
