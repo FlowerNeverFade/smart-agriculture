@@ -159,16 +159,16 @@ class SimulationEngine {
     }
 
     Map<String, Object> status() {
-        synchronized (lock) {
-            Map<String, Object> response = snapshot();
-            response.put("available", properties.isSimulatorControlEnabled());
-            if (!properties.isSimulatorControlEnabled()) {
-                response.put("status", "UNAVAILABLE");
-                response.put("reason", "SIMULATOR_CONTROL_DISABLED");
-                response.put("running", false);
-            }
-            return response;
+        // Status fields are atomic or volatile. Do not wait for the simulation tick lock here:
+        // one tick can ingest many plot metrics and may legitimately run longer than the UI timeout.
+        Map<String, Object> response = snapshot();
+        response.put("available", properties.isSimulatorControlEnabled());
+        if (!properties.isSimulatorControlEnabled()) {
+            response.put("status", "UNAVAILABLE");
+            response.put("reason", "SIMULATOR_CONTROL_DISABLED");
+            response.put("running", false);
         }
+        return response;
     }
 
     Map<String, Object> start() {
