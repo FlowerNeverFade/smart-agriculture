@@ -2,17 +2,16 @@ import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMU
 import { MOCK_DATA } from './mock-data.js?v=20260831-farm-main-merge-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260831-farm-main-merge-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PLOT_BACKGROUND_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260831-farm-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260831-farm-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-farm-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-settings-clean-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-task-filter-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-task-filter-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-farm-main-merge-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-farm-main-merge-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-farm-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-farm-main-merge-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-task-filter-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260831-farm-main-merge-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-farm-main-merge-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260831-farm-main-merge-v1';
-import { cropBackgroundFor } from './plot-background.js?v=20260831-farm-main-merge-v1';
 import { adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260831-farm-main-merge-v1';
 import {
   agentResponseSource,
@@ -841,7 +840,6 @@ const DashboardView = {
       cropKeyFor,
       cropEmojiFor,
       cropLabelFor,
-      cropBackgroundFor,
       openPlotDetail,
       plotMenuId,
       plotSaving,
@@ -2224,7 +2222,7 @@ const AdminOverviewView = {
       emit('navigate', 'admin-ops', { tab: 'devices', search: plot.id });
     };
     return {
-      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent, cropBackgroundFor,
+      showEvents, farmFilter, statusFilter, filteredPlots, plotFarms, plotSummary, healthPercent,
       telemetryMetrics: TELEMETRY_METRICS, selectedPlot, showPlotModal, plotMetricForm, telemetryLoading,
       openPlotMetrics, refreshPlotMetrics, savePlotMetrics, goToOps,
       serviceStatusLabel, serviceNameLabel, modeLabel, scenarioLabel, metricStatusLabel, displayText
@@ -2740,8 +2738,7 @@ const SETTINGS_COPY = Object.freeze({
     dataExperience: '数据体验', refreshTips: '刷新与提示', refreshDescription: '控制工作台如何更新信息，以及是否保留来源标识。', autoRefresh: '自动刷新工作台', autoRefreshHint: '保持页面打开时拉取最新任务、遥测和建议。',
     refreshInterval: '刷新间隔', seconds: ' 秒', showOrigin: '显示数据来源', showOriginHint: '保留模拟、后端或人工记录标识，便于核对信息。', info: '外观和工作台偏好只写入当前浏览器的本地存储，不会修改地块、设备或任务事实。',
     current: '当前设置', restore: '恢复默认设置', font: '界面字体', fontHint: '选择适合当前设备和阅读习惯的字体。',
-    themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗',
-    changed: { theme: '主题已更新', preset: '工作台主题已更新', accent: '强调色已更新', customAccent: '自定义主题色已更新', density: '显示密度已更新', layout: '内容宽度已更新', surfaceStyle: '卡片风格已更新', plotBackground: '地块背景已更新', fontFamily: '字体已更新' }
+    themeLight: '白色', themeDark: '黑色', themeSystem: '跟随系统', themeLightHint: '清爽明亮的工作台', themeDarkHint: '低光环境更舒适', themeSystemHint: '自动适配设备明暗'
   })
 });
 
@@ -2755,7 +2752,6 @@ const SettingsView = {
   props: ['state'],
   emits: ['settings-changed'],
   setup(props, { emit }) {
-    const toast = inject('toast');
     const account = computed(() => props.state?.currentUser || null);
     const settings = ref(readUserSettings(undefined, account.value));
     const copy = computed(() => SETTINGS_COPY['zh-CN']);
@@ -2767,7 +2763,6 @@ const SettingsView = {
     const presetOptions = computed(() => PRESET_OPTIONS);
     const accentOptions = computed(() => ACCENT_OPTIONS);
     const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
-    const plotBackgroundOptions = computed(() => PLOT_BACKGROUND_OPTIONS);
     const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
     const refreshOptions = [5, 15, 30, 60];
     const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
@@ -2775,7 +2770,6 @@ const SettingsView = {
     const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
     const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
     const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
-    const plotBackgroundLabel = computed(() => plotBackgroundOptions.value.find(item => item.value === settings.value.plotBackground)?.label || '纯色背景');
     const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
     const updateSetting = (key, value) => {
       const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
@@ -2783,16 +2777,12 @@ const SettingsView = {
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      // Card style is a visual preference and its live preview is already
-      // visible, so do not interrupt the user with a success toast.
-      if (key !== 'surfaceStyle' && copy.value.changed[key]) toast(copy.value.changed[key]);
     };
     const resetSettings = () => {
       const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
       settings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast(SETTINGS_COPY['zh-CN'].restore);
     };
     return {
       settings,
@@ -2800,7 +2790,6 @@ const SettingsView = {
       presetOptions,
       accentOptions,
       surfaceStyleOptions,
-      plotBackgroundOptions,
       fontOptions,
       themeOptions,
       refreshOptions,
@@ -2809,7 +2798,6 @@ const SettingsView = {
       presetLabel,
       accentLabel,
       surfaceStyleLabel,
-      plotBackgroundLabel,
       fontLabel,
       updateSetting,
       resetSettings
@@ -2845,7 +2833,6 @@ const AdminSettingsView = {
       appearanceSettings.value = next;
       applyUserSettings(next);
       emit('settings-changed', next);
-      toast(`界面风格已切换为${option.label}`);
     };
 
     const resetAppearanceStyle = () => selectAppearanceStyle(DEFAULT_USER_SETTINGS.surfaceStyle);

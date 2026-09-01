@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
-const { DEFAULT_USER_SETTINGS, applyUserSettings, getAppearancePalette, getFontFamily, normalizeUserSettings, readUserSettings, saveUserSettings, userSettingsKey } = await import('../js/user-settings.js?settings-test');
+const { DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, getAppearancePalette, getFontFamily, normalizeUserSettings, readUserSettings, saveUserSettings, userSettingsKey } = await import('../js/user-settings.js?settings-test');
 
 test('工作台设置按白名单归一化并保存到浏览器本地', () => {
   const data = new Map();
@@ -16,9 +17,9 @@ test('工作台设置按白名单归一化并保存到浏览器本地', () => {
   assert.deepEqual(readUserSettings(storage), normalized);
 });
 
-test('工作台设置应用主题、布局、密度和来源标记数据属性', () => {
+test('工作台设置应用主题、布局、密度和纯色地块数据属性', () => {
   const root = { dataset: {}, style: { setProperty() {}, colorScheme: '' } };
-  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', fontFamily: 'yahei', showDataOrigin: false }, { documentElement: root });
+  const normalized = applyUserSettings({ ...DEFAULT_USER_SETTINGS, theme: 'dark', layout: 'wide', density: 'compact', fontFamily: 'yahei', showDataOrigin: false, plotBackground: 'crop' }, { documentElement: root });
   assert.equal(normalized.theme, 'dark');
   assert.equal(root.dataset.theme, 'dark');
   assert.equal(root.dataset.layout, 'wide');
@@ -28,7 +29,33 @@ test('工作台设置应用主题、布局、密度和来源标记数据属性',
   assert.equal(root.lang, 'zh-CN');
   assert.equal(root.dataset.fontFamily, 'yahei');
   assert.equal(root.dataset.showDataOrigin, 'false');
+  assert.equal(normalized.plotBackground, 'none');
+  assert.equal(root.dataset.plotBackground, 'none');
   assert.match(getFontFamily('yahei'), /Microsoft YaHei/);
+});
+
+test('旧柔和玻璃与作物背景设置自动迁移到清晰纯色外观', () => {
+  assert.deepEqual(SURFACE_STYLE_OPTIONS.map((item) => item.value), ['classic', 'glass-latest']);
+  const normalized = normalizeUserSettings({ surfaceStyle: 'glass-soft', plotBackground: 'crop' });
+  assert.equal(normalized.surfaceStyle, 'classic');
+  assert.equal(normalized.plotBackground, 'none');
+  assert.equal(normalized.surfaceStyleVersion, 7);
+});
+
+test('三个工作台隐藏地块背景选项且外观切换静默生效', () => {
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const farmerSource = readFileSync(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const sysadminSource = readFileSync(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const appSettings = appSource.slice(appSource.indexOf('const SettingsView ='), appSource.indexOf('const AdminSettingsView ='));
+  const farmerSettings = farmerSource.slice(farmerSource.indexOf('const update_user_setting ='), farmerSource.indexOf('const toggle_theme ='));
+  const sysadminSettings = sysadminSource.slice(sysadminSource.indexOf('const SettingsView ='), sysadminSource.indexOf('const AdminSettingsView ='));
+  assert.doesNotMatch(appSettings, /toast\s*\(/);
+  assert.doesNotMatch(farmerSettings, /show_toast\s*\(/);
+  assert.doesNotMatch(sysadminSettings, /toast\s*\(/);
+  for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
+    const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+    assert.doesNotMatch(html, /settings-plot-background-options|plot_background_options|plotBackgroundLabel/);
+  }
 });
 
 test('工作台设置按账号隔离，并支持主题预设与安全自选色', () => {

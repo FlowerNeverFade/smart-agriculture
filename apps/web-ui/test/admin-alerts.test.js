@@ -107,6 +107,38 @@ test('告警页面保留卡片详情结构并提供新的批量入口', () => {
   assert.doesNotMatch(AdminAlertCenter.template, /aria-label="关闭"\s+:disabled="busyKey/);
 });
 
+test('告警批量智能处理和核查发布必须先选择告警', async () => {
+  const originals = {
+    evaluateDiagnosis: api.evaluateDiagnosis,
+    getStrategyPreview: api.getStrategyPreview
+  };
+  const state = {
+    sessionMode: 'demo',
+    adminContext: { farmId: 'farm-demo' },
+    alerts: [{ alertId: 'alert-selection', farmId: 'farm-demo', plotId: 'plot-a01', status: 'ACTIVE', level: 'HIGH' }],
+    workOrders: [],
+    farmMembers: []
+  };
+  let diagnosisCalls = 0;
+  try {
+    api.evaluateDiagnosis = async () => { diagnosisCalls += 1; return { confidence: 0.4, primaryCause: 'WATER_DEFICIT' }; };
+    api.getStrategyPreview = async () => ({ matched: false, candidate: {} });
+    const view = AdminAlertCenter.setup({ state }, { emit: () => {} });
+
+    await view.aiProcess();
+    await view.publishVerificationTasks();
+    assert.equal(diagnosisCalls, 0, '未选择时不能触发批量 AI 处理');
+    assert.match(AdminAlertCenter.template, /:disabled="busyKey !== '' \|\| !selectedAlerts\.length"/);
+    assert.doesNotMatch(AdminAlertCenter.template, /!selectedAlerts\.length && !reviewCount/);
+
+    view.selectedIds.value = ['alert-selection'];
+    await view.aiProcess();
+    assert.equal(diagnosisCalls, 1, '选中后只处理所选告警');
+  } finally {
+    Object.assign(api, originals);
+  }
+});
+
 test('演示告警覆盖自动下发和多种人工审核场景', () => {
   const activeAlerts = MOCK_DATA.alerts.filter(alert => !['CLOSED', 'RESOLVED'].includes(alert.status));
   assert.ok(activeAlerts.length >= 7);

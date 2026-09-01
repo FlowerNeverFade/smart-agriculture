@@ -80,6 +80,20 @@ test('逾期一键重新分配优先选择其他有权限且负载更低的在�
   assert.equal(choice.activeLoad, 0);
 });
 
+test('逾期一键处置强制排除原负责人，没有替代人选时不回退原负责人', () => {
+  const order = { workOrderId: 'wo-overdue', farmId: 'farm-demo', plotId: 'plot-a01', assigneeId: 'farmer-old', status: 'IN_PROGRESS' };
+  const members = [
+    { userId: 'farmer-old', displayName: '原负责人', role: 'FARMER', status: 'ACTIVE', farmIds: ['farm-demo'], plotIds: ['plot-a01'] },
+    { userId: 'farmer-new', displayName: '接手农户', role: 'FARMER', status: 'ACTIVE', farmIds: ['farm-demo'], plotIds: ['plot-a01'] }
+  ];
+
+  const choice = chooseWorkOrderAssignee(members, [order], order, 'farm-demo', true);
+  assert.equal(choice.member.userId, 'farmer-new');
+  assert.notEqual(choice.member.userId, order.assigneeId);
+  assert.equal(chooseWorkOrderAssignee(members.slice(0, 1), [order], order, 'farm-demo', true), null);
+  assert.match(WorkOrderLifecycleView.template, /都会转交给其他合适农户/);
+});
+
 test('分配接口缺少字段时仍立即补齐进行中任务的负责人和状态', () => {
   const saved = finalizedWorkOrderAssignment(
     { workOrderId: 'wo-1', workItemId: 'wo-1', status: 'OPEN' },
@@ -90,6 +104,15 @@ test('分配接口缺少字段时仍立即补齐进行中任务的负责人和�
   assert.equal(saved.assigneeId, 'farmer-1');
   assert.equal(saved.assigneeName, '张明');
   assert.equal(workOrderLane({ ...saved, dueAt: future }, now), 'IN_PROGRESS');
+
+  const openResponse = finalizedWorkOrderAssignment(
+    { workOrderId: 'wo-2', status: 'OVERDUE' },
+    { workOrderId: 'wo-2', status: 'OPEN' },
+    { userId: 'farmer-2', displayName: '赵霞' },
+    future
+  );
+  assert.equal(openResponse.status, 'ASSIGNED');
+  assert.equal(workOrderLane(openResponse, now), 'IN_PROGRESS');
 });
 
 test('逾期处置生成未来时限并使任务离开逾期分区', () => {
@@ -136,4 +159,15 @@ test('农务任务与主应用复用同一 API 数据实例并定时刷新逾期
   assert.match(appSource, /from '\.\/api\.js\?v=20260831-farm-main-merge-v1'/);
   assert.match(managementSource, /from '\.\.\/api\.js\?v=20260831-farm-main-merge-v1'/);
   assert.match(lifecycleSource, /setInterval\(\(\) => \{ lifecycleNow\.value = Date\.now\(\); \}, 30000\)/);
+});
+
+test('成员查看任务会进入农户筛选并保留全部状态上下文', () => {
+  const lifecycleSource = readFileSync(new URL('../js/work-order-lifecycle.js', import.meta.url), 'utf8');
+  const memberSource = readFileSync(new URL('../js/modules/admin-member-management.js', import.meta.url), 'utf8');
+  assert.match(memberSource, /tab: 'tasks', assigneeId: member\.userId, farmId: farmId\.value/);
+  assert.match(lifecycleSource, /const requestedAssignee = String\(params\?\.assigneeId \|\| ''\)\.trim\(\)/);
+  assert.match(lifecycleSource, /routeStatus === 'ALL'/);
+  assert.match(lifecycleSource, /statusFilter\.value = ''/);
+  assert.match(lifecycleSource, /@change="onAssigneeSelect"/);
+  assert.match(lifecycleSource, /assigneeId: assigneeFilter\.value/);
 });

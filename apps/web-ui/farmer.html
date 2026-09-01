@@ -1521,12 +1521,6 @@
                   </div>
                 </div>
                 <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">地块背景</span>
-                  <div class="farmer-settings-choice-row farmer-settings-surface-row">
-                    <button v-for="background in plot_background_options" :key="background.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :class="{active: user_settings.plotBackground === background.value}" @click="update_user_setting('plotBackground', background.value)" :title="background.hint"><span>{{ background.label }}</span><small>{{ background.hint }}</small></button>
-                  </div>
-                </div>
-                <div class="farmer-settings-field">
                   <span class="farmer-settings-label">强调色</span>
                   <div class="farmer-settings-accent-row">
                     <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
@@ -1550,7 +1544,7 @@
                 <div class="farmer-settings-note"><app-icon name="info"></app-icon><span>这些偏好保存在当前浏览器。清除站点数据后会恢复默认值；服务器上的三角色数据仍由后端统一管理。</span></div>
               </article>
             </div>
-            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 地块背景：{{ user_settings.plotBackground === 'crop' ? '作物背景' : '纯色背景' }} · 强调色：{{ current_accent_label }}</span></div>
+            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ current_accent_label }}</span></div>
           </section>
 
         </transition>
@@ -1689,6 +1683,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260831-agent-history-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-settings-clean-v1"></script>
 </body>
 </html>
