@@ -418,7 +418,7 @@ const EVIDENCE_LABELS = Object.freeze({
   FLOW_RATE_CALIBRATION: '检查流量计校准', PORTABLE_METER_COMPARISON: '使用便携仪复测',
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
   MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
-  GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
+  GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量', HUMAN_EVIDENCE_REVIEW: '复核人工现场证据',
   DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）'
 });
 
@@ -2490,7 +2490,7 @@ const app = createApp({
           kind: 'IRRIGATION',
           statusLabel: '需要补水',
           issue: '土壤湿度低于目标',
-          detail: '查看补水建议，确认地块和水量后直接执行。',
+          detail: '查看补水建议，满足安全门后再确认执行。',
           actionLabel: '查看建议并执行',
           icon: 'water_drop'
         };
@@ -2739,11 +2739,12 @@ const app = createApp({
       if (!plan) return '暂未生成处方，请先查看地块湿度或发起复测。';
       const readinessGate = String(irrigation_readiness_detail.value?.status || '').toUpperCase();
       const missing = (irrigation_readiness_detail.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean).slice(0, 3);
-      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED'].includes(readinessGate)) return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或设备状态未满足灌溉条件。';
+      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED', 'HUMAN_REVIEW'].includes(readinessGate)) return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或诊断需要人工复核。';
       if (status === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
       if (status === 'NEEDS_EVIDENCE') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '数据质量或诊断证据不足，请先巡田或复测。';
       if (status === 'UNAVAILABLE') return '暂不能执行：设备或最新数据不可用，请先检查设备并获取新遥测。';
       if (status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
+      if (status === 'HUMAN_REVIEW') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或诊断需要人工复核。';
       const guard = irrigation_guard.value;
       if (!guard) return '暂不能执行：安全门状态暂不可用，请稍后重试。';
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);

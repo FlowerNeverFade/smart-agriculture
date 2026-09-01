@@ -3349,6 +3349,7 @@ class AgriEngine {
             case "DEVICE_HEALTH" -> "检查设备心跳";
             case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
             case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            case "HUMAN_EVIDENCE_REVIEW" -> "复核人工现场证据";
             case "SOIL_MOISTURE" -> "土壤湿度数据";
             case "GOOD_DATA_QUALITY" -> "合格数据质量";
             case "QUALITY_REVIEW" -> "数据质量复核";

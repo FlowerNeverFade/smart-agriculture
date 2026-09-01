@@ -694,7 +694,7 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ advice_is_no_action ? '当前已达到目标，无需灌溉或补证。' : (is_formal_session ? '可查看智能诊断与就绪度，当前操作人确认后即可执行。' : '演示模式不会控制真实水泵。') }}</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ advice_is_no_action ? '当前已达到目标，无需灌溉或补证。' : (is_formal_session ? '可查看智能诊断与就绪度，满足安全门后由当前操作人确认执行。' : '演示模式不会控制真实水泵。') }}</p>
                 <div class="farmer-advice-actions">
                   <button
                     type="button"
@@ -744,7 +744,7 @@
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
                 <p v-else-if="advice_is_no_action" class="farmer-operation-status is-success"><span class="farmer-freshness-dot live"></span>当前湿度正常，本次无需灌溉，也不用补证</p>
                 <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
-                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要先完成安全确认，确认后即可执行' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
+                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要人工复核或补充现场证据，暂不执行灌溉' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
                 <div v-if="automatic_watering_status" class="farmer-auto-water-card" :class="{ 'is-ready': automatic_watering_status.eligible, 'is-blocked': automatic_watering_status.status === 'BLOCKED', 'is-triggered': automatic_watering_status.status === 'TRIGGERED', 'is-disabled': !automatic_watering_status.enabled }">
                   <div class="farmer-auto-water-icon"><app-icon name="bolt"></app-icon></div>
