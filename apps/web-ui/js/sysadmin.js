@@ -1297,6 +1297,9 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
+    // 规则集作物名（与农场管理员规则集一致：eggplant→茄子 等）
+    const RULE_CROP_NAMES = { tomato: '番茄', cucumber: '黄瓜', strawberry: '草莓', corn: '玉米', sunflower: '向日葵', rice: '水稻', eggplant: '茄子', lettuce: '生菜', pepper: '辣椒' };
+    const ruleCropName = (rule) => rule?.cropName || RULE_CROP_NAMES[String(rule?.cropCode || '').toLowerCase()] || rule?.cropCode || '—';
     // 规则集与策略候选列表分页
     const rulesList = computed(() => props.state.adminRules || []);
     const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
@@ -1306,7 +1309,7 @@ const AdminRulesView = {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
-      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText, ruleCropName,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
       candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };

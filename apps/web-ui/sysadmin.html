@@ -946,7 +946,7 @@
             </tr></thead>
             <tbody>
               <tr v-for="rule in rulePageRecords" :key="rule.cropCode + '@' + rule.id">
-                <td><span class="status-pill info">{{ rule.cropName || rule.cropCode }}</span></td>
+                <td><span class="status-pill info">{{ ruleCropName(rule) }}</span></td>
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>
