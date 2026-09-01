@@ -1,19 +1,19 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v592-main-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v592-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v592-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v592-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v592-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v592-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v592-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v592-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v592-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v592-main-merge-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v592-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v592-main-merge-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v592-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v592-main-merge-v1';
+} from './live-data.js?v=20260901-v593-market-v3';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -92,7 +92,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
-const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'SOIL_EC', 'NPK_RATIO']);
+const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'PH', 'WATER_LEVEL', 'NITROGEN', 'PHOSPHORUS', 'POTASSIUM']);
 const PLOT_METRIC_ICONS = Object.freeze({
   SOIL_MOISTURE: 'water_drop',
   AIR_TEMPERATURE: 'thermometer',
@@ -100,8 +100,11 @@ const PLOT_METRIC_ICONS = Object.freeze({
   LIGHT: 'light_mode',
   CO2: 'eco',
   RAINFALL: 'rainy',
-  SOIL_EC: 'soil_ec',
-  NPK_RATIO: 'nutrition'
+  PH: 'science',
+  WATER_LEVEL: 'water',
+  NITROGEN: 'spa',
+  PHOSPHORUS: 'grass',
+  POTASSIUM: 'nutrition'
 });
 
 // The plot-detail simulator uses one axis at a time.  Keeping the unit and
@@ -411,12 +414,21 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   alerts = alerts || [];
   devices = devices || [];
   recentEvents = recentEvents || [];
+  // 运行时长（秒）→ 可读文本
+  const formatUptime = (seconds) => {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s < 0) return '';
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}天 ${h}小时`;
+    if (h > 0) return `${h}小时 ${m}分`;
+    return `${Math.max(1, m)}分钟`;
+  };
   const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
   const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
   const online = devices.filter((device) => ['ONLINE', 'UP', 'ACTIVE'].includes(liveStatusValue(device.status))).length;
   const simStatus = liveStatusValue(simulator.status, 'UNAVAILABLE');
-  const rawAiMode = String(systemStatus.ai || overview.aiMode || '—').trim().toLowerCase();
+  const rawAiMode = String(systemStatus.aiMode || overview.aiMode || '—').trim().toLowerCase();
   // The backend calls a configured Qwen/OpenAI-compatible adapter
   // `openai-compatible`; the overview uses the concise product-facing mode
   // names used by the demo card.
@@ -430,7 +442,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     .map((scenario) => String(scenario).toUpperCase()))];
   const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
   return {
-    uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
+    uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
     ai: systemStatus.ai,
@@ -675,7 +687,12 @@ const AdminOpsView = {
       let alerts = props.state.adminAlerts || [];
       if (alertFilter.value !== 'all') alerts = alerts.filter(a => a.status === alertFilter.value);
       if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
-      return alerts;
+      // 按时间倒序（最新在前）：优先原始时间戳，缺失时保持原序（demo 固定顺序）
+      return [...alerts].sort((a, b) => {
+        const ta = new Date(a.createdAt || a.raisedAt || a.updatedAt || 0).getTime() || 0;
+        const tb = new Date(b.createdAt || b.raisedAt || b.updatedAt || 0).getTime() || 0;
+        return tb - ta;
+      });
     });
 
     const transitionAlert = async (alert, action) => {
@@ -694,7 +711,15 @@ const AdminOpsView = {
     const devicePage = usePagination(filteredDevices);
     const alertPage = usePagination(filteredAlerts);
 
-    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText,
+    // 地块编号 → 地块名（设备心跳 / 决策审计列显示可读名称）
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plots = props.state.plots || props.state.adminGlobalPlots || [];
+      const plot = plots.find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
+    return { activeTab, deviceFilter, alertFilter, alertLevel, filteredDevices, filteredAlerts, transitionAlert, serviceStatusLabel, serviceNameLabel, modeLabel, deviceTypeLabel, alertStatusLabel, levelLabel, localizedSourceLabel, displayText, plotNameOf,
       devicePageSize: devicePage.pageSize, devicePageSizeOptions: devicePage.pageSizeOptions, deviceCurrentPage: devicePage.currentPage, deviceJumpInput: devicePage.jumpInput, deviceTotalRecords: devicePage.totalRecords, deviceTotalPages: devicePage.totalPages, devicePageRecords: devicePage.pageRecords, devicePrevPage: devicePage.prevPage, deviceNextPage: devicePage.nextPage, deviceChangeSize: devicePage.changeSize, deviceJumpTo: devicePage.jumpTo,
       alertPageSize: alertPage.pageSize, alertPageSizeOptions: alertPage.pageSizeOptions, alertCurrentPage: alertPage.currentPage, alertJumpInput: alertPage.jumpInput, alertTotalRecords: alertPage.totalRecords, alertTotalPages: alertPage.totalPages, alertPageRecords: alertPage.pageRecords, alertPrevPage: alertPage.prevPage, alertNextPage: alertPage.nextPage, alertChangeSize: alertPage.changeSize, alertJumpTo: alertPage.jumpTo };
   }
@@ -782,6 +807,13 @@ const AdminAuditView = {
     const typeFilter = ref('all');
     const expandedPassport = ref(props.routeParams?.traceId || null);
 
+    // 地块编号 → 地块名（决策审计'地块'列）
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plot = (props.state.plots || props.state.adminGlobalPlots || []).find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
     watch(() => props.routeParams, (p) => {
       if (p?.traceId) {
         searchQuery.value = p.traceId;
@@ -812,7 +844,7 @@ const AdminAuditView = {
             prevPage: auditPrevPage, nextPage: auditNextPage, changeSize: auditChangeSize, jumpTo: auditJumpTo } = usePagination(filteredRecords);
     watch([searchQuery, typeFilter], () => { auditPage.value = 1; });
 
-    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport,
+    return { auditTab, searchQuery, typeFilter, expandedPassport, filteredRecords, togglePassport, plotNameOf,
              auditPageSize, auditPageSizeOptions, auditPage, auditJumpInput, auditTotalRecords, auditTotalPages, auditPageRecords,
              auditPrevPage, auditNextPage, auditChangeSize, auditJumpTo,
              localizedStatusLabel, provenanceLabel, levelLabel, displayText };
@@ -830,22 +862,37 @@ const AdminSimulatorView = {
     const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
+    // 场景名规范化：与后端 canonicalSimulationScenario 一致（STORM/HEAVYRAIN → HEAVY_RAIN）
+    const canonicalScenario = (scenario) => {
+      const s = String(scenario || 'NORMAL').toUpperCase().replace('-', '_');
+      return s === 'STORM' || s === 'HEAVYRAIN' ? 'HEAVY_RAIN' : s;
+    };
 
     watch(plots, (newPlots) => {
       const demoScenarios = props.state.sessionMode !== 'live' ? api.getDemoSimulationScenarioMap() : {};
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
         const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
-        const configuredScenario = persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const configuredScenario = canonicalScenario(persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          scenario: existing ? existing.scenario : configuredScenario,
+          // 初始场景值：保存时只提交有变更的地块
+          originalScenario: existing ? existing.originalScenario : configuredScenario,
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
     }, { immediate: true });
+
+    // 按模拟场景筛选（场景配置表格）
+    const scenarioFilter = ref('all');
+    const filteredPlotScenarios = computed(() => {
+      const list = plotScenarios.value || [];
+      if (scenarioFilter.value === 'all') return list;
+      return list.filter(plot => plot.scenario === scenarioFilter.value);
+    });
 
     const globalScenario = computed({
       get: () => {
@@ -922,22 +969,26 @@ const AdminSimulatorView = {
     };
     const applyPlotScenarios = async () => {
       if (simBusy.value) return;
-      const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
-      if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      // 批量应用只针对当前筛选显示的地块，且只提交场景有变更的
+      const targets = (filteredPlotScenarios.value || []).filter((plot) => plot && plot.plotId);
+      const changed = targets.filter((plot) => canonicalScenario(plot.scenario) !== canonicalScenario(plot.originalScenario));
+      if (targets.length === 0) { toast('当前筛选下没有可保存的地块场景配置', 'error'); return; }
+      if (changed.length === 0) { toast('当前筛选下的地块场景均无变更', 'info'); return; }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
-        for (const plot of targets) {
-          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+        for (const plot of changed) {
+          const scenario = canonicalScenario(plot.scenario);
           try {
             await api.updatePlotSimulation(plot.plotId, { scenario });
+            plot.originalScenario = scenario;
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
           }
         }
-        if (updated > 0) toast(`已保存 ${updated}/${targets.length} 个地块的场景配置，模拟器将按新策略生成数据`);
+        if (updated > 0) toast(`已保存 ${updated}/${changed.length} 个有变更地块的场景配置，模拟器将按新策略生成数据`);
         if (failures.length) toast(`保存失败：${failures.join('；')}`, 'error');
       } catch (error) {
         toast(error.message || '场景配置保存失败', 'error');
@@ -1052,7 +1103,7 @@ const AdminSimulatorView = {
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
-      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'HEAVY_RAIN', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
@@ -1062,17 +1113,62 @@ const AdminSimulatorView = {
     }, { immediate: true });
 
     const simHistory = computed(() => props.state.adminSimHistory || []);
+    // 运行历史按地块分组（A 方案）：每地块只显示最新一条运行，历史折叠展开
+    const expandedSimPlots = ref({});
+    const simGrouped = computed(() => {
+      const groups = new Map();
+      (props.state.adminSimHistory || []).forEach((run) => {
+        const key = run.plotId || '未分配';
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(run);
+      });
+      const list = [];
+      groups.forEach((runs, plotId) => {
+        runs.sort((a, b) => {
+          const ta = new Date(a.timeIso || 0).getTime() || 0;
+          const tb = new Date(b.timeIso || 0).getTime() || 0;
+          return tb - ta;
+        });
+        // 默认只显示最新一条（RUNNING 优先）；展开后显示全部
+        const latest = runs[0];
+        const displayRuns = expandedSimPlots.value[plotId] ? runs : (latest ? [latest] : []);
+        list.push({ plotId, name: plotNameOf(plotId), runs, displayRuns, expanded: !!expandedSimPlots.value[plotId] });
+      });
+      return list;
+    });
+    const toggleSimGroup = (plotId) => { expandedSimPlots.value[plotId] = !expandedSimPlots.value[plotId]; };
     const { pageSize: simPageSize, pageSizeOptions: simPageSizeOptions, currentPage: simPage, jumpInput: simJumpInput,
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
 
+    // ISO 时间戳 → 本地短格式（MM-DD HH:mm:ss）；运行中/未结束返回 '—'
+    const formatSimTime = (t) => {
+      if (!t || t === '—') return '—';
+      const d = new Date(t);
+      if (isNaN(d.getTime())) return String(t);
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    };
+    // 场景编号：demo 的 sim-xxx 有意义编号完整保留；live 随机 runId 只显示尾部 8 位（title 可看完整）
+    const shortId = (id) => {
+      const s = String(id || '');
+      if (!s || s.startsWith('sim-')) return s;
+      return s.split('-').pop().slice(0, 8) || s;
+    };
+    // 地块编号 → 地块名
+    const plotNameOf = (plotId) => {
+      if (!plotId || plotId === '*' || plotId === '—') return plotId || '—';
+      const plot = (props.state.plots || []).find(p => p.plotId === plotId);
+      return plot?.name || plotId;
+    };
+
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioFilter, filteredPlotScenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
-      scenarioLabel, localizedStatusLabel
+      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf, simGrouped, expandedSimPlots, toggleSimGroup
     };
   }
 };
@@ -1253,6 +1349,9 @@ const AdminRulesView = {
       const key = `${packId}:${index}`;
       expandedKnowledge.value = expandedKnowledge.value === key ? null : key;
     };
+    // 规则集作物名（与农场管理员规则集一致：eggplant→茄子 等）
+    const RULE_CROP_NAMES = { tomato: '番茄', cucumber: '黄瓜', strawberry: '草莓', corn: '玉米', sunflower: '向日葵', rice: '水稻', eggplant: '茄子', lettuce: '生菜', pepper: '辣椒' };
+    const ruleCropName = (rule) => rule?.cropName || RULE_CROP_NAMES[String(rule?.cropCode || '').toLowerCase()] || rule?.cropCode || '—';
     // 规则集与策略候选列表分页
     const rulesList = computed(() => props.state.adminRules || []);
     const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
@@ -1262,7 +1361,7 @@ const AdminRulesView = {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
-      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText,
+      toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText, ruleCropName,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
       candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };
@@ -1349,6 +1448,36 @@ const AdminSettingsView = {
       return users.filter(u => u.role === roleFilter.value);
     });
 
+    // 操作审计日志：live 版从后端 event_log 拉取（demo 用 MOCK 数据）
+    const AUDIT_ACTION_LABELS = {
+      LOGIN: '登录', ACCOUNT_REGISTERED: '注册账号', ACCOUNT_CREATED: '创建用户', ACCOUNT_DELETED: '删除账号',
+      ACCOUNT_PASSWORD_CHANGED: '修改密码', ACCOUNT_PASSWORD_RESET: '重置密码',
+      CONFIG_CHANGE: '修改配置', RULE_PUBLISH: '发布规则', AI_MODE_CHANGED: '切换模式',
+      'plot.simulation.updated': '模拟启动', 'plot.simulation.reset': '模拟重置', 'plot.simulation.stopped': '模拟停止',
+      ALERT_ACK: '确认告警', ALERT_CLOSE: '关闭告警', FARM_MEMBER_ENABLED: '启用成员', FARM_MEMBER_DISABLED: '停用成员'
+    };
+    const auditActionLabel = (action) => AUDIT_ACTION_LABELS[action] || String(action || '系统事件').replace(/[._]/g, ' ');
+    const logFilterOptions = computed(() => {
+      const seen = new Set();
+      const options = [];
+      (props.state.adminAuditLogs || []).forEach(log => {
+        const label = auditActionLabel(log.action);
+        if (!seen.has(label)) { seen.add(label); options.push({ value: log.action, label }); }
+      });
+      return options;
+    });
+    const loadAdminAuditLogs = async () => {
+      if (props.state?.sessionMode !== 'live') return;
+      try {
+        const logs = await api.getAuditLogs(50);
+        props.state.adminAuditLogs = (logs || []).map(item => ({
+          id: item.id, time: item.time, operator: item.operator || 'system',
+          action: item.action, actionLabel: auditActionLabel(item.action), detail: item.detail || '', ip: '—'
+        }));
+      } catch { /* 审计拉取失败不打断界面 */ }
+    };
+    if (props.state?.sessionMode === 'live') loadAdminAuditLogs();
+
     const filteredLogs = computed(() => {
       const logs = props.state.adminAuditLogs || [];
       if (logFilter.value === 'all') return logs;
@@ -1364,6 +1493,7 @@ const AdminSettingsView = {
       { module: '设备管理', farmer: '👁 查看/报修', farmAdmin: '✅ 绑定/配置', sysAdmin: '👁 接入异常' },
       { module: '成员管理', farmer: '👁 个人资料', farmAdmin: '✅ 本场农户', sysAdmin: '✅ 全部账号/角色' },
       { module: '作物与规则', farmer: '👁 当前标准', farmAdmin: '✅ 农场参数', sysAdmin: '✅ 作物模型包与版本发布' },
+      { module: '市场行情', farmer: '❌ 不提供入口', farmAdmin: '👁 本场作物与监测品种', sysAdmin: '❌ 不提供入口' },
       { module: '审计记录', farmer: '👁 个人记录', farmAdmin: '👁 本场记录', sysAdmin: '✅ 全平台审计' }
     ];
 
@@ -1544,6 +1674,7 @@ const AdminSettingsView = {
     const logPage = usePagination(filteredLogs);
     return {
       activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      logFilterOptions, auditActionLabel,
       permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,
@@ -2031,11 +2162,27 @@ const app = createApp({
           candidate.plotId === record.plotId && candidate.type === record.type && candidate.summary === record.summary
         ) === index)
         .slice(0, 20);
+      // 事件类型 → 中文（live 后端类型名人类可读化）
+      const RECORD_TYPE_LABELS = {
+        ALERT: '系统告警', DIAGNOSIS: '智能诊断', COMMAND: '控制命令', IRRIGATION_PLAN: '灌溉计划',
+        IRRIGATION: '灌溉', READINESS: '决策就绪度', EVALUATION: '效果评价', INSPECTION: '巡田核验',
+        WORK_ORDER: '农务工单', DEVICE: '设备更新', CONFIG: '配置变更', PREDICTION: '风险预测'
+      };
+      const recordTypeLabel = (type) => RECORD_TYPE_LABELS[String(type || '').toUpperCase()] || String(type || '系统事件').replace(/[._]/g, ' ');
+      const SUMMARY_WORD_MAP = {
+        'device.updated': '设备状态更新', 'irrigation.plan.created': '灌溉计划已生成',
+        'irrigation.plan.updated': '灌溉计划已更新', 'diagnosis.created': '诊断已生成',
+        'readiness': '就绪度评估', 'control.command': '控制命令', 'command.submitted': '命令已提交'
+      };
+      const humanSummary = (summary) => {
+        if (!summary) return '';
+        return Object.entries(SUMMARY_WORD_MAP).reduce((text, [key, value]) => text.split(key).join(value), String(summary));
+      };
       const recentEvents = recentEventRecords.map((record) => ({
         id: `audit:${record.traceId}`,
         category: record.type === 'ALERT' || record.result === 'REJECT' ? 'alert' : record.type === 'DIAGNOSIS' ? 'agent' : 'system',
         icon: record.type === 'ALERT' || record.result === 'REJECT' ? 'warning' : record.type === 'DIAGNOSIS' ? 'psychology' : record.type === 'COMMAND' ? 'login' : 'history',
-        title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${record.summary}`,
+        title: `${record.plotId !== '—' ? `${record.plotId} · ` : ''}${recordTypeLabel(record.type)}：${humanSummary(record.summary)}`,
         time: record.time,
         traceId: record.traceId,
         dataOrigin: 'BACKEND'
@@ -2108,20 +2255,25 @@ const app = createApp({
       state.value.adminDevices = adminDevices;
       state.value.adminAlerts = adminAlerts;
       state.value.adminAuditRecords = auditRecords;
-      state.value.adminSimHistory = (results.scenarios?.status === 'fulfilled' ? results.scenarios.value : []).map((run) => ({
-        runId: run.runId,
-        scenarioId: run.scenarioId || run.runId,
-        type: run.scenario || run.scenarioId || '—',
-        typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
-        seed: run.seed,
-        plotId: run.plotId,
-        startTime: run.startedAt || run.createdAt || '—',
-        endTime: run.completedAt || run.endedAt || null,
-        events: Number(run.events || run.mainEvents || run.replayEvents || 0),
-        status: liveStatusValue(run.status, 'UNKNOWN'),
-        statusLabel: localizedStatusLabel(run.status, '未知'),
-        dataOrigin: 'BACKEND'
-      }));
+      state.value.adminSimHistory = (results.scenarios?.status === 'fulfilled' ? results.scenarios.value : []).map((run) => {
+        // RUNNING 运行中：结束时间未知显示'-'（切换完成后旧场景变 COMPLETED 才有具体结束时间）
+        const running = liveStatusValue(run.status, 'UNKNOWN') === 'RUNNING';
+        return {
+          runId: run.runId,
+          scenarioId: run.scenarioId || run.runId,
+          type: run.scenario || run.scenarioId || '—',
+          typeLabel: scenarioLabel(run.scenario || run.scenarioId, '未设置'),
+          seed: run.seed,
+          plotId: run.plotId,
+          timeIso: run.startedAt || run.createdAt || null,
+          startTime: formatSimTime(run.startedAt || run.createdAt),
+          endTime: running ? null : formatSimTime(run.completedAt || run.endedAt),
+          events: Number(run.events || run.mainEvents || run.replayEvents || 0),
+          status: liveStatusValue(run.status, 'UNKNOWN'),
+          statusLabel: localizedStatusLabel(run.status, '未知'),
+          dataOrigin: 'BACKEND'
+        };
+      });
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;

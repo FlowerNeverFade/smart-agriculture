@@ -88,7 +88,7 @@
 | T-011 | P0 | 告警状态机、统一工单、今日农务聚合 | 已完成 | alerts/work-orders/today-work |
 | T-066 | P0 | 告警冷却生效、高温告警 | **待验收** | 同地块同规则冷却复用 |
 | T-028 | P1 | 田间核验、巡田证据、人机融合 | 已完成 | inspections API、USER_PROVIDED |
-| T-127 | P0 | 农户任务状态刷新与具体问题上报 | **待验收** | `POST /work-orders/{workOrderId}/report-issue` 校验执行农户、描述长度、终态和重复上报；落库关联 `FARMER_REPORT` 工单并发布 `workorder.farmer-report`，农场管理员通过既有工单 REST/SSE 接收，农户列表排除报告工单。Java Gradle 全量测试、Web 定向 26/26、Vite、差异检查和本地浏览器关键路径已通过；服务器尚未部署，待线上验收 |
+| T-133 | P0 | 农户任务状态刷新与具体问题上报 | **待验收** | `POST /work-orders/{workOrderId}/report-issue` 校验执行农户、描述长度、终态和重复上报；落库关联 `FARMER_REPORT` 工单并发布 `workorder.farmer-report`，农场管理员通过既有工单 REST/SSE 接收，农户列表排除报告工单。Java Gradle 全量测试、Web 定向 26/26、Vite、差异检查和本地浏览器关键路径已通过；服务器尚未部署，待线上验收 |
 
 ### 3.4 诊断、就绪度、处方与虚拟执行
 
