@@ -414,6 +414,15 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   alerts = alerts || [];
   devices = devices || [];
   recentEvents = recentEvents || [];
+  // 运行时长（秒）→ 可读文本
+  const formatUptime = (seconds) => {
+    const s = Number(seconds);
+    if (!Number.isFinite(s) || s < 0) return '';
+    const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+    if (d > 0) return `${d}天 ${h}小时`;
+    if (h > 0) return `${h}小时 ${m}分`;
+    return `${Math.max(1, m)}分钟`;
+  };
   const statuses = alerts.map((alert) => liveStatusValue(alert.status, 'ACTIVE'));
   const open = statuses.filter((status) => ['ACTIVE', 'OPEN', 'UNACKNOWLEDGED'].includes(status)).length;
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
@@ -433,7 +442,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     .map((scenario) => String(scenario).toUpperCase()))];
   const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
   return {
-    uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
+    uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
     aiMode,
     ai: systemStatus.ai,

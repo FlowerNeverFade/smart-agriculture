@@ -1391,6 +1391,7 @@ class AgriEngine {
     private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private final java.time.Instant startedAt = java.time.Instant.now();
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
@@ -2318,6 +2319,9 @@ class AgriEngine {
         status.put("ai", checkLlmHealth());
         status.put("aiMode", properties.getAiMode());
         status.put("llmModel", properties.getLlmModel());
+        // 运行时长（秒）与接口版本
+        status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
+        status.put("apiVersion", "v1");
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
