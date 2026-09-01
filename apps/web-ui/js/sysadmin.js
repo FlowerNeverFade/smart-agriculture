@@ -678,7 +678,12 @@ const AdminOpsView = {
       let alerts = props.state.adminAlerts || [];
       if (alertFilter.value !== 'all') alerts = alerts.filter(a => a.status === alertFilter.value);
       if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
-      return alerts;
+      // 按时间倒序（最新在前）：优先原始时间戳，缺失时保持原序（demo 固定顺序）
+      return [...alerts].sort((a, b) => {
+        const ta = new Date(a.createdAt || a.raisedAt || a.updatedAt || 0).getTime() || 0;
+        const tb = new Date(b.createdAt || b.raisedAt || b.updatedAt || 0).getTime() || 0;
+        return tb - ta;
+      });
     });
 
     const transitionAlert = async (alert, action) => {

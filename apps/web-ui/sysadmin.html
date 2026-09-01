@@ -498,10 +498,7 @@
                 <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
                 <td>{{ displayText(a.summary) }}</td>
                 <td><span class="status-pill" :class="a.status === 'OPEN' ? 'warning' : a.status === 'ACK' ? 'info' : 'completed'">{{ a.statusLabel || alertStatusLabel(a.status) }}</span></td>
-                <td>
-                  <button v-if="a.status==='OPEN'" class="g-btn text sm" @click="transitionAlert(a, 'ack')">确认</button>
-                  <button v-if="a.status==='ACK'" class="g-btn text sm" @click="transitionAlert(a, 'close')">关闭</button>
-                </td>
+                <td><span style="color:var(--g-muted);font-size:12px">—</span></td>
               </tr>
             </tbody>
           </table>
