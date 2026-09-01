@@ -14,6 +14,7 @@ const viewSource = readFileSync(new URL('../js/modules/admin-global-wholesale.js
 const marketViewSource = readFileSync(new URL('../js/modules/admin-market-insights.js', import.meta.url), 'utf8');
 const styles = readFileSync(new URL('../css/modules/admin-market.css', import.meta.url), 'utf8');
 const mapBytes = readFileSync(new URL('../assets/maps/official-world-gs2016-1663.jpg', import.meta.url));
+const internationalReference = JSON.parse(readFileSync(new URL('../../api-service/src/main/resources/market-reference/defra-uk-wholesale-2026-08-17.json', import.meta.url), 'utf8'));
 
 test('global wholesale catalog stays compact and offers multiple transport modes', () => {
   assert.equal(GLOBAL_WHOLESALE_MARKETS.length, 9);
@@ -76,4 +77,18 @@ test('market workspace separates observed prices from simulated global planning'
   assert.match(viewSource, /毛差未计汇率、税务、资金占用、退货、质量分级与实际询价差异/);
   assert.match(styles, /@media \(max-width: 720px\)/);
   assert.match(styles, /\.global-wholesale-map/);
+});
+
+test('DEFRA observations remain available to the global London context only', () => {
+  assert.equal(internationalReference.provider, 'UK_DEFRA');
+  assert.equal(internationalReference.license, 'Open Government Licence v3.0');
+  assert.equal(internationalReference.series.length, 4);
+  const tomato = internationalReference.series.find(item => item.cropCode === 'tomato');
+  assert.equal(tomato.unit, 'GBP/kg');
+  assert.ok(tomato.points.length > 12);
+  assert.ok(!tomato.points.some(point => point.date === '2026-08-10'));
+  assert.match(viewSource, /selectedCrop\.value\?\.internationalReference/);
+  assert.match(viewSource, /英国 DEFRA/);
+  assert.match(viewSource, /不换汇、不进入本页到岸或毛差计算/);
+  assert.doesNotMatch(marketViewSource, /国际参考|DEFRA|referencePeriods|chartMode|buildReferenceChartHistory|market-reference-banner|market-chart-mode-switch/);
 });

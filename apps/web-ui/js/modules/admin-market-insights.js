@@ -8,11 +8,6 @@ const RANGE_OPTIONS = Object.freeze([
   { value: 30, label: '近30日' },
   { value: 90, label: '近90日' }
 ]);
-const REFERENCE_PERIOD_OPTIONS = Object.freeze([
-  { value: 6, label: '近6期' },
-  { value: 12, label: '近12期' },
-  { value: 24, label: '近24期' }
-]);
 
 function finite(value) {
   if (value == null || value === '') return null;
@@ -32,31 +27,6 @@ function sourceLabel(status) {
   return ({ LIVE: '官方日行情', CACHED: '最近归档行情', DEMO: '演示行情 · 非真实价格', DISABLED: '行情源已停用', UNAVAILABLE: '行情暂不可用' })[String(status || '').toUpperCase()] || '行情状态待确认';
 }
 
-function sortedReferencePoints(points = [], periods = 12) {
-  return [...(Array.isArray(points) ? points : [])]
-    .filter(point => point?.date && finite(point?.price) != null)
-    .sort((left, right) => String(left.date).localeCompare(String(right.date)))
-    .slice(-Math.max(1, Number(periods) || 12));
-}
-
-export function buildReferenceChartHistory(points = [], periods = 12) {
-  const selected = sortedReferencePoints(points, periods);
-  const result = [];
-  selected.forEach((point, index) => {
-    if (index > 0) {
-      const previous = new Date(`${selected[index - 1].date}T00:00:00Z`);
-      const current = new Date(`${point.date}T00:00:00Z`);
-      const gapDays = Math.round((current - previous) / 86400000);
-      if (gapDays > 21) {
-        const gap = new Date(previous); gap.setUTCDate(gap.getUTCDate() + 14);
-        result.push({ date: gap.toISOString().slice(0, 10), price: null, isPublicationGap: true });
-      }
-    }
-    result.push({ date: point.date, price: finite(point.price) });
-  });
-  return result;
-}
-
 export const AdminMarketInsightsView = {
   name: 'AdminMarketInsightsView',
   components: { AdminGlobalWholesalePanel },
@@ -65,8 +35,7 @@ export const AdminMarketInsightsView = {
     const toast = inject('toast');
     const loading = ref(false); const error = ref(null); const market = ref(null);
     const workspaceMode = ref('local');
-    const scope = ref('farm'); const rangeDays = ref(30); const referencePeriods = ref(12); const selectedCropCode = ref('');
-    const chartMode = ref('local'); const chartModeByCrop = new Map();
+    const scope = ref('farm'); const rangeDays = ref(30); const selectedCropCode = ref('');
     const chartEl = ref(null); let chart = null; let refreshTimer = null; let resizeObserver = null;
 
     const farmId = computed(() => props.state?.adminContext?.farmId || props.routeParams?.farmId || props.state?.plots?.[0]?.farmId || 'farm-demo');
@@ -77,13 +46,7 @@ export const AdminMarketInsightsView = {
     const sourceTone = computed(() => status.value === 'LIVE' ? 'live' : status.value === 'DEMO' ? 'demo' : status.value === 'CACHED' ? 'cached' : 'unavailable');
     const selectedQuotes = computed(() => Array.isArray(selectedCrop.value?.marketQuotes) ? selectedCrop.value.marketQuotes : []);
     const selectedHistory = computed(() => Array.isArray(selectedCrop.value?.history) ? selectedCrop.value.history : []);
-    const selectedReference = computed(() => {
-      const reference = selectedCrop.value?.internationalReference;
-      return reference && Array.isArray(reference.points) && reference.points.length ? reference : null;
-    });
-    const selectedReferencePoints = computed(() => sortedReferencePoints(selectedReference.value?.points, referencePeriods.value));
     const chartHistory = computed(() => {
-      if (chartMode.value === 'reference') return buildReferenceChartHistory(selectedReference.value?.points, referencePeriods.value);
       const observed = new Map(selectedHistory.value.map(point => [point.date, point]));
       const end = new Date(); end.setHours(0, 0, 0, 0);
       return Array.from({ length: rangeDays.value }, (_, index) => {
@@ -93,13 +56,11 @@ export const AdminMarketInsightsView = {
       });
     });
     const availableCount = computed(() => crops.value.filter(item => item.available).length);
-    const chartUnit = computed(() => chartMode.value === 'reference' ? selectedReference.value?.unitLabel || '原始单位' : '元/公斤');
-    const chartRangeLabel = computed(() => chartMode.value === 'reference' ? `最近${referencePeriods.value}个发布期` : `近${rangeDays.value}日`);
-    const axisDisclosure = computed(() => chartMode.value === 'reference'
-      ? `当前为英国 DEFRA 国际参考；纵轴按可见范围缩放、不从 0 起，保留${chartUnit.value}原单位，不换算、不与重庆报价直接比较；超过一个发布周期的缺口断线。`
-      : selectedHistory.value.length > 1
-        ? `纵轴按当前${rangeDays.value}日可见价格范围缩放，不从 0 起；缺失日期不连线、不插值。`
-        : '重庆真实历史由系统逐日归档；当前样本不足时可切换国际参考，但不会用参考值补写本地历史。');
+    const chartUnit = computed(() => '元/公斤');
+    const chartRangeLabel = computed(() => `近${rangeDays.value}日`);
+    const axisDisclosure = computed(() => selectedHistory.value.length > 1
+      ? `纵轴按当前${rangeDays.value}日可见价格范围缩放，不从 0 起；缺失日期不连线、不插值。`
+      : '重庆真实历史正在逐日积累，不使用外部参考或模拟值补齐。');
 
     const renderChart = async () => {
       await nextTick();
@@ -110,25 +71,23 @@ export const AdminMarketInsightsView = {
       resizeObserver?.disconnect?.(); resizeObserver?.observe?.(chartEl.value);
       const history = chartHistory.value;
       const main = history.map(point => [point.date, finite(point.price)]);
-      const minimum = history.map(point => [point.date, chartMode.value === 'local' ? finite(point.minPrice) : null]);
-      const maximum = history.map(point => [point.date, chartMode.value === 'local' ? finite(point.maxPrice) : null]);
+      const minimum = history.map(point => [point.date, finite(point.minPrice)]);
+      const maximum = history.map(point => [point.date, finite(point.maxPrice)]);
       const hasObservedPrice = main.some(point => point[1] != null);
       const cropName = selectedCrop.value?.cropName || '作物';
-      const margin = values => Math.max(chartMode.value === 'reference' ? .08 : .2, (Number(values.max) - Number(values.min)) * .12);
-      const seriesNames = chartMode.value === 'reference' ? ['英国批发参考'] : ['参考价', '市场最低', '市场最高'];
-      const series = chartMode.value === 'reference'
-        ? [{ name: '英国批发参考', type: 'line', data: main, connectNulls: false, showSymbol: true, symbol: 'diamond', symbolSize: 8, lineStyle: { color: '#6f5aa8', width: 2.3 }, itemStyle: { color: '#ffffff', borderColor: '#262626', borderWidth: 1.2 }, emphasis: { focus: 'series' } }]
-        : [
-            { name: '参考价', type: 'line', data: main, connectNulls: false, showSymbol: true, symbol: 'circle', symbolSize: 7, lineStyle: { color: '#35ae94', width: 2.4 }, itemStyle: { color: '#ffffff', borderColor: '#262626', borderWidth: 1.2 }, emphasis: { focus: 'series' } },
-            { name: '市场最低', type: 'line', data: minimum, connectNulls: false, showSymbol: false, lineStyle: { color: '#5b8dd9', width: 1.3, type: 'dashed' } },
-            { name: '市场最高', type: 'line', data: maximum, connectNulls: false, showSymbol: false, lineStyle: { color: '#ddb68d', width: 1.3, type: 'dotted' } }
-          ];
+      const margin = values => Math.max(.2, (Number(values.max) - Number(values.min)) * .12);
+      const seriesNames = ['参考价', '市场最低', '市场最高'];
+      const series = [
+        { name: '参考价', type: 'line', data: main, connectNulls: false, showSymbol: true, symbol: 'circle', symbolSize: 7, lineStyle: { color: '#35ae94', width: 2.4 }, itemStyle: { color: '#ffffff', borderColor: '#262626', borderWidth: 1.2 }, emphasis: { focus: 'series' } },
+        { name: '市场最低', type: 'line', data: minimum, connectNulls: false, showSymbol: false, lineStyle: { color: '#5b8dd9', width: 1.3, type: 'dashed' } },
+        { name: '市场最高', type: 'line', data: maximum, connectNulls: false, showSymbol: false, lineStyle: { color: '#ddb68d', width: 1.3, type: 'dotted' } }
+      ];
       chart.setOption({
         animation: false,
         backgroundColor: '#ffffff',
         textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
         aria: { enabled: true, description: `${cropName}${chartRangeLabel.value}价格折线，单位${chartUnit.value}。缺失日期保留为空白。` },
-        title: hasObservedPrice ? undefined : { text: chartMode.value === 'reference' ? '当前作物没有国际参考序列' : selectedCrop.value?.available ? '重庆历史行情正在积累' : '当前没有重庆报价', left: 'center', top: 'middle', textStyle: { color: '#777777', fontSize: 14, fontWeight: 'normal' } },
+        title: hasObservedPrice ? undefined : { text: selectedCrop.value?.available ? '重庆历史行情正在积累' : '当前没有重庆报价', left: 'center', top: 'middle', textStyle: { color: '#777777', fontSize: 14, fontWeight: 'normal' } },
         tooltip: {
           trigger: 'axis', confine: true, backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1,
           textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
@@ -168,7 +127,6 @@ export const AdminMarketInsightsView = {
         if (!crops.value.some(item => item.cropCode === selectedCropCode.value)) {
           selectedCropCode.value = crops.value.find(item => item.available)?.cropCode || crops.value[0]?.cropCode || '';
         }
-        syncChartMode();
         await renderChart();
       } catch (caught) {
         error.value = caught;
@@ -176,19 +134,8 @@ export const AdminMarketInsightsView = {
       } finally { loading.value = false; }
     };
 
-    const syncChartMode = () => {
-      const cropCode = selectedCrop.value?.cropCode || '';
-      const saved = chartModeByCrop.get(cropCode);
-      const referenceAvailable = Boolean(selectedReference.value?.points?.length > 1);
-      chartMode.value = saved === 'reference' && referenceAvailable
-        ? 'reference'
-        : saved === 'local'
-          ? 'local'
-          : selectedHistory.value.length < 3 && referenceAvailable ? 'reference' : 'local';
-    };
     const chooseCrop = cropCode => {
       selectedCropCode.value = cropCode;
-      syncChartMode();
       if (workspaceMode.value === 'local') void renderChart();
     };
     const chooseWorkspace = mode => {
@@ -198,14 +145,7 @@ export const AdminMarketInsightsView = {
       if (nextMode === 'local') void renderChart();
       else { resizeObserver?.disconnect?.(); chart?.dispose?.(); chart = null; }
     };
-    const chooseChartMode = mode => {
-      if (mode === 'reference' && !selectedReference.value?.points?.length) return;
-      chartMode.value = mode === 'reference' ? 'reference' : 'local';
-      chartModeByCrop.set(selectedCrop.value?.cropCode || '', chartMode.value);
-      void renderChart();
-    };
     const chooseRange = value => { if (rangeDays.value === value) return; rangeDays.value = value; void load(); };
-    const chooseReferencePeriod = value => { if (referencePeriods.value === value) return; referencePeriods.value = value; void renderChart(); };
     const chooseScope = value => { if (scope.value === value) return; scope.value = value; selectedCropCode.value = ''; void load(); };
     const refresh = () => load();
     const observationTone = item => String(item?.salesObservation?.tone || 'NEUTRAL').toLowerCase();
@@ -228,10 +168,10 @@ export const AdminMarketInsightsView = {
     });
 
     return {
-      loading, error, market, workspaceMode, scope, rangeDays, referencePeriods, chartMode, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
-      sourceTone, selectedQuotes, selectedHistory, selectedReference, selectedReferencePoints, chartHistory, chartUnit, chartRangeLabel,
-      availableCount, axisDisclosure, RANGE_OPTIONS, REFERENCE_PERIOD_OPTIONS,
-      price, signed, changeTone, sourceLabel, chooseCrop, chooseWorkspace, chooseChartMode, chooseRange, chooseReferencePeriod, chooseScope, refresh, observationTone, quoteDifference
+      loading, error, market, workspaceMode, scope, rangeDays, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
+      sourceTone, selectedQuotes, selectedHistory, chartHistory, chartUnit, chartRangeLabel,
+      availableCount, axisDisclosure, RANGE_OPTIONS,
+      price, signed, changeTone, sourceLabel, chooseCrop, chooseWorkspace, chooseRange, chooseScope, refresh, observationTone, quoteDifference
     };
   },
   template: `
@@ -269,7 +209,7 @@ export const AdminMarketInsightsView = {
             <button type="button" :class="{active: scope === 'farm'}" @click="chooseScope('farm')">本场作物</button>
             <button type="button" :class="{active: scope === 'all'}" @click="chooseScope('all')">全部监测品种</button>
           </div>
-          <span>重庆报价为元/公斤；国际参考保留原始英镑/公斤，不做汇率换算或价格拼接。</span>
+          <span>重庆报价统一为元/公斤；历史曲线只使用系统归档的重庆真实日价。</span>
         </div>
 
         <div v-if="error" class="market-error"><strong>{{ error.code || 'MARKET_PRICE_UNAVAILABLE' }}</strong><span>{{ error.message || error }}</span></div>
@@ -283,7 +223,7 @@ export const AdminMarketInsightsView = {
             <span class="market-ticker-identity"><b>{{ item.emoji || '🌱' }}</b><span><strong>{{ item.cropName }}</strong><small>{{ item.marketVarietyName }}<em v-if="item.inFarm">本场</em></small></span></span>
             <span class="market-ticker-price"><strong>{{ price(item.latestPrice) }}</strong><small>元/公斤</small></span>
             <span class="market-ticker-change" :class="'is-' + changeTone(item.changePct)"><span aria-hidden="true">{{ changeTone(item.changePct) === 'up' ? '↑' : changeTone(item.changePct) === 'down' ? '↓' : '—' }}</span>{{ signed(item.changePct, '%') }}</span>
-            <span class="market-ticker-date">{{ item.available ? item.quoteDate + ' · ' + item.marketCount + ' 个市场' : item.internationalReference ? '今日暂无重庆报价 · 有国际参考' : '今日暂无上报报价' }}</span>
+            <span class="market-ticker-date">{{ item.available ? item.quoteDate + ' · ' + item.marketCount + ' 个市场' : '今日暂无上报报价' }}</span>
           </button>
         </div>
 
@@ -296,40 +236,19 @@ export const AdminMarketInsightsView = {
                 <p>{{ selectedCrop.priceBasis === 'PREFERRED_MARKET' ? selectedCrop.preferredMarket + ' 报价' : '重庆市场简单均值（非成交量加权）' }}</p>
               </div>
               <div class="market-chart-controls">
-                <div class="market-chart-mode-switch" aria-label="曲线数据来源">
-                  <button type="button" :class="{active: chartMode === 'local'}" @click="chooseChartMode('local')">重庆归档 · {{ selectedHistory.length }}日</button>
-                  <button type="button" :class="{active: chartMode === 'reference'}" :disabled="!selectedReference" @click="chooseChartMode('reference')">国际参考 · {{ selectedReference?.observationCount || 0 }}期</button>
-                </div>
-                <div v-if="chartMode === 'local'" class="market-range-switch" aria-label="重庆历史范围">
+                <div class="market-range-switch" aria-label="重庆历史范围">
                   <button v-for="option in RANGE_OPTIONS" :key="option.value" type="button" :class="{active: rangeDays === option.value}" @click="chooseRange(option.value)">{{ option.label }}</button>
-                </div>
-                <div v-else class="market-range-switch" aria-label="国际参考范围">
-                  <button v-for="option in REFERENCE_PERIOD_OPTIONS" :key="option.value" type="button" :class="{active: referencePeriods === option.value}" @click="chooseReferencePeriod(option.value)">{{ option.label }}</button>
                 </div>
               </div>
             </header>
-            <div v-if="chartMode === 'reference' && selectedReference" class="market-reference-banner">
-              <span class="ph ph-globe-hemisphere-west" aria-hidden="true"></span>
-              <p><strong>{{ selectedReference.name }}</strong>{{ selectedReference.region }} · {{ selectedReference.label }} · 截至 {{ selectedReference.publishedThrough }} · {{ selectedReference.unitLabel }}
-                <a :href="selectedReference.sourceUrl" target="_blank" rel="noopener noreferrer">查看来源</a></p>
-            </div>
             <div ref="chartEl" class="market-price-chart" role="img" :aria-label="selectedCrop.cropName + chartRangeLabel + chartUnit + '价格曲线'"></div>
             <p class="market-axis-note"><span class="ph ph-info" aria-hidden="true"></span>{{ axisDisclosure }}</p>
-            <details v-if="chartMode === 'local'" class="market-history-details">
+            <details class="market-history-details">
               <summary>查看已归档日价明细（{{ selectedHistory.length }} 日）</summary>
               <div class="market-table-wrap">
                 <table><thead><tr><th scope="col">日期</th><th scope="col">参考价</th><th scope="col">市场低—高</th><th scope="col">上报市场</th></tr></thead>
                   <tbody><tr v-for="point in [...selectedHistory].reverse()" :key="point.date"><td>{{ point.date }}</td><td>{{ price(point.price) }} 元/公斤</td><td>{{ price(point.minPrice) }}—{{ price(point.maxPrice) }}</td><td>{{ point.marketCount || 0 }} 个</td></tr>
                     <tr v-if="!selectedHistory.length"><td colspan="4">尚未归档真实日价；缺失日期不会用模拟值补齐。</td></tr></tbody>
-                </table>
-              </div>
-            </details>
-            <details v-else class="market-history-details">
-              <summary>查看国际参考原始观测（{{ selectedReferencePoints.length }} 期）</summary>
-              <div class="market-table-wrap">
-                <table><thead><tr><th scope="col">发布日期</th><th scope="col">原始报价</th><th scope="col">来源商品</th><th scope="col">数据属性</th></tr></thead>
-                  <tbody><tr v-for="point in [...selectedReferencePoints].reverse()" :key="point.date"><td>{{ point.date }}</td><td>{{ price(point.price) }} {{ selectedReference?.unitLabel }}</td><td>{{ selectedReference?.label }}</td><td>外部观测 · 不可与重庆价格直接比较</td></tr>
-                    <tr v-if="!selectedReferencePoints.length"><td colspan="4">当前作物没有可用的国际参考序列。</td></tr></tbody>
                 </table>
               </div>
             </details>
