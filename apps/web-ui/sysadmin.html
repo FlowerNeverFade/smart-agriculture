@@ -554,6 +554,7 @@
             <th>时间</th><th>追踪编号</th><th>操作人</th><th>地块</th><th>类型</th><th>摘要</th><th>结果</th><th></th>
           </tr></thead>
           <tbody>
+            <tr v-if="!auditPageRecords.length"><td colspan="8" style="text-align:center;color:var(--g-muted);padding:24px">暂无决策审计记录</td></tr>
             <template v-for="record in auditPageRecords" :key="record.traceId">
               <tr @click="togglePassport(record.traceId)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ record.time }}</td>
