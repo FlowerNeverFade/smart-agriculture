@@ -416,7 +416,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
   const acknowledged = statuses.filter((status) => ['ACK', 'ACKED'].includes(status)).length;
   const online = devices.filter((device) => ['ONLINE', 'UP', 'ACTIVE'].includes(liveStatusValue(device.status))).length;
   const simStatus = liveStatusValue(simulator.status, 'UNAVAILABLE');
-  const rawAiMode = String(systemStatus.ai || overview.aiMode || '—').trim().toLowerCase();
+  const rawAiMode = String(systemStatus.aiMode || overview.aiMode || '—').trim().toLowerCase();
   // The backend calls a configured Qwen/OpenAI-compatible adapter
   // `openai-compatible`; the overview uses the concise product-facing mode
   // names used by the demo card.
