@@ -1259,12 +1259,36 @@ const AdminRulesView = {
         savingPack.value = false;
       }
     };
+    const candidateStatusCode = (candidate) => {
+      const raw = String(candidate?.status || '').toUpperCase();
+      return ({ pending: 'DRAFT', verified: 'OFFLINE_VALIDATED', approved: 'APPROVED', active: 'ACTIVE', rejected: 'REJECTED', superseded: 'SUPERSEDED', rolled_back: 'ROLLED_BACK' }[String(candidate?.status || '').toLowerCase()] || raw);
+    };
+    const canValidateCandidate = (candidate) => candidateStatusCode(candidate) === 'DRAFT';
+    const canApproveCandidate = (candidate) => candidateStatusCode(candidate) === 'OFFLINE_VALIDATED';
+    const canActivateCandidate = (candidate) => candidateStatusCode(candidate) === 'APPROVED';
+    const canRejectCandidate = (candidate) => ['DRAFT', 'OFFLINE_VALIDATED'].includes(candidateStatusCode(candidate));
+    const canRollbackCandidate = (candidate) => candidateStatusCode(candidate) === 'ACTIVE';
+    const validateCandidate = async (candidate) => {
+      if (!candidate?.id) return;
+      try {
+        const saved = await api.offlineValidateLearningCandidate(candidate.id, { seed: 42, scenarioId: candidate.scenarioId || 'normal' });
+        Object.assign(candidate, saved);
+        const status = String(saved?.status || '').toUpperCase();
+        candidate.status = ({ DRAFT: 'pending', OFFLINE_VALIDATED: 'verified', APPROVED: 'approved', ACTIVE: 'active', REJECTED: 'rejected', SUPERSEDED: 'superseded', ROLLED_BACK: 'rolled_back' }[status] || String(saved?.status || candidate.status || 'pending').toLowerCase());
+        candidate.statusLabel = localizedStatusLabel(status || candidate.status);
+        toast(saved?.offlineValidation?.status === 'PASSED' ? '离线回放通过，可提交人工批准' : '离线回放未通过，候选保持待处理');
+      } catch (error) { toast(error.message || '离线验证失败', 'error'); }
+    };
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
       try {
-        const saved = await api.transitionStrategyCandidate(candidate.id, status);
-        candidate.status = String(saved?.status || status).toLowerCase();
-        toast(`策略候选已更新为“${localizedStatusLabel(candidate.status)}”，后端记录已同步`);
+        const options = { expectedRevision: candidate.revision, idempotencyKey: `strategy:${candidate.id}:${status}` };
+        const saved = await api.transitionStrategyCandidate(candidate.id, status, options);
+        Object.assign(candidate, saved);
+        const rawStatus = String(saved?.status || status).toUpperCase();
+        candidate.status = ({ DRAFT: 'pending', OFFLINE_VALIDATED: 'verified', APPROVED: 'approved', ACTIVE: 'active', REJECTED: 'rejected', SUPERSEDED: 'superseded', ROLLED_BACK: 'rolled_back' }[rawStatus] || rawStatus.toLowerCase());
+        candidate.statusLabel = localizedStatusLabel(rawStatus);
+        toast(status === 'ACTIVE' ? '策略候选已启用' : status === 'APPROVED' ? '策略候选已批准，可继续启用' : `策略候选已更新为“${candidate.statusLabel}”`);
       } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
     };
     const addStage = () => packForm.value.stages.push('');
@@ -1303,6 +1327,59 @@ const AdminRulesView = {
     // 规则集与策略候选列表分页
     const rulesList = computed(() => props.state.adminRules || []);
     const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
+    const learningCasesList = computed(() => props.state.adminLearningCases || []);
+    const learningFilter = ref('ALL');
+    const learningCounts = computed(() => learningCasesList.value.reduce((counts, item) => {
+      const status = String(item?.qualityStatus || 'PENDING').toUpperCase();
+      if (status === 'QUALIFIED') counts.qualified += 1;
+      else if (status === 'REJECTED') counts.rejected += 1;
+      else counts.pending += 1;
+      return counts;
+    }, { qualified: 0, pending: 0, rejected: 0 }));
+    const filteredLearningCases = computed(() => {
+      const wanted = String(learningFilter.value || 'ALL').toUpperCase();
+      return learningCasesList.value.filter((item) => wanted === 'ALL' || String(item?.qualityStatus || 'PENDING').toUpperCase() === wanted);
+    });
+    const learningReason = (item) => {
+      const values = item?.excludedReason?.length ? item.excludedReason : item?.pendingReason?.length ? item.pendingReason : item?.selectionReason;
+      return Array.isArray(values) ? values.join('；') : String(values || '等待质量评估');
+    };
+    const learningUses = (item) => {
+      const labels = { POSITIVE_RETRIEVAL: '允许检索', STRATEGY_CANDIDATE: '可生成策略', OFFLINE_TRAINING: '可导出训练', NEGATIVE_EVALUATION: '仅反例', NONE: '不参与学习' };
+      return (Array.isArray(item?.learningUses) ? item.learningUses : []).map((value) => labels[String(value).toUpperCase()] || value).join('、') || '不参与学习';
+    };
+    const learningStatus = (value) => ({ QUALIFIED: '合格', PENDING: '待审核', REJECTED: '已排除' }[String(value || 'PENDING').toUpperCase()] || '待审核');
+    const learningTone = (value) => ({ QUALIFIED: 'approved', PENDING: 'pending', REJECTED: 'rejected' }[String(value || 'PENDING').toUpperCase()] || 'pending');
+    const strategySummary = (value) => {
+      if (value === null || value === undefined || value === '') return '未记录';
+      if (typeof value !== 'object') return displayText(value, '未记录');
+      if (Array.isArray(value)) return value.map(item => strategySummary(item)).filter(Boolean).join('、') || '未记录';
+      return Object.entries(value).slice(0, 6).map(([key, item]) => `${displayText(key, key)}：${strategySummary(item)}`).join('；') || '未记录';
+    };
+    const offlineEvidence = (candidate) => {
+      const ids = candidate?.offlineValidation?.evidenceCaseIds || candidate?.evidenceCaseIds;
+      return Array.isArray(ids) && ids.length ? ids.join('、') : '—';
+    };
+    const rollbackSummary = (candidate) => [candidate?.rolledBackBy && `操作人 ${candidate.rolledBackBy}`, candidate?.rolledBackAt && String(candidate.rolledBackAt).slice(0, 16).replace('T', ' '), candidate?.rollbackReason && displayText(candidate.rollbackReason)].filter(Boolean).join(' · ') || '已回滚到上一版本';
+    const reviewLearningCase = async (item, decision) => {
+      if (!item?.caseId) return;
+      const note = typeof window !== 'undefined' && typeof window.prompt === 'function' ? (window.prompt(decision === 'QUALIFIED' ? '审核备注（可选）' : '排除原因（可选）', '') || '') : '';
+      try {
+        const saved = await api.reviewLearningCase(item.caseId, decision, note);
+        const index = learningCasesList.value.findIndex((row) => row.caseId === item.caseId);
+        if (index >= 0) learningCasesList.value.splice(index, 1, { ...learningCasesList.value[index], ...saved });
+        toast(decision === 'QUALIFIED' ? '案例已纳入正向经验' : '案例已保留为反例');
+      } catch (error) { toast(error.message || '案例审核失败', 'error'); }
+    };
+    const reEvaluateLearningCase = async (item) => {
+      if (!item?.caseId) return;
+      try {
+        const saved = await api.reevaluateLearningCase(item.caseId);
+        const index = learningCasesList.value.findIndex((row) => row.caseId === item.caseId);
+        if (index >= 0) learningCasesList.value.splice(index, 1, { ...learningCasesList.value[index], ...saved });
+        toast('案例已重新评估');
+      } catch (error) { toast(error.message || '重新评估失败', 'error'); }
+    };
     const rulePage = usePagination(rulesList);
     const candidatePage = usePagination(candidatesList);
     return {
@@ -1310,6 +1387,8 @@ const AdminRulesView = {
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
       toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText, ruleCropName,
+      learningCasesList, learningFilter, learningCounts, filteredLearningCases, learningReason, learningUses, learningStatus, learningTone, strategySummary, offlineEvidence, rollbackSummary, reviewLearningCase, reEvaluateLearningCase,
+      candidateStatusCode, canValidateCandidate, canApproveCandidate, canActivateCandidate, canRejectCandidate, canRollbackCandidate, validateCandidate,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
       candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };
@@ -1711,6 +1790,7 @@ const app = createApp({
       adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
       adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
       adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      adminLearningCases: isDemoSession ? (MOCK_DATA.adminLearningCases || []) : [],
       adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
       adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
     });
@@ -1971,6 +2051,7 @@ const app = createApp({
       if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
+      if (wants('rulesStrategies') || wants('overview') || wants('cropPacks')) jobs.adminLearningCases = api.getLearningCases({ farmId });
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
         jobs.inspections = api.getPlots({ farmId, includeInactive: false })
@@ -2009,6 +2090,7 @@ const app = createApp({
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
       }
+      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
@@ -2035,6 +2117,7 @@ const app = createApp({
         cropPacks: api.getCropPacks(),
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
+        learningCases: api.getLearningCases(),
         simulator: api.getSimulatorStatus(),
         resourcePlans: api.listResourcePlans({}),
         resourceRequests: api.listResourceRequests({}),
@@ -2152,6 +2235,7 @@ const app = createApp({
       const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
       const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
       const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
+      const adminLearningCases = results.learningCases?.status === 'fulfilled' ? (results.learningCases.value || []) : [];
       const currentUser = state.value.currentUser;
       const adminUsers = mapSystemMembers(members, farms);
       if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
@@ -2224,6 +2308,7 @@ const app = createApp({
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;
+      state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
       state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });

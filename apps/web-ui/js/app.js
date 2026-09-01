@@ -3091,6 +3091,7 @@ const app = createApp({
       adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
       adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
       adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      adminLearningCases: isDemoSession ? (MOCK_DATA.adminLearningCases || []) : [],
       adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
       adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
     });
@@ -3375,6 +3376,7 @@ const app = createApp({
       if (wants('cropPacks') || wants('rulesStrategies') || wants('overview')) {
         jobs.adminRules = api.getRuleSets(farmId);
         jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
+        jobs.adminLearningCases = api.getLearningCases({ farmId });
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
       if (wants('inspections') || wants('overview')) {
@@ -3431,6 +3433,7 @@ const app = createApp({
       }
       if (results.adminRules?.status === 'fulfilled') state.value.adminRules = results.adminRules.value || [];
       if (results.adminStrategyCandidates?.status === 'fulfilled') state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
+      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
@@ -3457,6 +3460,7 @@ const app = createApp({
         cropPacks: api.getCropPacks(),
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
+        learningCases: api.getLearningCases(),
         simulator: api.getSimulatorStatus(),
         resourcePlans: api.listResourcePlans({}),
         resourceRequests: api.listResourceRequests({}),
@@ -3558,6 +3562,7 @@ const app = createApp({
       const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
       const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
       const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
+      const adminLearningCases = results.learningCases?.status === 'fulfilled' ? (results.learningCases.value || []) : [];
       const currentUser = state.value.currentUser;
       const adminUsers = mapSystemMembers(members, farms);
       if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
@@ -3625,6 +3630,7 @@ const app = createApp({
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;
+      state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
       state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });

@@ -5001,10 +5001,78 @@ export class ApiService {
     return JSON.parse(JSON.stringify(saved));
   }
 
-  async getAlertLearningCases(farmId, candidateId = '') {
-    if (!farmId) return [];
-    if (this.sessionMode === 'live') { const query = new URLSearchParams({ farmId }); if (candidateId) query.set('candidateId', candidateId); const resp = await this._fetch(`/api/v1/alert-learning-cases?${query}`); return resp?.data || []; }
+  async getAlertLearningCases(farmId = '', candidateId = '', filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (candidateId) query.set('candidateId', candidateId);
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/alert-learning-cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
     return [];
+  }
+
+  async getLearningCases(filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/learning/cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async reevaluateLearningCase(caseId) {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return {};
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/re-evaluate`, { method: 'POST', body: JSON.stringify({}) });
+    return resp?.data || resp;
+  }
+
+  async reviewLearningCase(caseId, decision, note = '') {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { caseId, qualityStatus: String(decision || 'REJECTED').toUpperCase(), reviewNote: note };
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/review`, {
+      method: 'POST', body: JSON.stringify({ decision, note })
+    });
+    return resp?.data || resp;
+  }
+
+  async generateLearningStrategyCandidate(input = {}) {
+    if (this.sessionMode !== 'live') return { ...input, status: 'DRAFT', sourceMode: 'SIMULATED' };
+    const resp = await this._fetch('/api/v1/learning/strategy-candidates/generate', { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async offlineValidateLearningCandidate(candidateId, input = {}) {
+    if (!candidateId) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { candidateId, status: 'OFFLINE_VALIDATED', offlineValidation: { status: 'PASSED', seed: Number(input.seed || 42) } };
+    const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(candidateId)}/offline-validate`, { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async exportApprovedTrainingSet(filters = {}) {
+    if (this.sessionMode !== 'live') return { format: 'agriloop-controlled-learning-v1', caseCount: 0, cases: [], modelUpdate: 'NOT_PERFORMED' };
+    const query = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') query.set(key, String(value)); });
+    const resp = await this._fetch(`/api/v1/learning/training-export${query.toString() ? `?${query}` : ''}`);
+    return resp?.data || resp;
+  }
+
+  async getLearningAudit(limit = 100) {
+    if (this.sessionMode !== 'live') return [];
+    const resp = await this._fetch(`/api/v1/learning/audit?limit=${Math.max(1, Math.min(200, Number(limit) || 100))}`);
+    const data = resp?.data ?? resp;
+    return Array.isArray(data) ? data : [];
   }
 
   async createFarmCropPack(farmId, input) {

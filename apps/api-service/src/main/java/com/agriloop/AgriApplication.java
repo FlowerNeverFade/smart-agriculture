@@ -1007,6 +1007,13 @@ class AgriStore {
             caseRecord.put("primaryCause", c[6]); caseRecord.put("effectivenessScore", Double.parseDouble(c[7]));
             caseRecord.put("quality", "GOOD"); caseRecord.put("ruleVersion", "rules-v1"); caseRecord.put("cropPackVersion", "1.0.0");
             caseRecord.put("fingerprint", Integer.toHexString(Objects.hash(c[5], c[6], c[2], c[3])));
+            // Legacy demo cases are intentionally pending until a complete
+            // snapshot, execution ACK and effect evaluation are rechecked.
+            caseRecord.put("qualityStatus", "PENDING"); caseRecord.put("qualityScore", null);
+            caseRecord.put("selectionReason", List.of("等待确定性质量判断")); caseRecord.put("excludedReason", List.of());
+            caseRecord.put("learningUses", List.of("NONE")); caseRecord.put("accountId", "seed");
+            caseRecord.put("farmId", "farm-demo"); caseRecord.put("sourceSnapshot", Map.of());
+            caseRecord.put("scenarioId", ""); caseRecord.put("agentVersion", "rules-only");
             caseRecord.put("createdAt", Instant.now().toString()); save("decision-case", c[0], caseRecord);
         }
         seedUser("user-farmer", "farmer", "demo123", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
@@ -1483,6 +1490,7 @@ class AgriEngine {
     private final AdminManagementService adminManagement;
     private final SimulationEngine simulationEngine;
     private final FarmGovernanceService governance;
+    private final ControlledLearningService controlledLearning;
     private final Map<String, Map<String, Object>> idempotentCommands = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
     private final Set<String> evaluatedCommands = ConcurrentHashMap.newKeySet();
@@ -1503,7 +1511,8 @@ class AgriEngine {
                CropPackCatalog cropPackCatalog,
                PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands,
                RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement,
-               @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance) {
+               @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance,
+               ControlledLearningService controlledLearning) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
         // vLLM/uvicorn on the private loopback endpoint is intentionally used
@@ -1518,6 +1527,7 @@ class AgriEngine {
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
         this.simulationEngine = simulationEngine;
         this.governance = governance;
+        this.controlledLearning = controlledLearning;
     }
 
     @PostConstruct
@@ -6383,55 +6393,47 @@ class AgriEngine {
         events.publish("decision.feedback", feedback);
         Map<String, Object> evaluation = evaluationId.isBlank() ? null : store.find("evaluation", evaluationId);
         if (evaluation == null && !planId.isBlank()) evaluation = store.list("evaluation").stream().filter(e -> planId.equals(Jsons.text(e, "planId", ""))).findFirst().orElse(null);
-        // A case is eligible only when an effect is complete, data quality was
-        // good, and all decision versions are present. Feedback alone never
-        // turns an unverified suggestion into a learning case.
-        if (evaluation != null && "COMPLETED".equals(Jsons.text(evaluation, "status", "")) && "GOOD".equals(Jsons.text(evaluation, "result", ""))) {
-            Map<String, Object> plan = planId.isBlank() ? null : store.find("irrigation-plan", planId);
-            if (plan != null && plan.containsKey("ruleVersion") && plan.containsKey("cropPackVersion")) {
-                Map<String, Object> caseRecord = new LinkedHashMap<>(); caseRecord.put("caseId", Jsons.id("case")); caseRecord.put("traceId", traceId);
-                caseRecord.put("planId", planId); caseRecord.put("evaluationId", evaluation.get("evaluationId")); caseRecord.put("plotId", plan.get("plotId"));
-                caseRecord.put("cropCode", Jsons.text(resolvedProfile(Jsons.text(plan, "plotId", "")), "cropCode", "")); caseRecord.put("primaryCause", "WATER_DEFICIT");
-                caseRecord.put("effectivenessScore", Jsons.number(evaluation, "effectivenessScore", 0)); caseRecord.put("quality", "GOOD");
-                caseRecord.put("ruleVersion", plan.get("ruleVersion")); caseRecord.put("cropPackVersion", plan.get("cropPackVersion")); caseRecord.put("fingerprint", Integer.toHexString(Objects.hash(caseRecord.get("cropCode"), caseRecord.get("primaryCause"), planId, evaluation.get("evaluationId"))));
-                caseRecord.put("createdAt", Instant.now().toString()); store.save("decision-case", Jsons.text(caseRecord, "caseId", ""), caseRecord); feedback.put("caseId", caseRecord.get("caseId"));
-            }
+        // Every feedback-linked plan becomes an auditable PENDING case first.
+        // The controlled-learning service applies the deterministic quality
+        // gate; feedback alone can never make a case positive.
+        Map<String, Object> plan = planId.isBlank() ? null : store.find("irrigation-plan", planId);
+        if (plan != null) {
+            Map<String, Object> caseRecord = controlledLearning.createDecisionCase(traceId, input, feedback, plan, evaluation, principal);
+            if (!caseRecord.isEmpty()) feedback.put("caseId", caseRecord.get("caseId"));
         }
         return feedback;
     }
 
+    List<Map<String, Object>> similarCases(String traceId, Map<String, Object> context, UserPrincipal principal) {
+        return controlledLearning.similarCases(traceId, context == null ? Map.of() : context, principal);
+    }
+
+    /** Retain the old package-level call shape for existing integrations. */
     List<Map<String, Object>> similarCases(String traceId, Map<String, Object> context) {
-        List<Map<String, Object>> cases = store.list("decision-case"); if (cases.isEmpty()) return List.of();
-        String crop = Jsons.text(context, "cropCode", "tomato"); String cause = Jsons.text(context, "primaryCause", "WATER_DEFICIT");
-        return cases.stream().map(c -> { Map<String, Object> copy = Jsons.copy(mapper, c); int score = (crop.equals(Jsons.text(c, "cropCode", "")) ? 2 : 0) + (cause.equals(Jsons.text(c, "primaryCause", "")) ? 3 : 0); copy.put("similarityScore", score / 5.0); return copy; })
-                .sorted(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "similarityScore", 0)).reversed()).limit(10).toList();
+        return controlledLearning.similarCases(traceId, context == null ? Map.of() : context, null);
     }
 
     Map<String, Object> strategyCandidate(Map<String, Object> input, UserPrincipal principal) {
+        if (input != null && (!Jsons.strings(input.get("caseIds")).isEmpty()
+                || !Jsons.strings(input.get("evidenceCaseIds")).isEmpty()
+                || Jsons.bool(input, "generateFromCases", false))) {
+            return controlledLearning.generateStrategyCandidate(input, principal);
+        }
         if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以管理策略候选");
-        Map<String, Object> candidate = new LinkedHashMap<>(input); candidate.put("candidateId", Jsons.text(input, "candidateId", Jsons.id("strategy"))); candidate.putIfAbsent("status", "DRAFT"); candidate.put("reviewer", principal.userId); candidate.put("candidateVersion", "candidate-1"); candidate.put("createdAt", Instant.now().toString());
+        Map<String, Object> candidate = new LinkedHashMap<>(input); candidate.put("candidateId", Jsons.text(input, "candidateId", Jsons.id("strategy"))); candidate.put("status", "DRAFT"); candidate.put("reviewer", principal.userId); candidate.put("candidateVersion", "candidate-1"); candidate.put("createdAt", Instant.now().toString());
         store.save("strategy-candidate", Jsons.text(candidate, "candidateId", ""), candidate); return candidate;
     }
 
+    Map<String, Object> generateStrategyCandidate(Map<String, Object> input, UserPrincipal principal) {
+        return controlledLearning.generateStrategyCandidate(input == null ? Map.of() : input, principal);
+    }
+
     Map<String, Object> offlineValidateStrategy(String id, Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以验证策略");
-        Map<String, Object> candidate = requireRecord("strategy-candidate", id);
-        if (!"DRAFT".equals(Jsons.text(candidate, "status", "DRAFT"))) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", "只有 DRAFT 策略可以离线验证");
-        String scenarioId = Jsons.text(input == null ? Map.of() : input, "scenarioId", "normal");
-        long seed = Jsons.whole(input == null ? Map.of() : input, "seed", 42);
-        // Deterministic offline replay contract: no live rule mutation is allowed.
-        Map<String, Object> report = new LinkedHashMap<>(); report.put("status", "PASSED"); report.put("scenarioId", scenarioId); report.put("seed", seed);
-        report.put("branch", "NO_ACTION"); report.put("assertions", List.of("no_rule_bypass", "quality_gate_preserved", "capacity_not_exceeded"));
-        report.put("replayHash", Integer.toHexString(Objects.hash(id, scenarioId, seed, Jsons.json(mapper, candidate)))); report.put("validatedAt", Instant.now().toString());
-        candidate.put("offlineValidation", report); candidate.put("status", "OFFLINE_VALIDATED"); candidate.put("reviewer", principal.userId); store.save("strategy-candidate", id, candidate); events.publish("strategy.offline_validated", candidate); return candidate;
+        return controlledLearning.offlineValidateCandidate(id, input == null ? Map.of() : input, principal);
     }
 
     Map<String, Object> transitionStrategy(String id, String target, UserPrincipal principal) {
-        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以变更策略");
-        Map<String, Object> candidate = requireRecord("strategy-candidate", id); String current = Jsons.text(candidate, "status", "DRAFT");
-        boolean allowed = switch (current + "->" + target) { case "DRAFT->REJECTED", "OFFLINE_VALIDATED->APPROVED", "OFFLINE_VALIDATED->REJECTED", "APPROVED->ACTIVE", "ACTIVE->SUPERSEDED", "ACTIVE->ROLLED_BACK" -> true; default -> false; };
-        if (!allowed) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", current + " 不能转为 " + target);
-        candidate.put("status", target); candidate.put("transitionedAt", Instant.now().toString()); candidate.put("reviewer", principal.userId); store.save("strategy-candidate", id, candidate); return candidate;
+        return governance.transitionStrategy(id, target, Map.of(), principal);
     }
 
     private Map<String, Object> planFarmerAgentAction(String message, String plotId, UserPrincipal principal, String traceId) {
@@ -8592,9 +8594,72 @@ class AgriController {
     }
 
     @GetMapping("/alert-learning-cases")
-    ResponseEntity<?> alertLearningCases(@RequestParam String farmId,
+    ResponseEntity<?> alertLearningCases(@RequestParam(required = false) String farmId,
+                                         @RequestParam(required = false) String plotId,
+                                         @RequestParam(required = false) String cropCode,
+                                         @RequestParam(required = false) String scenarioId,
+                                         @RequestParam(required = false) String qualityStatus,
                                          @RequestParam(required = false) String candidateId,
-                                         Authentication a) { return ok(governance.learningCases(farmId, candidateId, principal(a))); }
+                                         Authentication a) {
+        return ok(governance.learningCases(farmId, plotId, cropCode, scenarioId, qualityStatus, candidateId, principal(a)));
+    }
+
+    /** Explicit learning-governance alias; the legacy alert-learning-cases route remains supported. */
+    @GetMapping("/learning/cases")
+    ResponseEntity<?> learningCases(@RequestParam(required = false) String farmId,
+                                    @RequestParam(required = false) String plotId,
+                                    @RequestParam(required = false) String cropCode,
+                                    @RequestParam(required = false) String scenarioId,
+                                    @RequestParam(required = false) String qualityStatus,
+                                    @RequestParam(required = false) String candidateId,
+                                    Authentication a) {
+        return ok(governance.learningCases(farmId, plotId, cropCode, scenarioId, qualityStatus, candidateId, principal(a)));
+    }
+
+    @PostMapping("/alert-learning-cases/{caseId}/re-evaluate")
+    ResponseEntity<?> reEvaluateLearningCase(@PathVariable String caseId, Authentication a) {
+        return ok(governance.reEvaluateLearningCase(caseId, principal(a)));
+    }
+
+    @PostMapping("/learning/cases/{caseId}/re-evaluate")
+    ResponseEntity<?> reEvaluateLearningCaseAlias(@PathVariable String caseId, Authentication a) {
+        return ok(governance.reEvaluateLearningCase(caseId, principal(a)));
+    }
+
+    @PostMapping("/alert-learning-cases/{caseId}/review")
+    ResponseEntity<?> reviewLearningCase(@PathVariable String caseId,
+                                         @RequestBody(required = false) Map<String, Object> body,
+                                         Authentication a) {
+        Map<String, Object> input = body == null ? Map.of() : body;
+        return ok(governance.reviewLearningCase(caseId, Jsons.text(input, "decision", Jsons.text(input, "status", "")),
+                Jsons.text(input, "note", Jsons.text(input, "reviewNote", "")), principal(a)));
+    }
+
+    @PostMapping("/learning/cases/{caseId}/review")
+    ResponseEntity<?> reviewLearningCaseAlias(@PathVariable String caseId,
+                                              @RequestBody(required = false) Map<String, Object> body,
+                                              Authentication a) {
+        Map<String, Object> input = body == null ? Map.of() : body;
+        return ok(governance.reviewLearningCase(caseId, Jsons.text(input, "decision", Jsons.text(input, "status", "")),
+                Jsons.text(input, "note", Jsons.text(input, "reviewNote", "")), principal(a)));
+    }
+
+    @GetMapping("/learning/audit")
+    ResponseEntity<?> learningAudit(@RequestParam(defaultValue = "100") int limit, Authentication a) {
+        return ok(governance.learningAudit(limit, principal(a)));
+    }
+
+    @GetMapping("/learning/training-export")
+    ResponseEntity<?> learningTrainingExport(@RequestParam(required = false) String farmId,
+                                             @RequestParam(required = false) String plotId,
+                                             Authentication a) {
+        return ok(governance.exportApprovedTrainingSet(farmId, plotId, principal(a)));
+    }
+
+    @PostMapping("/learning/strategy-candidates/generate")
+    ResponseEntity<?> generateLearningStrategy(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(governance.generateStrategyCandidate(body == null ? Map.of() : body, principal(a)));
+    }
 
     @GetMapping("/strategy-candidates")
     ResponseEntity<?> strategies(@RequestParam(required = false) String farmId,
@@ -9134,7 +9199,9 @@ class AgriController {
     ResponseEntity<?> feedback(@PathVariable String traceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(engine.feedback(traceId, body, principal(a))); }
 
     @GetMapping("/decisions/{traceId}/similar-cases")
-    ResponseEntity<?> cases(@PathVariable String traceId, @RequestParam Map<String, String> params, Authentication a) { return ok(engine.similarCases(traceId, new LinkedHashMap<>(params))); }
+    ResponseEntity<?> cases(@PathVariable String traceId, @RequestParam Map<String, String> params, Authentication a) {
+        return ok(engine.similarCases(traceId, new LinkedHashMap<>(params), principal(a)));
+    }
 
     @PostMapping("/resource-plans/evaluate")
     ResponseEntity<?> resourcePlan(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.resourcePlan(body, principal(a))); }

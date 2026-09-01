@@ -917,6 +917,30 @@
 .admin-governance-empty .material-symbols-outlined { color: var(--g-primary); font-size: 30px; }
 .admin-governance-empty strong { color: var(--g-text-primary); font-size: 14px; }
 .admin-governance-empty span { font-size: 12px; }
+.admin-governance-filter { display: inline-flex; align-items: center; gap: 8px; color: var(--g-text-secondary); font-size: 12px; white-space: nowrap; }
+.admin-governance-filter .g-select { min-width: 132px; }
+.admin-learning-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.admin-learning-count { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid var(--g-border-subtle); border-radius: 11px; background: var(--g-bg-subtle); }
+.admin-learning-count strong { font-size: 24px; line-height: 1; color: var(--g-text-primary); }
+.admin-learning-count span { color: var(--g-text-secondary); font-size: 12px; }
+.admin-learning-count.qualified strong { color: var(--g-success); }
+.admin-learning-count.pending strong { color: var(--g-warning); }
+.admin-learning-count.rejected strong { color: var(--g-danger); }
+.admin-learning-table .admin-governance-description { display: block; max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-learning-uses { color: var(--g-text-secondary); font-size: 12px; line-height: 1.45; }
+.admin-governance-evidence { margin-top: 5px; color: var(--g-text-secondary); font-size: 10px; }
+.admin-governance-evidence summary { cursor: pointer; color: var(--g-primary); }
+.admin-governance-evidence span { display: block; max-width: 260px; overflow-wrap: anywhere; }
+.admin-candidate-evidence-list { display: grid; gap: 8px; margin: 0 0 12px; }
+.admin-candidate-evidence { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-subtle); color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.admin-candidate-evidence > div { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.admin-candidate-evidence strong { color: var(--g-text-primary); font-family: var(--g-mono); }
+.admin-candidate-evidence span { overflow-wrap: anywhere; }
+.admin-candidate-evidence small { color: var(--g-text-muted); }
+@media (max-width: 700px) {
+  .admin-learning-summary { grid-template-columns: 1fr; }
+  .admin-governance-filter { width: 100%; justify-content: space-between; }
+}
 .admin-rule-dialog { width: min(720px, calc(100vw - 32px)); }
 .admin-rule-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 .admin-rule-form-grid label { display: grid; gap: 6px; min-width: 0; }

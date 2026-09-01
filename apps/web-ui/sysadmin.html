@@ -847,6 +847,7 @@
         <button class="admin-tab" :class="{active: activeTab === 'packs'}" @click="activeTab = 'packs'">作物模型包</button>
         <button class="admin-tab" :class="{active: activeTab === 'rules'}" @click="activeTab = 'rules'">规则集</button>
         <button class="admin-tab" :class="{active: activeTab === 'candidates'}" @click="activeTab = 'candidates'">策略候选</button>
+        <button class="admin-tab" :class="{active: activeTab === 'learning'}" @click="activeTab = 'learning'">经验学习 <small>{{ learningCasesList.length }}</small></button>
       </div>
 
       <!-- Tab: Crop Packs -->
@@ -979,14 +980,16 @@
             </tr></thead>
             <tbody>
               <tr v-for="cand in candPageRecords" :key="cand.id">
-                <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}</td>
+                <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}<details v-if="cand.evidenceCaseIds?.length || cand.baselineStrategy || cand.proposedStrategy" class="admin-governance-evidence"><summary>查看依据</summary><span v-if="cand.evidenceCaseIds?.length">引用案例：{{ offlineEvidence(cand) }}</span><span v-if="cand.baselineStrategy">基线：{{ strategySummary(cand.baselineStrategy) }}</span><span v-if="cand.proposedStrategy">候选：{{ strategySummary(cand.proposedStrategy) }}</span></details><small v-if="cand.status === 'rolled_back'">{{ rollbackSummary(cand) }}</small></td>
                 <td><span class="status-pill" :class="cand.source === 'learning' ? 'agent' : 'info'">{{ cand.sourceLabel || (cand.source === 'learning' ? '案例学习' : '人工录入') }}</span></td>
                 <td>{{ displayText(cand.description) }}</td>
-                <td><span class="status-pill" :class="cand.status">{{ cand.statusLabel || ({pending:'待验证',verified:'已验证',approved:'已批准',rejected:'已拒绝'}[cand.status] || '未知') }}</span></td>
+                <td><span class="status-pill" :class="cand.status">{{ cand.statusLabel || ({pending:'待验证',verified:'离线验证通过',approved:'已批准',rejected:'已拒绝',active:'已启用',rolled_back:'已回滚'}[cand.status] || '待确认') }}</span><small v-if="cand.offlineValidation?.seed">seed {{ cand.offlineValidation.seed }} · {{ cand.offlineValidation.replayHash || '—' }}</small><small v-if="cand.offlineValidation?.failures?.length">失败：{{ cand.offlineValidation.failures.join('、') }}</small></td>
                 <td>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" @click="transitionCandidate(cand, 'APPROVED')">批准</button>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'REJECTED')">拒绝</button>
-                  <button v-if="cand.status==='active'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'ROLLED_BACK')">回滚</button>
+                  <button v-if="canValidateCandidate(cand)" class="g-btn text sm" @click="validateCandidate(cand)">执行离线验证</button>
+                  <button v-if="canApproveCandidate(cand)" class="g-btn text sm" @click="transitionCandidate(cand, 'APPROVED')">批准</button>
+                  <button v-if="canActivateCandidate(cand)" class="g-btn text sm" @click="transitionCandidate(cand, 'ACTIVE')">启用</button>
+                  <button v-if="canRejectCandidate(cand)" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'REJECTED')">拒绝</button>
+                  <button v-if="canRollbackCandidate(cand)" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'ROLLED_BACK')">回滚</button>
                 </td>
               </tr>
             </tbody>
@@ -1004,6 +1007,14 @@
             <button class="g-btn text sm" @click="candJumpTo()">跳转</button>
           </span>
         </div>
+      </div>
+
+      <!-- Tab: Controlled Learning -->
+      <div v-if="activeTab === 'learning'" class="admin-controlled-learning">
+        <div class="admin-pack-toolbar"><div class="admin-pack-hint">质量门由数据新鲜度、可追溯证据、执行 ACK、效果评价和安全约束共同决定。合格案例才可检索或生成策略，已排除案例只用于反例回归。</div><label class="admin-governance-filter"><span>筛选</span><select class="g-select" v-model="learningFilter"><option value="ALL">全部（{{ learningCasesList.length }}）</option><option value="QUALIFIED">合格（{{ learningCounts.qualified }}）</option><option value="PENDING">待审核（{{ learningCounts.pending }}）</option><option value="REJECTED">已排除（{{ learningCounts.rejected }}）</option></select></label></div>
+        <div class="admin-learning-summary"><div class="admin-learning-count qualified"><strong>{{ learningCounts.qualified }}</strong><span>合格经验</span></div><div class="admin-learning-count pending"><strong>{{ learningCounts.pending }}</strong><span>待审核</span></div><div class="admin-learning-count rejected"><strong>{{ learningCounts.rejected }}</strong><span>反例</span></div></div>
+        <div v-if="!filteredLearningCases.length" class="admin-governance-empty"><app-icon name="fact_check"></app-icon><strong>暂无受控学习案例</strong><span>反馈、告警闭环和效果评价完成后，案例会自动进入质量门。</span></div>
+        <div v-else class="admin-table-wrap"><table class="admin-table admin-learning-table"><thead><tr><th>案例</th><th>范围 / 来源</th><th>质量状态</th><th>判定依据</th><th>学习用途</th><th>效果</th><th>操作</th></tr></thead><tbody><tr v-for="item in filteredLearningCases" :key="item.caseId"><td><strong class="admin-governance-code">{{ item.caseId }}</strong><small>{{ item.cropCode || '未指定作物' }} · {{ item.plotId || '未指定地块' }}</small><small>{{ item.farmId || '未指定农场' }}</small></td><td><span class="status-pill info">{{ String(item.sourceMode || item.dataOrigin || '').toUpperCase() === 'REAL' ? '真实遥测' : String(item.sourceMode || '').toUpperCase().includes('SIM') ? '模拟数据' : '记录快照' }}</span><small>{{ item.scenarioId || '标准场景' }}</small></td><td><span class="status-pill" :class="learningTone(item.qualityStatus)">{{ learningStatus(item.qualityStatus) }}</span></td><td><span class="admin-governance-description" :title="learningReason(item)">{{ learningReason(item) }}</span></td><td><span class="admin-learning-uses">{{ learningUses(item) }}</span></td><td>{{ item.result || item.evaluationResult || '待评价' }}<small v-if="item.reviewedBy">审核：{{ item.reviewedBy }}</small></td><td class="admin-governance-actions"><button v-if="item.qualityStatus !== 'QUALIFIED'" class="g-btn text sm" @click="reEvaluateLearningCase(item)">重新评估</button><button v-if="item.qualityStatus !== 'QUALIFIED'" class="g-btn text sm" @click="reviewLearningCase(item, 'QUALIFIED')">审核纳入</button><button v-if="item.qualityStatus !== 'REJECTED'" class="g-btn text sm danger-text" @click="reviewLearningCase(item, 'REJECTED')">标记反例</button></td></tr></tbody></table></div>
       </div>
     </div>
   </template>

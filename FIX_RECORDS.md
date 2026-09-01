@@ -1,5 +1,26 @@
 # 修复记录 (Fix Records)
 
+## 2026-09-01 基于合格经验的受控学习
+
+### 问题与边界
+
+- 原有决策记录和告警学习案例缺少统一的质量状态、排除原因和用途边界，低质量或未完成闭环的记录可能被误认为可学习经验。
+- 策略候选需要可追溯的案例来源和离线验证，但不能在线修改模型权重、生产阈值、规则或设备控制逻辑。
+
+### 修复
+
+- 新增 `ControlledLearningService`，复用 `decision-case`、`alert-learning-case` 和现有反馈、ACK、效果评价、规则集、Crop Pack 记录，统一补齐质量状态、评分、判定原因、版本和冻结 `sourceSnapshot`。
+- 质量门确定性排除过期/缺失/坏质量遥测、漂移/冲突、失败或无 ACK、不可评价效果、规则/安全/资源/权限失败、模型猜测和未确认模拟结果；`REJECTED` 案例保留为 `NEGATIVE_EVALUATION` 反例，不进入正向检索或训练。
+- `QUALIFIED` 案例按角色、账号、农场、地块和会话隔离后才可正向检索或生成候选；没有明确地块时不会返回任何具体地块案例。候选必须经过固定 seed 离线回放和人工批准，支持启用、替换和回滚。
+- 农场管理员和系统管理员治理页增加合格/待审核/已排除统计、判定依据、用途、引用案例、基线/候选方案、离线回放和回滚信息；普通 AI 不展示内部质量分数或模型置信度。
+
+### 验证
+
+- `:apps:api-service:compileJava` 与 `:apps:api-service:compileTestJava` 通过。
+- `node --check apps/web-ui/js/api.js`、`app.js`、`sysadmin.js`、`modules/admin-rules-strategies.js` 通过。
+- `git diff --check` 和冲突标记扫描通过；完整测试套件和浏览器验收按本轮要求未运行。
+- 未推送 GitHub，未部署服务器；待用户验收。
+
 ## 2026-09-01 设备离线场景下手动开启被覆盖
 
 ### 问题与原因
