@@ -26,6 +26,18 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
     settings.value = next;
     applyUserSettings(next);
     emit?.('settings-changed', next);
+
+    // Fix browser bug: changing global dataset on html can cause a layout recalculation 
+    // that forces the browser to scroll the overflow-hidden body to keep the focused 
+    // checkbox in view, causing a permanent page shift. Reset it to 0.
+    setTimeout(() => {
+      if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
+      if (document.documentElement && document.documentElement.scrollTop > 0) document.documentElement.scrollTop = 0;
+    }, 0);
+    requestAnimationFrame(() => {
+      if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
+      if (document.documentElement && document.documentElement.scrollTop > 0) document.documentElement.scrollTop = 0;
+    });
   };
   const resetSettings = () => {
     const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
