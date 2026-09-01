@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260831-sync-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260831-sync-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260831-sync-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260831-sync-v1';
 import { presentRoleUser } from './roles.js?v=20260831-sync-v1';
@@ -404,6 +404,14 @@ const READINESS_GATE_LABELS = Object.freeze({
   resourceCapacity: '水源容量',
   permission: '执行权限',
   safetyLimit: '用水上限'
+});
+
+const MANUAL_GATE_LABELS = Object.freeze({
+  DATA_QUALITY: '数据质量',
+  DATA_CONFLICT: '数据冲突',
+  DEVICE_HEALTH: '设备状态',
+  DIAGNOSIS_EVIDENCE: '诊断证据',
+  DECISION_READINESS: '决策就绪度'
 });
 
 const EVIDENCE_LABELS = Object.freeze({
@@ -1986,7 +1994,11 @@ const app = createApp({
         conflicts: (diagnosis.evidenceConflicts || []).map(evidence_view)
       };
     });
-    const advice_is_no_action = computed(() => String(advice_plan.value?.status || irrigation_plan.value?.status || '').toUpperCase() === 'NO_ACTION');
+    const advice_is_no_action = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return String(plan?.status || '').toUpperCase() === 'NO_ACTION';
+    });
     const advice_readiness_summary = computed(() => {
       const readiness = advice_readiness.value;
       if (!readiness) return null;
@@ -2009,10 +2021,45 @@ const app = createApp({
         canRequestReview: Boolean(irrigation_plan.value?.planId || advice_plan.value?.planId)
       };
     });
+    const manual_irrigation_fallback = computed(() => {
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      return plan?.manualFallback || null;
+    });
+    const manual_irrigation_available = computed(() => manual_irrigation_fallback.value?.available === true && !advice_is_no_action.value);
+    const manual_irrigation_limits = computed(() => manual_irrigation_fallback.value?.constraints || {
+      minWaterLitre: 0.1,
+      maxWaterLitre: 0,
+      maxDurationSeconds: 900,
+      flowRateLitresPerMinute: 18,
+      dailyRemainingLitres: 0,
+      resourceRemainingLitres: 0,
+      areaM2: Number(advice_plot.value?.areaM2 || 80)
+    });
+    const manual_irrigation_bypassed_gates = computed(() => (manual_irrigation_fallback.value?.bypassedGates || [])
+      .map((gate) => MANUAL_GATE_LABELS[gate] || READINESS_GATE_LABELS[gate] || gate));
+    const manual_irrigation_preview = computed(() => {
+      const plot = advice_plot.value;
+      const current = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+      const water = Number(manual_irrigation_water.value);
+      const area = Number(manual_irrigation_limits.value.areaM2 || plot?.areaM2 || 80);
+      const flow = Number(manual_irrigation_limits.value.flowRateLitresPerMinute || 18);
+      const validWater = Number.isFinite(water) && water > 0;
+      const delta = validWater && Number.isFinite(current) ? moistureDeltaFromWater(water, area) : null;
+      return {
+        current: Number.isFinite(current) ? current : null,
+        water: validWater ? water : null,
+        delta,
+        after: delta === null ? null : Number(Math.min(100, current + delta).toFixed(1)),
+        durationSeconds: validWater ? Math.max(1, Math.ceil(water / Math.max(1, flow) * 60)) : null
+      };
+    });
     const advice_execution_summary = computed(() => {
       const commands = advice_passport.value?.commands || [];
       const evaluations = advice_passport.value?.evaluations || [];
-      const directCommand = suggestion_result.value?.commandId ? suggestion_result.value : null;
+      const directCommand = manual_irrigation_result.value?.commandId
+        ? manual_irrigation_result.value
+        : suggestion_result.value?.commandId ? suggestion_result.value : null;
       const command = directCommand || commands[commands.length - 1] || null;
       const evaluation = command
         ? command.evaluation || evaluations.find((item) => item.commandId === command.commandId) || evaluations[evaluations.length - 1]
@@ -2107,6 +2154,8 @@ const app = createApp({
     const show_weather_controls = ref(false);
     const show_resource_allocation = ref(false);
     const show_suggestion_flow = ref(false);
+    const show_manual_irrigation = ref(false);
+    const show_no_action_reason = ref(false);
     const active_suggestion = ref(null);
     const suggestion_flow_stage = ref('VIEW');
     const suggestion_confirm_checked = ref(false);
@@ -2121,6 +2170,13 @@ const app = createApp({
     const suggestion_recovery_status = ref('');
     const suggestion_busy = ref(false);
     const suggestion_idempotency_key = ref('');
+    const manual_irrigation_stage = ref('FORM');
+    const manual_irrigation_water = ref('');
+    const manual_irrigation_confirmed = ref(false);
+    const manual_irrigation_result = ref(null);
+    const manual_irrigation_error = ref('');
+    const manual_irrigation_busy = ref(false);
+    const manual_irrigation_idempotency_key = ref('');
     const report_subscribed = ref(localStorage.getItem('agriloop-farmer-weekly-report') === 'true');
     const active_report_key = ref('daily');
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
@@ -3578,6 +3634,95 @@ const app = createApp({
       return '已确认处理，等待现场复测或设备心跳恢复。';
     });
 
+    const open_no_action_reason = () => {
+      show_suggestion_flow.value = false;
+      show_no_action_reason.value = true;
+    };
+
+    const close_no_action_reason = () => {
+      show_no_action_reason.value = false;
+    };
+
+    const open_manual_irrigation = () => {
+      if (!manual_irrigation_available.value) {
+        show_toast('当前地块没有可用的人工浇灌兜底', 'error');
+        return;
+      }
+      show_suggestion_flow.value = false;
+      manual_irrigation_stage.value = 'FORM';
+      manual_irrigation_water.value = '';
+      manual_irrigation_confirmed.value = false;
+      manual_irrigation_result.value = null;
+      manual_irrigation_error.value = '';
+      manual_irrigation_busy.value = false;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      manual_irrigation_idempotency_key.value = `manual-irrigation-${plan?.planId || plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      show_manual_irrigation.value = true;
+    };
+
+    const close_manual_irrigation = () => {
+      if (manual_irrigation_busy.value) return;
+      show_manual_irrigation.value = false;
+    };
+
+    const submit_manual_irrigation = async () => {
+      if (manual_irrigation_busy.value) return;
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      const water = Number(manual_irrigation_water.value);
+      const limits = manual_irrigation_limits.value;
+      manual_irrigation_error.value = '';
+      if (!manual_irrigation_available.value || !plan?.planId || !plotId) {
+        manual_irrigation_error.value = '当前地块已不再处于可人工兜底状态，请刷新后重试';
+        return;
+      }
+      if (!Number.isFinite(water) || water < Number(limits.minWaterLitre || 0.1)) {
+        manual_irrigation_error.value = `请输入不小于 ${Number(limits.minWaterLitre || 0.1)} L 的有效水量`;
+        return;
+      }
+      if (Number.isFinite(Number(limits.maxWaterLitre)) && water > Number(limits.maxWaterLitre) + 0.0001) {
+        manual_irrigation_error.value = `本次最多可输入 ${Number(limits.maxWaterLitre).toFixed(1)} L，仍受每日和资源上限约束`;
+        return;
+      }
+      if (!manual_irrigation_confirmed.value) {
+        manual_irrigation_error.value = '请先确认地块、阻塞原因和本次水量';
+        return;
+      }
+      manual_irrigation_busy.value = true;
+      try {
+        let result = await api.executeManualIrrigation({
+          plotId,
+          sourcePlanId: plan.planId,
+          waterLitre: water,
+          confirmed: true,
+          idempotencyKey: manual_irrigation_idempotency_key.value,
+          source: 'farmer-manual-fallback'
+        });
+        if (is_live.value) {
+          result = await wait_for_irrigation_completion(result);
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+          if (result?.commandId) {
+            const evaluation = await api.getCommandEvaluation(result.commandId).catch(() => null);
+            if (evaluation) result = { ...result, evaluation };
+          }
+        } else {
+          await load_live_workspace({ announce: false });
+          await load_irrigation_plan(plotId, { silent: true });
+        }
+        manual_irrigation_result.value = result;
+        manual_irrigation_stage.value = 'RESULT';
+        show_toast(is_live.value ? '人工浇灌命令已提交，等待设备回执' : '演示人工浇灌已完成，不会控制真实水泵');
+      } catch (error) {
+        manual_irrigation_error.value = error?.message || '人工浇灌失败，请稍后重试';
+        manual_irrigation_confirmed.value = false;
+        show_toast(manual_irrigation_error.value, 'error');
+      } finally {
+        manual_irrigation_busy.value = false;
+      }
+    };
+
     const open_suggestion = (kind = 'RISK', context = {}) => {
       const task = context.task || (kind === 'TASK' ? context : null);
       const plotId = context.plotId || task?.plot_id || (kind === 'RISK' ? weather_risk_card.value.plotId : advice_plot.value?.plotId);
@@ -3858,6 +4003,10 @@ const app = createApp({
     };
 
     const toggle_irrigation = () => {
+      if (advice_is_no_action.value) {
+        open_no_action_reason();
+        return;
+      }
       // 农户与管理员都进入同一条安全确认、幂等和虚拟执行闭环。
       open_suggestion('IRRIGATION', { plotId: advice_plot.value?.plotId });
     };
@@ -4985,6 +5134,8 @@ const app = createApp({
       show_weather_controls,
       show_resource_allocation,
       show_suggestion_flow,
+      show_no_action_reason,
+      show_manual_irrigation,
       active_suggestion,
       suggestion_flow_stage,
       suggestion_flow_steps,
@@ -5000,6 +5151,17 @@ const app = createApp({
       suggestion_recovery_detail,
       suggestion_recovery_status,
       suggestion_busy,
+      manual_irrigation_stage,
+      manual_irrigation_water,
+      manual_irrigation_confirmed,
+      manual_irrigation_result,
+      manual_irrigation_error,
+      manual_irrigation_busy,
+      manual_irrigation_limits,
+      manual_irrigation_fallback,
+      manual_irrigation_available,
+      manual_irrigation_bypassed_gates,
+      manual_irrigation_preview,
       format_suggestion_time,
       suggestion_outcome_label,
       report_subscribed,
@@ -5181,6 +5343,11 @@ const app = createApp({
       toggle_irrigation,
       open_suggestion,
       close_suggestion_flow,
+      open_no_action_reason,
+      close_no_action_reason,
+      open_manual_irrigation,
+      close_manual_irrigation,
+      submit_manual_irrigation,
       prepare_suggestion_confirmation,
       confirm_suggestion_action,
       open_suggestion_inspection,
