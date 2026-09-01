@@ -245,11 +245,13 @@ export const AdminAiChatView = {
       if (value && value !== conversationId.value && !loadingHistory.value) loadConversation(value, { updateHash: false });
     });
 
-    const scrollToBottom = async () => {
+    // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
+    const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
+    // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画
+    const scrollToBottomInstant = async () => {
       await nextTick();
       const el = messageList.value;
       if (!el) return;
-      // 程序定位必须瞬间完成：临时禁用 CSS scroll-behavior:smooth，避免打开会话出现滚动动画
       const prev = el.style.scrollBehavior;
       el.style.scrollBehavior = 'auto';
       el.scrollTop = el.scrollHeight;
@@ -278,7 +280,7 @@ export const AdminAiChatView = {
         releaseMessageImages();
         messages.value = [];
         toast(error.message || '历史对话加载失败', 'error');
-      } finally { loadingHistory.value = false; scrollToBottom(); }
+      } finally { loadingHistory.value = false; scrollToBottomInstant(); }
     };
 
     const startNewConversation = ({ updateHash: shouldUpdateHash = true } = {}) => {
@@ -288,7 +290,7 @@ export const AdminAiChatView = {
       messages.value = [];
       input.value = '';
       if (shouldUpdateHash) updateRoute('');
-      scrollToBottom();
+      scrollToBottomInstant();
     };
 
     const loadConversations = async () => {
