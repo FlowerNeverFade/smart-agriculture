@@ -9,11 +9,11 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260901-v59-main-compat-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260901-v59-main-compat-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v59-main-compat-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v59-main-compat-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v59-main-compat-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v59-resource-sync-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v59-resource-sync-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -813,16 +813,17 @@
                 <section class="farmer-resource-collaboration" aria-label="与农场管理员协同配水">
                   <div class="farmer-panel-header">
                     <div><span class="farmer-section-kicker">跨角色协同</span><h3>向管理员提交用水需求</h3></div>
-                    <span class="g-badge" :class="selected_resource_request?.status === 'CONFLICT_REPORTED' ? 'warning' : selected_resource_request?.status === 'ACKNOWLEDGED' || selected_resource_request?.status === 'COMPLETED' ? 'success' : 'primary'">{{ resource_request_status_label(selected_resource_request?.status) }}</span>
+                    <div class="farmer-resource-statuses"><span class="g-badge" :class="resource_persistence_ready ? 'success' : 'warning'">{{ resource_sync_label }}</span><span class="g-badge" :class="selected_resource_request?.status === 'CONFLICT_REPORTED' ? 'warning' : selected_resource_request?.status === 'ACKNOWLEDGED' || selected_resource_request?.status === 'COMPLETED' ? 'success' : 'primary'">{{ resource_request_status_label(selected_resource_request?.status) }}</span></div>
                   </div>
                   <p class="farmer-panel-hint">申请量和现场时间窗会进入管理员的共享排程；最终分配仍受处方安全上限、日配额和设备条件约束。</p>
+                  <p v-if="resource_collaboration_read_only" class="farmer-panel-hint farmer-resource-readonly"><app-icon name="database_off"></app-icon>{{ resource_sync_label }}，需求与回执写入已停用，避免生成重启后丢失的记录。</p>
                   <form class="farmer-resource-request-form" @submit.prevent="submit_resource_request">
-                    <label><span>申请水量（L）</span><input v-model.number="resource_request_form.requestedLitres" type="number" min="0.1" step="0.1" :disabled="resource_request_locked || resource_request_busy" required></label>
-                    <label><span>最早可执行</span><input v-model="resource_request_form.preferredStart" type="datetime-local" :disabled="resource_request_locked || resource_request_busy"></label>
-                    <label><span>最晚可执行</span><input v-model="resource_request_form.preferredEnd" type="datetime-local" :disabled="resource_request_locked || resource_request_busy"></label>
-                    <label class="is-wide"><span>现场约束</span><input v-model.trim="resource_request_form.constraints" type="text" :disabled="resource_request_locked || resource_request_busy" placeholder="例如：避开采摘时段、现场人员 16:00 后可配合"></label>
-                    <label class="is-wide"><span>补充说明</span><textarea v-model.trim="resource_request_form.note" rows="2" :disabled="resource_request_locked || resource_request_busy" placeholder="描述作物状态或希望管理员重点复核的情况"></textarea></label>
-                    <div class="farmer-resource-request-actions"><button type="submit" class="g-btn primary" :disabled="resource_request_locked || resource_request_busy"><app-icon name="send"></app-icon>{{ resource_request_busy ? '提交中…' : resource_request_locked ? '等待本轮协同完成' : (selected_resource_request && ['SUBMITTED','IN_REVIEW','CONFLICT_REPORTED'].includes(selected_resource_request.status) ? '更新需求' : '提交需求') }}</button><button v-if="selected_resource_request && ['SUBMITTED','IN_REVIEW','CONFLICT_REPORTED'].includes(selected_resource_request.status)" type="button" class="g-btn secondary" :disabled="resource_request_busy" @click="respond_resource_request('WITHDRAW')">撤回</button></div>
+                    <label><span>申请水量（L）</span><input v-model.number="resource_request_form.requestedLitres" type="number" min="0.1" step="0.1" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy" required></label>
+                    <label><span>最早可执行</span><input v-model="resource_request_form.preferredStart" type="datetime-local" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy"></label>
+                    <label><span>最晚可执行</span><input v-model="resource_request_form.preferredEnd" type="datetime-local" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy"></label>
+                    <label class="is-wide"><span>现场约束</span><input v-model.trim="resource_request_form.constraints" type="text" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy" placeholder="例如：避开采摘时段、现场人员 16:00 后可配合"></label>
+                    <label class="is-wide"><span>补充说明</span><textarea v-model.trim="resource_request_form.note" rows="2" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy" placeholder="描述作物状态或希望管理员重点复核的情况"></textarea></label>
+                    <div class="farmer-resource-request-actions"><button type="submit" class="g-btn primary" :disabled="resource_collaboration_read_only || resource_request_locked || resource_request_busy"><app-icon name="send"></app-icon>{{ resource_request_busy ? '提交中…' : resource_collaboration_read_only ? '协同写入已停用' : resource_request_locked ? '等待本轮协同完成' : (selected_resource_request && ['SUBMITTED','IN_REVIEW','CONFLICT_REPORTED'].includes(selected_resource_request.status) ? '更新需求' : '提交需求') }}</button><button v-if="selected_resource_request && ['SUBMITTED','IN_REVIEW','CONFLICT_REPORTED'].includes(selected_resource_request.status)" type="button" class="g-btn secondary" :disabled="resource_collaboration_read_only || resource_request_busy" @click="respond_resource_request('WITHDRAW')">撤回</button></div>
                   </form>
                   <div v-if="selected_resource_request" class="farmer-resource-request-receipt">
                     <div><span>共享记录</span><strong>{{ selected_resource_request.resourceRequestId }}</strong></div>
@@ -832,8 +833,8 @@
                     <p v-if="selected_resource_request.responseNote || selected_resource_request.constraints">{{ selected_resource_request.responseNote || selected_resource_request.constraints }}</p>
                   </div>
                   <div v-if="selected_resource_request && ['PENDING_ACK','ACKNOWLEDGED','CONFLICT_REPORTED'].includes(selected_resource_request.status)" class="farmer-resource-response">
-                    <label><span>冲突说明</span><textarea v-model.trim="resource_request_response_note" rows="2" placeholder="若时段、人员或水量不可执行，请写明原因"></textarea></label>
-                    <div><button type="button" class="g-btn primary" :disabled="resource_request_busy || selected_resource_request.status === 'ACKNOWLEDGED'" @click="respond_resource_request('ACKNOWLEDGE')"><app-icon name="check_circle"></app-icon>{{ selected_resource_request.status === 'ACKNOWLEDGED' ? '已确认安排' : '确认安排' }}</button><button type="button" class="g-btn secondary" :disabled="resource_request_busy || !resource_request_response_note.trim()" @click="respond_resource_request('REPORT_CONFLICT')"><app-icon name="report_problem"></app-icon>反馈冲突</button></div>
+                    <label><span>冲突说明</span><textarea v-model.trim="resource_request_response_note" rows="2" :disabled="resource_collaboration_read_only" placeholder="若时段、人员或水量不可执行，请写明原因"></textarea></label>
+                    <div><button type="button" class="g-btn primary" :disabled="resource_collaboration_read_only || resource_request_busy || selected_resource_request.status === 'ACKNOWLEDGED'" @click="respond_resource_request('ACKNOWLEDGE')"><app-icon name="check_circle"></app-icon>{{ selected_resource_request.status === 'ACKNOWLEDGED' ? '已确认安排' : '确认安排' }}</button><button type="button" class="g-btn secondary" :disabled="resource_collaboration_read_only || resource_request_busy || !resource_request_response_note.trim()" @click="respond_resource_request('REPORT_CONFLICT')"><app-icon name="report_problem"></app-icon>反馈冲突</button></div>
                   </div>
                 </section>
               </article>
@@ -1716,6 +1717,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v59-main-compat-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260901-v59-resource-sync-v1"></script>
 </body>
 </html>

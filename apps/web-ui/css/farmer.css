@@ -2799,6 +2799,8 @@
 .farmer-allocation-detail > p .material-symbols-outlined { font-size: 17px; }
 .farmer-allocation-detail > small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.4; }
 .farmer-resource-collaboration { margin-top: 16px; padding: 15px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border)); border-radius: var(--g-radius-lg); background: color-mix(in srgb, var(--g-primary-bg) 52%, var(--g-bg-surface)); }
+.farmer-resource-statuses { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.farmer-resource-readonly { display: flex; align-items: center; gap: 6px; color: var(--g-warning-text, #9a5b00); }
 .farmer-resource-request-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
 .farmer-resource-request-form label, .farmer-resource-response label { display: grid; gap: 5px; color: var(--g-text-secondary); font-size: 11px; }
 .farmer-resource-request-form label.is-wide { grid-column: 1 / -1; }

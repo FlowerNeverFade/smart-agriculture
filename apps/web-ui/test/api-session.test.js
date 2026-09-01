@@ -5,22 +5,65 @@ import assert from 'node:assert/strict';
 // session boundary without starting a browser or a real HTTP server.
 const storage = new Map();
 const agentSessionStorage = new Map();
-globalThis.localStorage = {
-  getItem: (key) => storage.get(key) || null,
-  setItem: (key, value) => storage.set(key, String(value)),
-  removeItem: (key) => storage.delete(key)
-};
-globalThis.sessionStorage = {
-  getItem: (key) => agentSessionStorage.get(key) || null,
-  setItem: (key, value) => agentSessionStorage.set(key, String(value)),
-  removeItem: (key) => agentSessionStorage.delete(key),
-  clear: () => agentSessionStorage.clear()
-};
+const storageFacade = (values) => ({
+  getItem: (key) => values.has(key) ? values.get(key) : null,
+  setItem: (key, value) => values.set(key, String(value)),
+  removeItem: (key) => values.delete(key),
+  clear: () => values.clear()
+});
+globalThis.localStorage = storageFacade(storage);
+globalThis.sessionStorage = storageFacade(agentSessionStorage);
 globalThis.fetch = async () => {
   throw new Error('backend offline');
 };
 
 const { ApiService } = await import('../js/api.js');
+
+test('live authentication is isolated per tab and migrates one legacy shared session', () => {
+  storage.clear();
+  const legacyUser = { userId: 'legacy-admin', username: 'legacy.admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  localStorage.setItem('agriloop_token', 'legacy-token');
+  localStorage.setItem('agriloop_user', JSON.stringify(legacyUser));
+  localStorage.setItem('agriloop_session_mode', 'live');
+
+  const migratedTabValues = new Map();
+  const originalSessionStorage = globalThis.sessionStorage;
+  globalThis.sessionStorage = storageFacade(migratedTabValues);
+  try {
+    const migrated = new ApiService();
+    assert.equal(migrated.readSession()?.user.username, 'legacy.admin');
+    assert.equal(migrated.readSession()?.token, 'legacy-token');
+    assert.equal(localStorage.getItem('agriloop_token'), null);
+
+    const farmerTabValues = new Map();
+    globalThis.sessionStorage = storageFacade(farmerTabValues);
+    const farmerTab = new ApiService();
+    farmerTab.saveSession({
+      mode: 'live', token: 'farmer-token',
+      user: { userId: 'farmer-tab', username: 'farmer.tab', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] }
+    });
+
+    const systemTabValues = new Map();
+    globalThis.sessionStorage = storageFacade(systemTabValues);
+    const systemTab = new ApiService();
+    systemTab.saveSession({
+      mode: 'live', token: 'system-token',
+      user: { userId: 'system-tab', username: 'sysadmin.tab', role: 'SYSTEM_ADMIN', farmIds: ['*'], plotIds: ['*'] }
+    });
+
+    assert.equal(migrated.readSession()?.user.username, 'legacy.admin');
+    assert.equal(farmerTab.readSession()?.user.username, 'farmer.tab');
+    assert.equal(systemTab.readSession()?.user.username, 'sysadmin.tab');
+    farmerTab.clearSession();
+    assert.equal(farmerTab.readSession(), null);
+    assert.equal(migrated.readSession()?.token, 'legacy-token');
+    assert.equal(systemTab.readSession()?.token, 'system-token');
+  } finally {
+    globalThis.sessionStorage = originalSessionStorage;
+    storage.clear();
+    agentSessionStorage.clear();
+  }
+});
 
 test('formal sessions never fall back to demo records when backend is offline', async () => {
   const service = new ApiService();

@@ -1,11 +1,11 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v59-main-compat-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v59-main-compat-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v59-main-compat-v1';
-import { presentRoleUser } from './roles.js?v=20260901-v59-main-compat-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v59-resource-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v59-resource-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v59-resource-sync-v1';
+import { presentRoleUser } from './roles.js?v=20260901-v59-resource-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-main-compat-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-main-compat-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v59-main-compat-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-resource-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-resource-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v59-resource-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -28,7 +28,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v59-main-compat-v1';
+} from './live-data.js?v=20260901-v59-resource-sync-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -2125,6 +2125,7 @@ const app = createApp({
     const weather_inputs = ref({ temperature: 34, rainfall: 0, light: 62 });
     const risk_forecast = ref(null);
     const resource_plan = ref(null);
+    const resource_persistence_status = ref(is_formal_session ? 'UNKNOWN' : 'DEMO');
     const resource_requests = ref([]);
     const resource_request_busy = ref(false);
     const resource_request_response_note = ref('');
@@ -2651,6 +2652,14 @@ const app = createApp({
         .sort((a, b) => (priority[b.status] || 0) - (priority[a.status] || 0) || new Date(b.updatedAt || 0) - new Date(a.updatedAt || 0))[0] || null;
     });
     const resource_request_locked = computed(() => ['PENDING_ACK', 'ACKNOWLEDGED'].includes(String(selected_resource_request.value?.status || '').toUpperCase()));
+    const resource_persistence_ready = computed(() => ['POSTGRESQL', 'H2_STANDALONE'].includes(String(resource_persistence_status.value || '').toUpperCase()));
+    const resource_collaboration_read_only = computed(() => is_formal_session && !resource_persistence_ready.value);
+    const resource_sync_label = computed(() => {
+      if (!is_formal_session) return '演示数据 · 不跨账号';
+      if (resource_persistence_ready.value) return '持久化后端协同';
+      if (String(resource_persistence_status.value || '').toUpperCase() === 'IN_MEMORY_FALLBACK') return '数据库不可用 · 仅可查看';
+      return '后端状态待确认 · 仅可查看';
+    });
     const resource_request_status_label = status => ({ SUBMITTED: '已提交，等待排程', IN_REVIEW: '管理员正在编制方案', PENDING_ACK: '分配结果待你确认', ACKNOWLEDGED: '你已确认执行安排', CONFLICT_REPORTED: '冲突已反馈管理员', COMPLETED: '本次协同已完成', CANCELLED: '需求已撤回' }[String(status || '').toUpperCase()] || '尚未提交需求');
 
     const suggestion_plot = computed(() => {
@@ -3057,13 +3066,14 @@ const app = createApp({
           api.getCropBatches(),
           api.getWaterResourceProfile(),
           api.listResourcePlans({}),
-          api.listResourceRequests({})
+          api.listResourceRequests({}),
+          api.getSystemStatus()
         ]);
         const coreFailure = [0, 1, 2, 3, 5]
           .map((index) => results[index])
           .find((result) => result.status === 'rejected');
         if (coreFailure) throw coreFailure.reason;
-        const [farmsResult, plotsResult, overviewResult, workOrdersResult, todayWorkResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult] = results;
+        const [farmsResult, plotsResult, overviewResult, workOrdersResult, todayWorkResult, alertsResult, packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult, systemStatusResult] = results;
         const farms = farmsResult.value || [];
         const rawPlots = plotsResult.value || [];
         const overview = overviewResult.value || {};
@@ -3074,9 +3084,10 @@ const app = createApp({
         const rawAlerts = alertsResult.value || [];
         const packs = packsResult.status === 'fulfilled' ? packsResult.value || [] : [];
         const batches = batchesResult.status === 'fulfilled' ? batchesResult.value || [] : [];
-        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult]
+        const optionalFailures = [packsResult, batchesResult, resourceProfileResult, resourcePlansResult, resourceRequestsResult, systemStatusResult]
           .filter((result) => result.status === 'rejected');
         if (optionalFailures.length) load_error.value = '作物包或种植批次暂不可用，已显示其余正式数据';
+        resource_persistence_status.value = String(systemStatusResult.status === 'fulfilled' ? systemStatusResult.value?.persistence || 'UNKNOWN' : 'UNKNOWN').toUpperCase();
         if (resourceProfileResult.status === 'fulfilled' || resourcePlansResult.status === 'fulfilled') {
           const waterProfile = resourceProfileResult.status === 'fulfilled' ? resourceProfileResult.value : null;
           const planList = resourcePlansResult.status === 'fulfilled' ? resourcePlansResult.value : [];
@@ -4664,6 +4675,7 @@ const app = createApp({
 
     const submit_resource_request = async () => {
       if (resource_request_busy.value) return;
+      if (resource_collaboration_read_only.value) { show_toast(resource_sync_label.value, 'error'); return; }
       if (resource_request_locked.value) { show_toast('当前需求已进入确认或执行阶段，请先完成本轮协同', 'error'); return; }
       const plot = advice_selected_plot.value || advice_plot.value || plots.value[0];
       const amount = Number(resource_request_form.value.requestedLitres);
@@ -4679,13 +4691,17 @@ const app = createApp({
         resource_requests.value = [saved, ...resource_requests.value.filter(item => item.resourceRequestId !== saved.resourceRequestId)];
         resource_request_form.value.note = ''; resource_request_response_note.value = '';
         show_toast('用水需求已提交，农场管理员将收到协同提醒');
-      } catch (error) { show_toast(error.message || '用水需求提交失败', 'error'); }
+      } catch (error) {
+        if (error?.code === 'RESOURCE_PERSISTENCE_UNAVAILABLE') resource_persistence_status.value = 'IN_MEMORY_FALLBACK';
+        show_toast(error.message || '用水需求提交失败', 'error');
+      }
       finally { resource_request_busy.value = false; }
     };
 
     const respond_resource_request = async action => {
       const request = selected_resource_request.value;
       if (!request || resource_request_busy.value) return;
+      if (resource_collaboration_read_only.value) { show_toast(resource_sync_label.value, 'error'); return; }
       if (action === 'REPORT_CONFLICT' && !resource_request_response_note.value.trim()) { show_toast('请先说明时段、人员或水量冲突', 'error'); return; }
       resource_request_busy.value = true;
       try {
@@ -4693,7 +4709,10 @@ const app = createApp({
         resource_requests.value = resource_requests.value.map(item => item.resourceRequestId === saved.resourceRequestId ? saved : item);
         resource_request_response_note.value = '';
         show_toast(action === 'ACKNOWLEDGE' ? '已确认分配安排，管理员端将实时同步' : action === 'WITHDRAW' ? '需求已撤回' : '冲突已反馈，管理员将重新复核');
-      } catch (error) { show_toast(error.message || '协同回执提交失败', 'error'); }
+      } catch (error) {
+        if (error?.code === 'RESOURCE_PERSISTENCE_UNAVAILABLE') resource_persistence_status.value = 'IN_MEMORY_FALLBACK';
+        show_toast(error.message || '协同回执提交失败', 'error');
+      }
       finally { resource_request_busy.value = false; }
     };
 
@@ -5078,6 +5097,10 @@ const app = createApp({
       resource_requests,
       selected_resource_request,
       resource_request_locked,
+      resource_persistence_status,
+      resource_persistence_ready,
+      resource_collaboration_read_only,
+      resource_sync_label,
       resource_request_form,
       resource_request_response_note,
       resource_request_busy,

@@ -113,3 +113,27 @@ test('system admin resource audit remains reachable from the standalone shell', 
   assert.match(sysadminHtml, /SYSTEM_ADMIN \/ READ ONLY/);
   assert.match(sysadminHtml, /农户需求与回执审计/);
 });
+
+test('all three resource workspaces identify durable sync and disable live writes when persistence is unavailable', async () => {
+  const adminResource = await readFile(new URL('../js/modules/admin-resource-planning.js', import.meta.url), 'utf8');
+  const farmer = await readFile(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const farmerHtml = await readFile(new URL('../farmer.html', import.meta.url), 'utf8');
+  const sysadmin = await readFile(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const sysadminHtml = await readFile(new URL('../sysadmin.html', import.meta.url), 'utf8');
+
+  assert.match(adminResource, /持久化后端协同/);
+  assert.match(adminResource, /数据库不可用 · 仅可查看/);
+  assert.match(adminResource, /api\.getSystemStatus/);
+  assert.match(adminResource, /collaborationReadOnly/);
+
+  assert.match(farmer, /resource_persistence_status/);
+  assert.match(farmer, /api\.getSystemStatus\(\)/);
+  assert.match(farmer, /RESOURCE_PERSISTENCE_UNAVAILABLE/);
+  assert.match(farmerHtml, /resource_collaboration_read_only/);
+  assert.match(farmerHtml, /演示数据 · 不跨账号|resource_sync_label/);
+
+  assert.match(sysadmin, /resourcePersistence/);
+  assert.match(sysadmin, /持久化后端共享事实/);
+  assert.match(sysadminHtml, /collaborationLabel/);
+  assert.match(sysadminHtml, /SYSTEM_ADMIN \/ READ ONLY/);
+});

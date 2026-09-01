@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260901-v59-main-compat-v1';
-import { sourceLabel } from '../live-data.js?v=20260901-v59-main-compat-v1';
+import { api } from '../api.js?v=20260901-v59-resource-sync-v1';
+import { sourceLabel } from '../live-data.js?v=20260901-v59-resource-sync-v1';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 

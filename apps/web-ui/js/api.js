@@ -6,9 +6,9 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260901-v59-main-compat-v1';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v59-main-compat-v1';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-main-compat-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v59-resource-sync-v1';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v59-resource-sync-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-resource-sync-v1';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -17,6 +17,42 @@ const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
 const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 10, cooldownMinutes: 0, automaticWateringThreshold: 10 });
+const AUTH_SESSION_KEYS = Object.freeze(['agriloop_token', 'agriloop_user', 'agriloop_session_mode']);
+
+function browserStorage(name) {
+  try {
+    const storage = globalThis?.[name];
+    return storage && typeof storage.getItem === 'function' ? storage : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+function authSessionStorage() {
+  const scoped = browserStorage('sessionStorage');
+  const legacy = browserStorage('localStorage');
+  if (!scoped) return legacy;
+
+  // V5.9 moves credentials from origin-wide localStorage to per-tab
+  // sessionStorage.  Copy one complete legacy session into the current tab,
+  // then remove the shared copy so a newly opened role workspace cannot
+  // silently inherit or overwrite another account's JWT.
+  try {
+    const hasScopedSession = AUTH_SESSION_KEYS.some((key) => scoped.getItem(key) !== null);
+    const hasLegacySession = legacy && AUTH_SESSION_KEYS.some((key) => legacy.getItem(key) !== null);
+    if (!hasScopedSession && hasLegacySession) {
+      AUTH_SESSION_KEYS.forEach((key) => {
+        const value = legacy.getItem(key);
+        if (value !== null) scoped.setItem(key, value);
+      });
+    }
+    if (legacy) AUTH_SESSION_KEYS.forEach((key) => legacy.removeItem(key));
+  } catch (error) {
+    // A storage migration failure must not expose or fabricate a session.
+    // The caller will simply be redirected to the login page.
+  }
+  return scoped;
+}
 
 // The backend returns the same contract in a live session.  These profiles
 // keep the explicit offline/demo path honest when the API is unavailable and
@@ -622,9 +658,10 @@ export class ApiError extends Error {
 export class ApiService {
   constructor(baseUrl = '') {
     this.baseUrl = baseUrl.replace(/\/$/, '');
-    this.token = localStorage.getItem('agriloop_token') || '';
+    this.sessionStore = authSessionStorage();
+    this.token = this._sessionGet('agriloop_token') || '';
     this.user = this.readStoredUser();
-    this.sessionMode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
+    this.sessionMode = this._sessionGet('agriloop_session_mode') || (this.token ? 'live' : 'demo');
     this.isLive = false;
     this.sseSource = null;
     this.sseAbortController = null;
@@ -743,12 +780,27 @@ export class ApiService {
 
   readStoredUser() {
     try {
-      const raw = localStorage.getItem('agriloop_user');
+      const raw = this._sessionGet('agriloop_user');
       return raw ? presentRoleUser(JSON.parse(raw)) : null;
     } catch (e) {
-      localStorage.removeItem('agriloop_user');
+      this._sessionRemove('agriloop_user');
       return null;
     }
+  }
+
+  _sessionGet(key) {
+    try { return this.sessionStore?.getItem(key) ?? null; }
+    catch (error) { return null; }
+  }
+
+  _sessionSet(key, value) {
+    try { this.sessionStore?.setItem(key, String(value)); }
+    catch (error) { /* unavailable storage leaves the session in memory only */ }
+  }
+
+  _sessionRemove(key) {
+    try { this.sessionStore?.removeItem(key); }
+    catch (error) { /* unavailable storage is already equivalent to removal */ }
   }
 
   getUser() {
@@ -836,7 +888,7 @@ export class ApiService {
     const user = resp?.data || resp;
     if (user) {
       this.user = presentRoleUser(user);
-      localStorage.setItem('agriloop_user', JSON.stringify(this.user));
+      this._sessionSet('agriloop_user', JSON.stringify(this.user));
     }
     return user;
   }
@@ -859,10 +911,10 @@ export class ApiService {
     if (mode !== 'live') this.isLive = false;
     this.user = normalizedUser;
     if (mode === 'demo') this.demoAutomaticWateringSettings = this._loadDemoAutomaticWateringSettings();
-    localStorage.setItem('agriloop_user', JSON.stringify(normalizedUser));
-    localStorage.setItem('agriloop_session_mode', mode);
-    if (this.token) localStorage.setItem('agriloop_token', this.token);
-    else localStorage.removeItem('agriloop_token');
+    this._sessionSet('agriloop_user', JSON.stringify(normalizedUser));
+    this._sessionSet('agriloop_session_mode', mode);
+    if (this.token) this._sessionSet('agriloop_token', this.token);
+    else this._sessionRemove('agriloop_token');
     const nextWorkspaceKey = this._demoWorkspaceStorageKey();
     if (mode === 'demo' && (previousMode !== 'demo' || previousWorkspaceKey !== nextWorkspaceKey)) {
       // A single ApiService instance can be reused after logout/login.  Do
@@ -875,8 +927,8 @@ export class ApiService {
   }
 
   readSession() {
-    const mode = localStorage.getItem('agriloop_session_mode') || (this.token ? 'live' : 'demo');
-    const token = localStorage.getItem('agriloop_token') || '';
+    const mode = this._sessionGet('agriloop_session_mode') || (this.token ? 'live' : 'demo');
+    const token = this._sessionGet('agriloop_token') || '';
     const user = presentRoleUser(this.readStoredUser());
     if (!user?.username || !user?.role || !isPublicRole(user.role)) return null;
     if (mode === 'live' && token) return { mode, token, user };
@@ -906,9 +958,7 @@ export class ApiService {
     this.sseSource = null;
     this.sseAbortController?.abort();
     this.sseAbortController = null;
-    localStorage.removeItem('agriloop_token');
-    localStorage.removeItem('agriloop_user');
-    localStorage.removeItem('agriloop_session_mode');
+    AUTH_SESSION_KEYS.forEach((key) => this._sessionRemove(key));
   }
 
   async checkHealth() {

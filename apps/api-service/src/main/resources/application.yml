@@ -13,7 +13,10 @@ spring:
     default-property-inclusion: non_null
     time-zone: Asia/Shanghai
   datasource:
-    url: ${DATABASE_URL:jdbc:h2:mem:agriloop;MODE=PostgreSQL;DB_CLOSE_DELAY=-1}
+    # Standalone collaboration must survive an API restart. Generated H2
+    # files live under the ignored data/ directory; simulation deployments
+    # continue to override this URL with PostgreSQL below.
+    url: ${DATABASE_URL:jdbc:h2:file:./data/agriloop;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE}
     username: ${DATABASE_USER:sa}
     password: ${DATABASE_PASSWORD:}
     driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}

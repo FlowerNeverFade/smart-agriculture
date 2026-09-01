@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260901-v59-main-compat-v1';
+import { ApiError, api } from './api.js?v=20260901-v59-resource-sync-v1';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v59-main-compat-v1';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v59-resource-sync-v1';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');

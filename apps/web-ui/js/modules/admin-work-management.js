@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260901-v59-main-compat-v1';
-import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v59-main-compat-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v59-main-compat-v1';
-import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v59-main-compat-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v59-main-compat-v1';
+import { api } from '../api.js?v=20260901-v59-resource-sync-v1';
+import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260901-v59-resource-sync-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-v59-resource-sync-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260901-v59-resource-sync-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260901-v59-resource-sync-v1';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

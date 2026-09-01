@@ -841,6 +841,27 @@ class AgriApplicationTest {
     }
 
     @Test
+    void resourceCollaborationRejectsWritesWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("farmer-persistence", "farmer-persistence", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        long before = store.countWhere("resource-request", request -> "farmer-persistence".equals(request.get("requestedBy")));
+        var databaseReady = AgriStore.class.getDeclaredField("databaseReady");
+        databaseReady.setAccessible(true);
+        boolean original = databaseReady.getBoolean(store);
+        try {
+            databaseReady.setBoolean(store, false);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createResourceRequest(Map.of(
+                            "plotId", "plot-a01", "requestedLitres", 24.0), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("RESOURCE_PERSISTENCE_UNAVAILABLE");
+                    });
+            assertThat(store.countWhere("resource-request", request -> "farmer-persistence".equals(request.get("requestedBy")))).isEqualTo(before);
+        } finally {
+            databaseReady.setBoolean(store, original);
+        }
+    }
+
+    @Test
     void normalLightVariationIsNotMistakenForSensorDegradation() {
         engine.ingest(Map.of("eventId", "light-baseline-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
                 "metric", "LIGHT", "value", 38_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().toString()));

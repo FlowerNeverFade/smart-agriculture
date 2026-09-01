@@ -1,20 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v59-main-compat-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v59-main-compat-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v59-main-compat-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v59-main-compat-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v59-resource-sync-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v59-resource-sync-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v59-resource-sync-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v59-resource-sync-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-main-compat-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v59-main-compat-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v59-main-compat-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v59-main-compat-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v59-main-compat-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-main-compat-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v59-main-compat-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v59-main-compat-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v59-main-compat-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v59-main-compat-v1';
-import { cropBackgroundFor } from './plot-background.js?v=20260901-v59-main-compat-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v59-main-compat-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v59-resource-sync-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PLOT_BACKGROUND_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v59-resource-sync-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v59-resource-sync-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v59-resource-sync-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v59-resource-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v59-resource-sync-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v59-resource-sync-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v59-resource-sync-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v59-resource-sync-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v59-resource-sync-v1';
+import { cropBackgroundFor } from './plot-background.js?v=20260901-v59-resource-sync-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v59-resource-sync-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -46,7 +46,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v59-main-compat-v1';
+} from './live-data.js?v=20260901-v59-resource-sync-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -751,6 +751,13 @@ const AdminResourcesView = {
       .filter(request => statusFilter.value === 'all' || (statusFilter.value === 'active' ? activeRequestStatuses.has(request.status) : request.status === statusFilter.value))
       .sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0)));
     const selectedProfiles = computed(() => profiles.value.filter(profile => farmFilter.value === 'all' || profile.farmId === farmFilter.value));
+    const persistenceReady = computed(() => ['POSTGRESQL', 'H2_STANDALONE'].includes(String(props.state.resourcePersistence || '').toUpperCase()));
+    const collaborationLabel = computed(() => {
+      if (props.state.sessionMode !== 'live') return '演示数据 · 不跨账号';
+      if (persistenceReady.value) return '持久化后端共享事实';
+      if (String(props.state.resourcePersistence || '').toUpperCase() === 'IN_MEMORY_FALLBACK') return '数据库不可用 · 仅可查看';
+      return '后端状态待确认 · 仅可查看';
+    });
     const totals = computed(() => ({
       farms: selectedProfiles.value.length,
       quota: selectedProfiles.value.reduce((sum, profile) => sum + Number(profile.dailyQuotaLitres || profile.balance?.dailyQuotaLitres || 0), 0),
@@ -763,7 +770,7 @@ const AdminResourcesView = {
     const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || status || '待处理');
     const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || status || '未知');
     const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
-    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
   }
 };
 
@@ -1616,6 +1623,7 @@ const app = createApp({
       inspections: isDemoSession ? (MOCK_DATA.inspections || []).map((item) => ({ ...item })) : [],
       resourceProfile: isDemoSession ? MOCK_DATA.resourceProfile : {},
       resourceProfiles: isDemoSession ? [MOCK_DATA.resourceProfile] : [],
+      resourcePersistence: isDemoSession ? 'DEMO' : 'UNKNOWN',
       resourcePlans: [],
       resourceRequests: isDemoSession ? (MOCK_DATA.resourceRequests || []).map(item => ({ ...item })) : [],
       cropPackDetails: isDemoSession ? MOCK_DATA.cropPackDetails : [],
@@ -2101,6 +2109,7 @@ const app = createApp({
       state.value.resourceProfile = resourceProfiles[0] || {};
       state.value.resourcePlans = results.resourcePlans?.status === 'fulfilled' ? results.resourcePlans.value || [] : [];
       state.value.resourceRequests = results.resourceRequests?.status === 'fulfilled' ? results.resourceRequests.value || [] : [];
+      state.value.resourcePersistence = String(results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value?.persistence || 'UNKNOWN' : 'UNKNOWN').toUpperCase();
       state.value.cropPacks = results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value || [] : [];
       state.value.cropPackDetails = state.value.cropPacks;
       state.value.simulatorStatus = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
