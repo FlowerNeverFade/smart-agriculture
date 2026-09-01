@@ -245,7 +245,16 @@ export const AdminAiChatView = {
       if (value && value !== conversationId.value && !loadingHistory.value) loadConversation(value, { updateHash: false });
     });
 
-    const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
+    const scrollToBottom = async () => {
+      await nextTick();
+      const el = messageList.value;
+      if (!el) return;
+      // 程序定位必须瞬间完成：临时禁用 CSS scroll-behavior:smooth，避免打开会话出现滚动动画
+      const prev = el.style.scrollBehavior;
+      el.style.scrollBehavior = 'auto';
+      el.scrollTop = el.scrollHeight;
+      el.style.scrollBehavior = prev;
+    };
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
       if (!id) delete params.conversationId;
@@ -543,7 +552,13 @@ export const AdminAiChatView = {
       const before = el ? el.scrollHeight : 0;
       visibleMessageCount.value += 20;
       await nextTick();
-      if (el) el.scrollTop += (el.scrollHeight - before);
+      if (el) {
+        // 位置补偿同样要瞬间完成（禁用 smooth），否则上滚加载会带滚动动画
+        const prev = el.style.scrollBehavior;
+        el.style.scrollBehavior = 'auto';
+        el.scrollTop += (el.scrollHeight - before);
+        el.style.scrollBehavior = prev;
+      }
       loadingOlder.value = false;
     };
     const handleMessageScroll = () => {
