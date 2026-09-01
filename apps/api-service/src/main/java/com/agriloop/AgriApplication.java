@@ -6981,6 +6981,7 @@ class AgriEngine {
             String title = persistedUserMessage.replaceAll("\\s+", " ").trim();
             conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
             conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0); conversation.put("archived", false);
+            conversation.put("pinned", false);
         }
         conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
         conversation.put("agentRole", answer.get("role")); conversation.put("roleLabel", answer.get("roleLabel"));
@@ -6995,12 +6996,13 @@ class AgriEngine {
         if (conversation == null) {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
-            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false);
+            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false); conversation.put("pinned", false);
         } else {
             // Existing conversations may have a title generated from the old
             // image prompt. Project the readable question on history reads.
             conversation = new LinkedHashMap<>(conversation);
             conversation.put("title", cleanAgentHistoryUserMessage(Jsons.text(conversation, "title", "")));
+            conversation.putIfAbsent("pinned", false);
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
         result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 100))));
@@ -7019,6 +7021,7 @@ class AgriEngine {
                 .map(item -> {
                     Map<String, Object> copy = new LinkedHashMap<>(item);
                     copy.put("title", cleanAgentHistoryUserMessage(Jsons.text(item, "title", "")));
+                    copy.putIfAbsent("pinned", false);
                     return copy;
                 }).toList();
     }
@@ -7048,14 +7051,23 @@ class AgriEngine {
     }
 
     Map<String, Object> renameAgentConversation(String conversationId, String title, UserPrincipal principal) {
+        return updateAgentConversation(conversationId, title, null, principal);
+    }
+
+    Map<String, Object> updateAgentConversation(String conversationId, String title, Boolean pinned, UserPrincipal principal) {
         String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
         Map<String, Object> conversation = store.find("agent-conversation", resolved);
         if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
         if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
-            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权重命名该对话");
-        String clean = title == null ? "" : title.replaceAll("\\s+", " ").trim();
-        if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
-        conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权修改该对话");
+        if (title != null) {
+            String clean = title.replaceAll("\\s+", " ").trim();
+            if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
+            conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+        }
+        if (pinned != null) conversation.put("pinned", pinned);
+        if (title == null && pinned == null)
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_UPDATE_EMPTY", "没有可更新的对话字段");
         conversation.put("updatedAt", Instant.now().toString());
         store.save("agent-conversation", resolved, conversation);
         return conversation;
@@ -8123,8 +8135,9 @@ class AgriController {
 
     @PutMapping("/agent/conversations/{conversationId}")
     ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
-        String title = body == null ? "" : Jsons.text(body, "title", "");
-        return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
+        String title = body != null && body.containsKey("title") ? Jsons.text(body, "title", "") : null;
+        Boolean pinned = body != null && body.containsKey("pinned") ? Jsons.bool(body, "pinned", false) : null;
+        return ok(engine.updateAgentConversation(conversationId, title, pinned, principal(a)));
     }
 
     @PostMapping("/agent/conversations/{conversationId}/archive")

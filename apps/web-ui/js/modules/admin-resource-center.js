@@ -321,9 +321,11 @@ export const AdminResourceCenterView = {
            <article v-for="device in visibleDevices" :key="device.deviceId" class="admin-device-card" :class="{ 'has-open-menu': deviceMenuId === device.deviceId }" role="button" tabindex="0"
             :aria-label="'查看设备详情：' + (device.name || device.deviceId)" @click="openDeviceDetail(device)" @keydown="openDeviceFromKeyboard($event, device)">
             <header class="admin-device-card-header">
-              <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ deviceStatusLabel(device.status) }}</span></div>
-              <div class="admin-device-card-tools" @click.stop>
+              <div class="admin-device-card-header-main">
+                <div class="admin-device-status" :class="String(device.status || 'offline').toLowerCase()"><i></i><span>{{ deviceStatusLabel(device.status) }}</span></div>
                 <span class="admin-binding-state" :class="device.plotId ? 'bound' : 'unbound'">{{ bindingLabel(device) }}</span>
+              </div>
+              <div class="admin-device-card-tools" @click.stop>
                 <div class="manager-plot-actions">
                   <button type="button" class="manager-more-button" :aria-expanded="deviceMenuId === device.deviceId ? 'true' : 'false'" :aria-label="'设备操作：' + (device.name || device.deviceId)" title="更多操作" @click.stop="toggleDeviceMenu(device.deviceId)"><app-icon name="more_vertical"></app-icon></button>
                   <div v-if="deviceMenuId === device.deviceId" class="manager-plot-menu" role="menu" @click.stop>

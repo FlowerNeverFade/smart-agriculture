@@ -347,6 +347,26 @@ paths:
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/conversations/{conversationId}:
+    put:
+      tags: [decision]
+      description: 更新当前账号拥有的 Agent 会话摘要；可修改标题或置顶状态，服务端校验会话归属。
+      parameters:
+        - {name: conversationId, in: path, required: true, schema: {type: string, maxLength: 120}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string, maxLength: 36}
+                pinned: {type: boolean}
+              minProperties: 1
+      responses:
+        '200': {description: 更新后的会话摘要}
+        '400': {description: 没有可更新字段或标题无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 对话不存在}
     delete:
       tags: [decision]
       description: 删除当前账号拥有的 Agent 对话及其消息；服务端校验会话归属。

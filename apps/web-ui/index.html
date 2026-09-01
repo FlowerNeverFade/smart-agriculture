@@ -12,11 +12,11 @@
   <link rel="stylesheet" href="css/style.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-admin-ops-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-input-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-codex-ai-v1">
   <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/decision-console.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260831-sync-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260831-sync-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-device-menu-v1">
   <link rel="stylesheet" href="css/modules/admin.css?v=20260831-sync-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260831-sync-v1">
 
@@ -141,6 +141,9 @@
             </div>
 
             <div class="account-profile-popover-footer">
+              <button v-if="state.currentUser.role === 'FARM_ADMIN'" type="button" class="g-btn secondary" @click="openArchivedConversations">
+                <app-icon name="history"></app-icon>已归档对话
+              </button>
               <button type="button" class="g-btn secondary" @click="openAccountModal">
                 <app-icon name="lock_reset"></app-icon>修改密码
               </button>
@@ -180,7 +183,7 @@
         </div>
       </nav>
 
-      <main class="g-main" :class="{ 'farmer-main': isFarmer }">
+      <main class="g-main" :class="{ 'farmer-main': isFarmer, 'is-ai-view': currentView === 'ai-assistant' }">
         <transition name="fade" mode="out-in">
           <keep-alive include="AdminAiChatView">
             <component :is="currentViewComponent" :state="state" :user-settings="userSettings" :route-params="routeParams"

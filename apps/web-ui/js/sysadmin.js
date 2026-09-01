@@ -8,7 +8,7 @@ import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUser
 import { AdminAlertCenter } from './admin-alerts.js?v=20260831-sync-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260831-sync-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260831-sync-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260831-sync-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-codex-ai-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260831-sync-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260831-sync-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260831-sync-v1';
