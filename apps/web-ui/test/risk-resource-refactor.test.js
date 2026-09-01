@@ -114,6 +114,17 @@ test('system admin resource audit remains reachable from the standalone shell', 
   assert.match(sysadminHtml, /农户需求与回执审计/);
 });
 
+test('farm admin names the water-only workspace irrigation scheduling without changing its route', async () => {
+  const management = await readFile(new URL('../js/modules/admin-work-management.js', import.meta.url), 'utf8');
+  const resource = await readFile(new URL('../js/modules/admin-resource-planning.js', import.meta.url), 'utf8');
+
+  assert.match(management, />灌溉调度<\/button>/);
+  assert.match(management, /activeTab === 'resources'/);
+  assert.match(resource, /农务任务 \/ 灌溉调度/);
+  assert.match(resource, /id="resource-title">灌溉调度工作台/);
+  assert.doesNotMatch(management, />资源安排<\/button>/);
+});
+
 test('all three resource workspaces identify durable sync and disable live writes when persistence is unavailable', async () => {
   const adminResource = await readFile(new URL('../js/modules/admin-resource-planning.js', import.meta.url), 'utf8');
   const farmer = await readFile(new URL('../js/farmer.js', import.meta.url), 'utf8');

@@ -322,11 +322,11 @@ export const AdminWorkManagementView = {
   },
   template: `
     <section class="admin-management-page">
-      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、资源安排与 Crop Pack 使用同一农场上下文。</p></div></header>
+      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、灌溉调度与 Crop Pack 使用同一农场上下文。</p></div></header>
       <nav class="admin-local-tabs" aria-label="农务任务页签">
         <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务列表</button>
         <button :class="{active: activeTab === 'plans'}" @click="setTab('plans')">生产计划</button>
-        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">资源安排</button>
+        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">灌溉调度</button>
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
       </nav>
 
