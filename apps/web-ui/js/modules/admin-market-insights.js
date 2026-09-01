@@ -1,4 +1,5 @@
 import { api } from '../api.js?v=20260901-v593-market-v3';
+import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260901-v595-global-v1';
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } = Vue;
 
@@ -58,10 +59,12 @@ export function buildReferenceChartHistory(points = [], periods = 12) {
 
 export const AdminMarketInsightsView = {
   name: 'AdminMarketInsightsView',
+  components: { AdminGlobalWholesalePanel },
   props: { state: { type: Object, required: true }, routeParams: { type: Object, default: () => ({}) } },
   setup(props) {
     const toast = inject('toast');
     const loading = ref(false); const error = ref(null); const market = ref(null);
+    const workspaceMode = ref('local');
     const scope = ref('farm'); const rangeDays = ref(30); const referencePeriods = ref(12); const selectedCropCode = ref('');
     const chartMode = ref('local'); const chartModeByCrop = new Map();
     const chartEl = ref(null); let chart = null; let refreshTimer = null; let resizeObserver = null;
@@ -183,7 +186,18 @@ export const AdminMarketInsightsView = {
           ? 'local'
           : selectedHistory.value.length < 3 && referenceAvailable ? 'reference' : 'local';
     };
-    const chooseCrop = cropCode => { selectedCropCode.value = cropCode; syncChartMode(); void renderChart(); };
+    const chooseCrop = cropCode => {
+      selectedCropCode.value = cropCode;
+      syncChartMode();
+      if (workspaceMode.value === 'local') void renderChart();
+    };
+    const chooseWorkspace = mode => {
+      const nextMode = mode === 'global' ? 'global' : 'local';
+      if (workspaceMode.value === nextMode) return;
+      workspaceMode.value = nextMode;
+      if (nextMode === 'local') void renderChart();
+      else { resizeObserver?.disconnect?.(); chart?.dispose?.(); chart = null; }
+    };
     const chooseChartMode = mode => {
       if (mode === 'reference' && !selectedReference.value?.points?.length) return;
       chartMode.value = mode === 'reference' ? 'reference' : 'local';
@@ -201,7 +215,7 @@ export const AdminMarketInsightsView = {
     };
 
     watch(farmId, () => { selectedCropCode.value = ''; void load(); });
-    watch(selectedCrop, () => { void renderChart(); });
+    watch(selectedCrop, () => { if (workspaceMode.value === 'local') void renderChart(); });
     onMounted(() => {
       void load();
       refreshTimer = window.setInterval(() => { if (!document.hidden) void load({ silent: true }); }, 15 * 60 * 1000);
@@ -214,44 +228,54 @@ export const AdminMarketInsightsView = {
     });
 
     return {
-      loading, error, market, scope, rangeDays, referencePeriods, chartMode, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
+      loading, error, market, workspaceMode, scope, rangeDays, referencePeriods, chartMode, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
       sourceTone, selectedQuotes, selectedHistory, selectedReference, selectedReferencePoints, chartHistory, chartUnit, chartRangeLabel,
       availableCount, axisDisclosure, RANGE_OPTIONS, REFERENCE_PERIOD_OPTIONS,
-      price, signed, changeTone, sourceLabel, chooseCrop, chooseChartMode, chooseRange, chooseReferencePeriod, chooseScope, refresh, observationTone, quoteDifference
+      price, signed, changeTone, sourceLabel, chooseCrop, chooseWorkspace, chooseChartMode, chooseRange, chooseReferencePeriod, chooseScope, refresh, observationTone, quoteDifference
     };
   },
   template: `
     <section class="market-insights" aria-labelledby="market-insights-title">
       <header class="market-insights-header">
         <div>
-          <span class="market-eyebrow">经营决策 / 日度批发行情</span>
-          <h1 id="market-insights-title">农产品市场行情</h1>
-          <p>关注本场作物的每日市场报价、历史变化与销售观察；界面类似行情终端，但不会把日均价伪装成实时成交。</p>
+          <span class="market-eyebrow">{{ workspaceMode === 'local' ? '经营决策 / 日度批发行情' : '经营决策 / 全球批发销售沙盘' }}</span>
+          <h1 id="market-insights-title">{{ workspaceMode === 'local' ? '农产品市场行情' : '全球批发与到岸测算' }}</h1>
+          <p>{{ workspaceMode === 'local' ? '关注本场作物的每日市场报价、历史变化与销售观察；界面类似行情终端，但不会把日均价伪装成实时成交。' : '从重庆农场筛选全球批发目的地，比较运输时效、冷链损耗与到岸成本；当前物流与买方价格为明确标注的模拟场景。' }}</p>
         </div>
-        <div class="market-header-actions">
+        <div v-if="workspaceMode === 'local'" class="market-header-actions">
           <span class="market-source-badge" :class="'is-' + sourceTone"><i></i>{{ sourceLabel(status) }}</span>
           <span class="market-asof">报价日 <strong>{{ market?.asOf || '—' }}</strong></span>
           <button type="button" class="market-refresh" @click="refresh" :disabled="loading"><span class="ph ph-arrows-clockwise" aria-hidden="true"></span>{{ loading ? '刷新中…' : '刷新行情' }}</button>
         </div>
+        <div v-else class="market-header-actions">
+          <span class="market-source-badge is-demo"><i></i>模拟销售测算</span>
+          <span class="market-asof">实时运费报价 <strong>0 个</strong></span>
+        </div>
       </header>
 
-      <div class="market-source-strip" :class="'is-' + sourceTone">
-        <div><strong>{{ source.name || '行情来源待确认' }}</strong><span>{{ source.provinceName || '当前区域' }} · {{ source.preferredMarket || '区域市场简单均值' }} · {{ source.cadence === 'DAILY' ? '每日更新' : '更新频率待确认' }}</span></div>
-        <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span>历史归档：{{ market?.historyPersistence || '—' }}</span></div>
+      <div class="market-workspace-switch" role="tablist" aria-label="市场工作台模式">
+        <button type="button" role="tab" :aria-selected="workspaceMode === 'local'" :class="{active: workspaceMode === 'local'}" @click="chooseWorkspace('local')"><span class="ph ph-chart-line-up" aria-hidden="true"></span>国内行情</button>
+        <button type="button" role="tab" :aria-selected="workspaceMode === 'global'" :class="{active: workspaceMode === 'global'}" @click="chooseWorkspace('global')"><span class="ph ph-globe-hemisphere-west" aria-hidden="true"></span>全球批发 <em>SIMULATED</em></button>
       </div>
 
-      <div class="market-toolbar" aria-label="行情范围">
-        <div class="market-scope-switch">
-          <button type="button" :class="{active: scope === 'farm'}" @click="chooseScope('farm')">本场作物</button>
-          <button type="button" :class="{active: scope === 'all'}" @click="chooseScope('all')">全部监测品种</button>
+      <template v-if="workspaceMode === 'local'">
+        <div class="market-source-strip" :class="'is-' + sourceTone">
+          <div><strong>{{ source.name || '行情来源待确认' }}</strong><span>{{ source.provinceName || '当前区域' }} · {{ source.preferredMarket || '区域市场简单均值' }} · {{ source.cadence === 'DAILY' ? '每日更新' : '更新频率待确认' }}</span></div>
+          <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span>历史归档：{{ market?.historyPersistence || '—' }}</span></div>
         </div>
-        <span>重庆报价为元/公斤；国际参考保留原始英镑/公斤，不做汇率换算或价格拼接。</span>
-      </div>
 
-      <div v-if="error" class="market-error"><strong>{{ error.code || 'MARKET_PRICE_UNAVAILABLE' }}</strong><span>{{ error.message || error }}</span></div>
-      <div v-else-if="!loading && !crops.length" class="market-empty"><span class="ph ph-plant" aria-hidden="true"></span><strong>当前农场没有已匹配的在种作物</strong><p>可切换“全部监测品种”查看九种作物；未匹配品种不会被猜测为其他商品。</p></div>
+        <div class="market-toolbar" aria-label="行情范围">
+          <div class="market-scope-switch">
+            <button type="button" :class="{active: scope === 'farm'}" @click="chooseScope('farm')">本场作物</button>
+            <button type="button" :class="{active: scope === 'all'}" @click="chooseScope('all')">全部监测品种</button>
+          </div>
+          <span>重庆报价为元/公斤；国际参考保留原始英镑/公斤，不做汇率换算或价格拼接。</span>
+        </div>
 
-      <template v-else>
+        <div v-if="error" class="market-error"><strong>{{ error.code || 'MARKET_PRICE_UNAVAILABLE' }}</strong><span>{{ error.message || error }}</span></div>
+        <div v-else-if="!loading && !crops.length" class="market-empty"><span class="ph ph-plant" aria-hidden="true"></span><strong>当前农场没有已匹配的在种作物</strong><p>可切换“全部监测品种”查看九种作物；未匹配品种不会被猜测为其他商品。</p></div>
+
+        <template v-else>
         <div class="market-ticker-grid" aria-label="作物行情列表">
           <button v-for="item in crops" :key="item.cropCode" type="button" class="market-ticker-card"
                   :class="[{active: selectedCrop?.cropCode === item.cropCode, unavailable: !item.available}, 'is-' + changeTone(item.changePct)]"
@@ -336,13 +360,16 @@ export const AdminMarketInsightsView = {
             </table>
           </div>
         </article>
+        </template>
+
+        <footer class="market-disclaimer">
+          <span class="ph ph-shield-check" aria-hidden="true"></span>
+          <p><strong>数据说明</strong>{{ source.method || '日度报价按来源原样展示。' }} {{ source.disclaimer || '' }}
+            <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">查看原始来源</a></p>
+        </footer>
       </template>
 
-      <footer class="market-disclaimer">
-        <span class="ph ph-shield-check" aria-hidden="true"></span>
-        <p><strong>数据说明</strong>{{ source.method || '日度报价按来源原样展示。' }} {{ source.disclaimer || '' }}
-          <a v-if="source.url" :href="source.url" target="_blank" rel="noopener noreferrer">查看原始来源</a></p>
-      </footer>
+      <admin-global-wholesale-panel v-else :crops="crops" :selected-crop-code="selectedCropCode" :farm-id="farmId" :session-mode="state.sessionMode" @select-crop="chooseCrop"></admin-global-wholesale-panel>
     </section>
   `
 };
