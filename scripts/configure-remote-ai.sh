@@ -22,9 +22,12 @@ chmod 600 "$ENV_FILE"
 # as `= ` in the protected env file.  Remove only invalid empty-key lines; all
 # real settings and secrets are preserved.
 sed -i -E '/^[[:space:]]*=[[:space:]]*$/d' "$ENV_FILE"
-update_env LLM_ENABLE_THINKING true
+# Keep the production chat path on the real OpenAI-compatible model. If the
+# endpoint is unavailable, the API still degrades explicitly to safe rules.
+update_env AI_MODE openai-compatible
+update_env LLM_ENABLE_THINKING false
 update_env LLM_PRESERVE_THINKING false
-update_env LLM_REASONING_EFFORT low
+update_env LLM_REASONING_EFFORT none
 update_env LLM_TIMEOUT_MS 30000
 update_env LLM_MAX_TOKENS 768
 update_env QWEN_GPU_LIST 0,1

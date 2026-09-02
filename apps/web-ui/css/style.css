@@ -906,14 +906,14 @@ html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .
 .settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .settings-theme-option { display: grid; gap: 5px; min-height: 84px; padding: 10px; border: 1px solid var(--g-border); border-radius: 10px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
 .settings-theme-option:hover { border-color: var(--g-primary); transform: translateY(-1px); }
-.settings-theme-option.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1px color-mix(in srgb, var(--g-primary) 25%, transparent); }
+.settings-theme-option.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
 .settings-theme-icon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: var(--g-bg-surface); color: var(--g-primary); }
 .settings-theme-option strong { font-size: 12px; font-weight: 600; }
 .settings-theme-option small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.3; }
 .settings-accent-options { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .settings-accent-option { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 8px 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
 .settings-accent-option:hover, .settings-accent-option.active { border-color: var(--settings-swatch); color: var(--g-text-primary); }
-.settings-accent-option.active { background: color-mix(in srgb, var(--settings-swatch) 11%, var(--g-bg-base)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--settings-swatch) 28%, transparent); }
+.settings-accent-option.active { background: color-mix(in srgb, var(--settings-swatch) 15%, var(--g-bg-base)); box-shadow: 0 0 0 1.5px var(--settings-swatch); }
 .settings-accent-option i { flex: 0 0 auto; width: 13px; height: 13px; border-radius: 50%; background: var(--settings-swatch); box-shadow: inset 0 0 0 2px rgba(255,255,255,.55); }
 .settings-accent-option span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .settings-accent-option .ph { margin-left: auto; color: var(--settings-swatch); font-size: 14px; }
@@ -970,8 +970,8 @@ html[data-surface-style="classic"] {
   --agriloop-appearance-control: linear-gradient(145deg, rgba(255, 255, 255, .86), rgba(255, 255, 255, .46) 48%, rgba(236, 244, 239, .62));
   --agriloop-appearance-control-hover: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .62) 48%, rgba(232, 243, 237, .78));
   --agriloop-appearance-control-pressed: linear-gradient(145deg, rgba(235, 243, 238, .76), rgba(255, 255, 255, .52) 58%, rgba(229, 239, 233, .72));
-  --agriloop-appearance-sidebar: rgba(250, 252, 251, .76);
-  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(27, 59, 42, .04), inset -1px 0 0 rgba(255, 255, 255, .62);
+  --agriloop-appearance-sidebar: rgba(255, 255, 255, .82);
+  --agriloop-appearance-sidebar-shadow: 7px 0 24px rgba(0, 0, 0, .05), inset -1px 0 0 rgba(255, 255, 255, .62);
   --agriloop-appearance-control-shadow: 0 7px 18px rgba(24, 49, 36, .09), 0 1px 3px rgba(24, 49, 36, .06), inset 0 1px 0 rgba(255, 255, 255, .98), inset 1px 0 0 rgba(255, 255, 255, .72), inset -1px 0 0 rgba(218, 231, 223, .44), inset 0 -1px 0 rgba(38, 68, 51, .11);
   --agriloop-appearance-control-shadow-hover: 0 11px 24px rgba(24, 49, 36, .13), 0 2px 5px rgba(24, 49, 36, .07), inset 0 1px 0 #fff, inset 1px 0 0 rgba(255, 255, 255, .82), inset -1px 0 0 rgba(218, 231, 223, .52), inset 0 -1px 0 rgba(38, 68, 51, .12);
   --agriloop-appearance-control-text-shadow: 0 1px 0 rgba(255, 255, 255, .72);
@@ -1021,8 +1021,8 @@ html[data-surface-style="classic"] :is(#app:not(.role-system-admin), #farmer_app
 }
 /* Role sheets below own the content surfaces so semantic borders (warning,
  * danger and per-entry accents) are not flattened by the global preset. */
-html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-card,
-html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-info {
+html[data-surface-style="classic"] #app .settings-card,
+html[data-surface-style="classic"] #app .settings-info {
   background: var(--agriloop-appearance-surface-strong) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
   box-shadow: var(--agriloop-appearance-shadow-1) !important;
@@ -1181,8 +1181,8 @@ html[data-surface-style="glass-latest"] #app .g-card {
 #app .g-sidebar {
   width: var(--g-sidebar-width, 210px);
   padding: 12px;
-  background: rgba(246, 251, 248, .72);
-  border-right: 1px solid rgba(55, 89, 69, .16);
+  background: rgba(255, 255, 255, .72);
+  border-right: 1px solid rgba(0, 0, 0, .08);
   box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
   -webkit-backdrop-filter: blur(30px) saturate(128%);
   backdrop-filter: blur(30px) saturate(128%);
@@ -1290,28 +1290,28 @@ html[data-density="compact"] #app .g-nav-item {
 }
 
 /* The default classic preset keeps the 4e9326a farm-manager glass shell. */
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-sidebar {
+html[data-surface-style="classic"] #app .g-sidebar {
   background: var(--agriloop-appearance-sidebar) !important;
   border-color: var(--agriloop-appearance-border) !important;
   box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item {
+html[data-surface-style="classic"] #app .g-nav-item {
   background: var(--agriloop-appearance-control) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
   box-shadow: var(--agriloop-appearance-control-shadow) !important;
   text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item.active {
+html[data-surface-style="classic"] #app .g-nav-item.active {
   background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
   border-color: color-mix(in srgb, var(--sidebar-accent) 34%, var(--agriloop-appearance-border)) !important;
   box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
   color: var(--sidebar-accent);
 }
 html[data-surface-style="glass-soft"] #app .g-sidebar {
-  background: rgba(241, 248, 244, .66);
-  box-shadow: 8px 0 24px rgba(31, 73, 51, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
+  background: rgba(255, 255, 255, .66);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, .06), inset -1px 0 0 rgba(255, 255, 255, .70);
   -webkit-backdrop-filter: blur(16px) saturate(116%);
   backdrop-filter: blur(16px) saturate(116%);
 }
@@ -1342,38 +1342,38 @@ html[data-surface-style="glass-soft"] #app .g-sidebar {
 }
 
 /* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
-html[data-surface-style="classic"] #app.role-system-admin .g-sidebar {
+html[data-surface-style="minimal"] #app.role-system-admin .g-sidebar {
   background: var(--g-bg-surface) !important;
   border-right: 1px solid var(--g-border) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--g-text-secondary) !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item:hover {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item:hover {
   background: var(--g-bg-hover) !important;
   border: 0 !important;
   box-shadow: none !important;
   transform: none !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item.active {
   background: var(--g-primary-bg) !important;
   border: 0 !important;
   box-shadow: none !important;
   color: var(--g-primary) !important;
 }
 
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item {
   border-radius: var(--g-radius-pill) !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item .material-symbols-outlined {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item .material-symbols-outlined {
   color: inherit !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active .material-symbols-outlined {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item.active .material-symbols-outlined {
   color: var(--g-primary) !important;
 }

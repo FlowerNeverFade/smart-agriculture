@@ -1,12 +1,11 @@
 /* ============================================================
-   AgriLoop 种植农户工作台专用样式
-   - 绿色作为选中高亮
+   AgriLoop 种植农户工作台专用样�?   - 绿色作为选中高亮
    - 浅色按钮风格
    - snake_case 命名
    ============================================================ */
 
-/* 与 #app 一致：约束视口高度，让 .g-main 获得可滚轮滑动的溢出区域
-   （body 为 overflow:hidden，缺少此布局会导致内容被截断且无法滚动） */
+/* �?#app 一致：约束视口高度，让 .g-main 获得可滚轮滑动的溢出区域
+   （body �?overflow:hidden，缺少此布局会导致内容被截断且无法滚动） */
 #farmer_app {
   display: flex;
   flex-direction: column;
@@ -220,7 +219,7 @@
   color: var(--g-success);
 }
 
-/* 固定在主工作区左下，避免被侧栏 overflow 裁切 */
+/* 固定在主工作区左下，避免被侧�?overflow 裁切 */
 .farmer-ai-consult {
   position: fixed;
   left: calc(var(--g-sidebar-width, 260px) + 20px);
@@ -653,7 +652,7 @@
   }
 }
 
-/* 主面板统计卡片 */
+/* 主面板统计卡�?*/
 .farmer-stats-grid {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
@@ -712,7 +711,7 @@
 .farmer-stat-card.stat-progress .farmer-stat-icon { color: var(--g-primary); background: var(--g-primary-bg); }
 .farmer-stat-card.stat-message .farmer-stat-icon { color: var(--g-primary); background: var(--g-primary-bg); }
 
-/* 主面板下方双栏 */
+/* 主面板下方双�?*/
 .farmer-dashboard-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -1891,7 +1890,7 @@
 }
 .farmer-health-ring b { position: relative; z-index: 1; }
 
-/* 地块概览卡片内的全指标列表 */
+/* 地块概览卡片内的全指标列�?*/
 .farmer-plot-overview-metrics {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2153,8 +2152,7 @@
 }
 
 /* ============================================================
-   地块趋势与灌溉湿度图：轻量 SVG，保持与现有卡片一致
-   ============================================================ */
+   地块趋势与灌溉湿度图：轻�?SVG，保持与现有卡片一�?   ============================================================ */
 .farmer-plot-charts-panel { margin-bottom: 20px; }
 .farmer-plot-charts {
   display: grid;
@@ -2598,7 +2596,7 @@
   .farmer-plot-simulation-metric-picker select { flex: 1; }
 }
 
-/* 灌溉页：建议反馈与案例学习独立卡片 */
+/* 灌溉页：建议反馈与案例学习独立卡�?*/
 .farmer-learning-card .farmer-feedback-section .farmer-panel-header { margin-bottom: 6px; }
 .farmer-learning-card .farmer-feedback-section .farmer-advice-summary { margin: 0 0 10px; font-size: 13px; line-height: 1.6; }
 .farmer-learning-card .farmer-feedback-actions { gap: 8px; }
@@ -2627,7 +2625,7 @@
 /* 农事助手单独成行 */
 .farmer-assistant-card { margin-top: 20px; }
 
-/* 原有决策模块的农户入口：只呈现少量清晰的下一步操作 */
+/* 原有决策模块的农户入口：只呈现少量清晰的下一步操�?*/
 .farmer-shared-tools { margin-top: 20px; }
 .farmer-shared-tools-entry {
   display: grid;
@@ -2687,7 +2685,7 @@
 .farmer-shared-tool-copy small { color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
 .farmer-shared-tool-arrow { margin-left: auto; color: var(--g-text-secondary); font-size: 18px; }
 
-/* 操作系统页：按地块的风险小卡片 */
+/* 操作系统页：按地块的风险小卡�?*/
 .farmer-risk-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -2788,7 +2786,7 @@
 .farmer-light-operation-copy p, .farmer-light-operation-copy small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-light-operation-copy small { color: var(--g-warning); }
 
-/* 操作系统页：土壤湿度-时间曲线图（含作物阈值线） */
+/* 操作系统页：土壤湿度-时间曲线图（含作物阈值线�?*/
 .farmer-moisture-chart-card { min-width: 0; }
 .farmer-moisture-chart-wrap { margin-top: 6px; }
 .farmer-moisture-svg { height: 260px; }
@@ -3932,7 +3930,8 @@
 .farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
 .farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
-.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice:hover { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
 .farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
 .farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
@@ -4257,8 +4256,7 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 }
 
 /* ============================================================
-   农户首页信息层级：行动 → 风险 → 地块 → 辅助信息 → 动态
-   ============================================================ */
+   农户首页信息层级：行�?�?风险 �?地块 �?辅助信息 �?动�?   ============================================================ */
 .farmer-dashboard-workspace {
   display: flex;
   flex-direction: column;

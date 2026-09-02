@@ -2,7 +2,7 @@
  * Every role shell mounts the same view and this same state/normalisation
  * path, so appearance controls cannot drift by role.
  */
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260901-v5910-main-merge-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260902-v1-settings-fix';
 
 export function createWorkspaceSettingsController({ props, emit, ref, computed, watch }) {
   const account = computed(() => props.state?.currentUser || null);
@@ -24,6 +24,7 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
     const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
     const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
     settings.value = next;
+    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
     applyUserSettings(next);
     emit?.('settings-changed', next);
 
@@ -46,6 +47,7 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
   const resetSettings = () => {
     const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
     settings.value = next;
+    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
     applyUserSettings(next);
     emit?.('settings-changed', next);
   };
