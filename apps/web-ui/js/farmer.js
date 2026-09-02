@@ -7,7 +7,7 @@ import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-v5911-zhcn-v1';
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v5911-zhcn-v1';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import {
   agentResponseSource,
   agentResponseText,
