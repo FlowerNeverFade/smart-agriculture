@@ -114,6 +114,7 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(plan.executable, true);
   const beforeMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
   const beforeTelemetry = (await service.getTelemetry(plan.plotId, 'SOIL_MOISTURE', 1))[0].value;
+  const beforeWaterBalance = (await service.getWaterResourceProfile()).remainingLitres;
   await assert.rejects(
     () => service.executeIrrigation(plan.planId, plan.plotId, { idempotencyKey: 'direct-farmer-key' }),
     (error) => error.code === 'CONFIRMATION_REQUIRED'
@@ -130,6 +131,8 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(firstCommand.approvalRequired, false);
   assert.equal(firstCommand.confirmationMode, 'OPERATOR_CONFIRMED');
   assert.equal(firstCommand.ack.status, 'SUCCEEDED');
+  const afterWaterBalance = (await service.getWaterResourceProfile()).remainingLitres;
+  assert.equal(afterWaterBalance, Number((beforeWaterBalance - firstCommand.ack.actualWaterLitre).toFixed(1)));
   const afterMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
   const expectedDelta = moistureDeltaFromWater(firstCommand.ack.actualWaterLitre, 80);
   assert.ok(Math.abs(afterMoisture - (beforeMoisture + expectedDelta)) < 0.2);
@@ -186,12 +189,12 @@ test('demo blocked irrigation exposes manual fallback and updates virtual soil m
   assert.notEqual(second.commandId, command.commandId);
 });
 
-test('demo normal and no-action irrigation never expose manual fallback', async () => {
+test('demo normal and no-action irrigation keep the manual irrigation entry available', async () => {
   storage.clear();
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'manual-fallback-gates', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:request', 'irrigation:execute'] } });
   const normal = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-normal-gate' });
-  assert.equal(normal.manualFallback.available, false);
+  assert.equal(normal.manualFallback.available, true);
 
   const plot = service.demoPlots.get('plot-a01');
   service.demoPlots.set('plot-a01', {
@@ -200,7 +203,17 @@ test('demo normal and no-action irrigation never expose manual fallback', async 
   });
   const noAction = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-no-action-gate' });
   assert.equal(noAction.status, 'NO_ACTION');
-  assert.equal(noAction.manualFallback.available, false);
+  assert.equal(noAction.manualFallback.available, true);
+  const beforeBalance = (await service.getWaterResourceProfile()).remainingLitres;
+  const manual = await service.executeManualIrrigation({
+    plotId: 'plot-a01',
+    sourcePlanId: noAction.planId,
+    waterLitre: 10,
+    confirmed: true,
+    idempotencyKey: 'manual-no-action-execution'
+  });
+  assert.equal(manual.manualOverride, true);
+  assert.equal((await service.getWaterResourceProfile()).remainingLitres, beforeBalance - 10);
 });
 
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
@@ -211,7 +224,7 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
     readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
   ]);
   const farmerSurface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '人工复核或补充现场证据', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '常规处方需要人工复核', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
@@ -252,7 +265,10 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /setAutomaticWateringSetting/);
   assert.match(source, /if \(advice_is_no_action\.value\)/);
   assert.match(source, /open_no_action_reason\(\)/);
-  assert.match(html, /v-if="manual_irrigation_available"/);
+  assert.match(html, /class="g-btn secondary farmer-btn-light farmer-btn-manual-irrigation"/);
+  assert.doesNotMatch(html, /v-if="manual_irrigation_available"/);
+  assert.match(html, /farmer-irrigation-advice-grid/);
+  assert.doesNotMatch(html, /class="g-card farmer-advice-card farmer-moisture-chart-card"/);
   assert.match(html, /farmer-no-action-modal/);
   assert.match(html, /farmer-manual-irrigation-modal/);
   assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);

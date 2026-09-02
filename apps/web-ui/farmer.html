@@ -637,63 +637,7 @@
               </button>
             </div>
 
-            <div class="farmer-advice-grid">
-              <article
-                class="g-card farmer-advice-card farmer-moisture-chart-card"
-                :class="{
-                  'is-warn': advice_moisture_chart && advice_moisture_chart.bandStatus === 'WARN',
-                  'is-alert': advice_moisture_chart && advice_moisture_chart.bandStatus === 'ALERT'
-                }"
-              >
-                <div class="farmer-panel-header">
-                  <div>
-                    <span class="farmer-section-kicker">土壤湿度趋势</span>
-                    <h3>{{ advice_moisture_chart ? advice_moisture_chart.plotName : '' }} · 湿度-时间曲线</h3>
-                  </div>
-                  <div class="farmer-chart-range" role="group" aria-label="横坐标时间范围">
-                    <button
-                      type="button"
-                      v-for="option in moisture_range_options"
-                      :key="option.id"
-                      class="farmer-chart-range-btn"
-                      :class="{active: moisture_range === option.id}"
-                      @click="moisture_range = option.id"
-                    >{{ option.label }}</button>
-                  </div>
-                </div>
-                <div v-if="advice_moisture_chart" class="farmer-moisture-chart-wrap">
-                  <div class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_moisture_chart.plotName + '土壤湿度-时间曲线图'"
-                         @mousemove="show_chart_tooltip($event, advice_moisture_chart, 'advice-moisture')" @mouseleave="hide_chart_tooltip">
-                      <line v-for="line in advice_moisture_chart.grid" :key="'mg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
-                      <text v-for="line in advice_moisture_chart.grid" :key="'mt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}%</text>
-                      <g v-for="band in advice_moisture_chart.targetBands" :key="'tb-' + band.cropCode">
-                        <line class="farmer-target-band-line" :x1="32" :y1="band.yLow" x2="350" :y2="band.yLow"></line>
-                        <line class="farmer-target-band-line" :x1="32" :y1="band.yHigh" x2="350" :y2="band.yHigh"></line>
-                      </g>
-                      <g v-if="advice_moisture_chart.alertLine">
-                        <line class="farmer-alert-threshold-line" x1="32" :y1="advice_moisture_chart.alertLine.y" x2="350" :y2="advice_moisture_chart.alertLine.y"></line>
-                      </g>
-                      <polyline v-for="series in advice_moisture_chart.series" :key="'ms-' + series.label" class="farmer-chart-line is-moisture" :class="{'is-warn-line': advice_moisture_chart.bandStatus === 'WARN', 'is-alert-line': advice_moisture_chart.bandStatus === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
-                    </svg>
-                    <div v-if="chart_tooltip && chart_tooltip.key === 'advice-moisture'" class="farmer-chart-tooltip"
-                         :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}">
-                      <strong>{{ chart_tooltip.label }}</strong>
-                      <span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} %</span>
-                    </div>
-                  </div>
-                  <div class="farmer-chart-x-labels"><span>{{ advice_moisture_chart.labels[0] }}</span><span>{{ advice_moisture_chart.labels[3] }}</span><span>{{ advice_moisture_chart.labels[6] }}</span></div>
-                  <div class="farmer-threshold-legend">
-                    <span v-if="advice_moisture_chart.targetBands.length"><i class="legend-target"></i>{{ advice_moisture_chart.cropLabel }} {{ advice_moisture_chart.stageLabel }} 目标值带 {{ advice_moisture_chart.currentTarget }}</span>
-                    <span v-if="advice_moisture_chart.alertLine"><i class="legend-alert"></i>{{ advice_moisture_chart.alertLine.label }}（干旱规则）</span>
-                  </div>
-                  <p class="farmer-chart-target">
-                    当前 {{ advice_moisture_chart.currentMoisture }}% · 目标 {{ advice_moisture_chart.currentTarget }} · 时间范围：{{ advice_moisture_chart.rangeLabel }}
-                    <span class="farmer-band-status-hint" :class="'status-' + advice_moisture_chart.bandStatus">{{ advice_moisture_chart.bandLabel }}</span>
-                  </p>
-                </div>
-              </article>
-
+            <div class="farmer-advice-grid farmer-irrigation-advice-grid">
               <article class="g-card farmer-advice-card farmer-irrigation-card">
                 <div class="farmer-panel-header">
                   <div>
@@ -725,7 +669,7 @@
                   </div>
                   <div class="farmer-chart-x-labels"><span>{{ advice_soil_chart.labels[0] }}</span><span>{{ advice_soil_chart.labels[3] }}</span><span>{{ advice_soil_chart.labels[6] }}</span></div>
                 </div>
-                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ advice_is_no_action ? '当前已达到目标，无需灌溉或补证。' : (is_formal_session ? '可查看智能诊断与就绪度，满足安全门后由当前操作人确认执行。' : '演示模式不会控制真实水泵。') }}</p>
+                <p class="farmer-panel-hint">{{ irrigation_target_label }}；{{ advice_is_no_action ? '当前没有自动灌溉建议；如现场需要，仍可单独发起人工浇灌。' : (is_formal_session ? '可查看智能诊断与就绪度，满足安全门后由当前操作人确认执行。' : '演示模式不会控制真实水泵。') }}</p>
                 <div class="farmer-advice-actions">
                   <button
                     type="button"
@@ -744,12 +688,11 @@
                     {{ irrigation_plan_loading || advice_loading ? '读取处方中…' : (advice_is_no_action ? '查看无需灌溉原因' : '查看建议并执行') }}
                   </button>
                   <button
-                    v-if="manual_irrigation_available"
                     type="button"
                     class="g-btn secondary farmer-btn-light farmer-btn-manual-irrigation"
                     @click="open_manual_irrigation"
                     :disabled="irrigation_plan_loading || advice_loading || manual_irrigation_busy"
-                    title="绕过数据/就绪度决策阻塞，按水量执行虚拟人工浇灌"
+                    title="按当前水量执行虚拟人工浇灌"
                   >
                     <app-icon name="water_drop"></app-icon>
                     人工浇灌
@@ -773,9 +716,9 @@
                   <button type="button" class="g-btn secondary farmer-btn-light" @click="set_suggestion_feedback('修改方案')">调整方案</button>
                 </div>
                 <p v-if="irrigation_plan_error" class="farmer-operation-status is-error"><span class="farmer-freshness-dot"></span>{{ irrigation_plan_error }}</p>
-                <p v-else-if="advice_is_no_action" class="farmer-operation-status is-success"><span class="farmer-freshness-dot live"></span>当前湿度正常，本次无需灌溉，也不用补证</p>
-                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>证据不足：请先巡田或复测，暂不执行灌溉</p>
-                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '当前需要人工复核或补充现场证据，暂不执行灌溉' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
+                <p v-else-if="advice_is_no_action" class="farmer-operation-status is-success"><span class="farmer-freshness-dot live"></span>当前湿度正常，本次无自动灌溉建议；如现场需要，可单独发起人工浇灌</p>
+                <p v-else-if="irrigation_plan && irrigation_plan.readinessStatus === 'NEEDS_EVIDENCE'" class="farmer-operation-status is-warning"><span class="farmer-freshness-dot"></span>常规处方仍需补充证据；人工浇灌可按现场需要单独发起</p>
+                <p v-else class="farmer-operation-status"><span class="farmer-freshness-dot live"></span>{{ irrigation_plan && irrigation_plan.readinessStatus === 'HUMAN_REVIEW' ? '常规处方需要人工复核；人工浇灌仍可按现场需要发起' : '处方仅供当前地块参考，执行前会再次检查安全门' }}</p>
 
                 <div v-if="automatic_watering_status" class="farmer-auto-water-card" :class="{ 'is-ready': automatic_watering_status.eligible, 'is-blocked': automatic_watering_status.status === 'BLOCKED', 'is-triggered': automatic_watering_status.status === 'TRIGGERED', 'is-disabled': !automatic_watering_status.enabled }">
                   <div class="farmer-auto-water-icon"><app-icon name="bolt"></app-icon></div>
@@ -1876,7 +1819,7 @@
           <article class="farmer-form-card farmer-manual-irrigation-modal" role="dialog" aria-modal="true" aria-labelledby="manual-irrigation-title">
             <div class="farmer-detail-header">
               <div>
-                <span class="farmer-section-kicker">人工兜底 · 虚拟执行</span>
+                <span class="farmer-section-kicker">人工浇灌 · 虚拟执行</span>
                 <h3 id="manual-irrigation-title">人工浇灌</h3>
                 <p class="farmer-detail-meta">{{ advice_plot ? advice_plot.name + ' · ' + advice_plot.cropName : '当前地块' }}</p>
               </div>
@@ -1885,7 +1828,7 @@
             <section v-if="manual_irrigation_stage === 'FORM'" class="farmer-suggestion-stage">
               <div class="farmer-manual-warning">
                 <span class="material-symbols-outlined">warning</span>
-                <div><strong>当前灌溉决策被阻塞</strong><p>{{ manual_irrigation_fallback?.reason || irrigation_plan?.why || '当前数据或安全门未满足自动灌溉条件' }}</p></div>
+                <div><strong>当前操作人可发起人工浇灌</strong><p>{{ manual_irrigation_fallback?.reason || irrigation_plan?.why || '请核对当前地块和本次水量' }}</p></div>
               </div>
               <div class="farmer-suggestion-facts farmer-manual-facts">
                 <div><small>当前湿度</small><strong>{{ manual_irrigation_preview.current === null ? '—' : manual_irrigation_preview.current.toFixed(1) + '%' }}</strong></div>
@@ -1899,8 +1842,8 @@
                 <div><small>预计时长</small><strong>{{ manual_irrigation_preview.durationSeconds === null ? '—' : Math.round(manual_irrigation_preview.durationSeconds / 6) / 10 + ' 分钟' }}</strong></div>
               </div>
               <div v-if="manual_irrigation_bypassed_gates.length" class="farmer-manual-gates"><strong>本次绕过的决策门</strong><span v-for="gate in manual_irrigation_bypassed_gates" :key="gate">{{ gate }}</span></div>
-              <p class="farmer-form-hint">人工浇灌不受数据冲突、诊断证据和设备就绪度阻塞影响；仍校验操作权限、幂等键、单次/每日水量、资源容量和最大时长，仅执行虚拟动作。</p>
-              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="manual_irrigation_confirmed" type="checkbox"><span>我已核对地块、阻塞原因和本次水量，并确认立即执行虚拟人工浇灌。</span></label>
+              <p class="farmer-form-hint">人工浇灌由当前操作人主动发起；仍校验操作权限、幂等键、单次/每日水量、资源容量和最大时长，仅执行虚拟动作。</p>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="manual_irrigation_confirmed" type="checkbox"><span>我已核对地块、当前湿度和本次水量，并确认立即执行虚拟人工浇灌。</span></label>
               <p v-if="manual_irrigation_error" class="farmer-form-error">{{ manual_irrigation_error }}</p>
               <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_manual_irrigation" :disabled="manual_irrigation_busy">取消</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="submit_manual_irrigation" :disabled="manual_irrigation_busy || !manual_irrigation_confirmed">{{ manual_irrigation_busy ? '执行中…' : '确认并虚拟浇灌' }}<span class="material-symbols-outlined">verified_user</span></button></div>
             </section>
