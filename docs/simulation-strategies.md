@@ -42,7 +42,7 @@ POST /api/v1/plots/{plotId}/simulation/reset
 
 ### 光照的动态目标
 
-每个 Crop Pack 阶段的 `target.lightLow/lightHigh` 表示白天生长目标；`target.lightSchedule` 负责时段切换，默认配置为 `06:00`—`18:00` 白天、夜间 `0`—`1000 lux` 休息带。夜间不生成 `LIGHT_DEFICIT` 缺光告警，也不会开放虚拟补光；若夜间超过上限仍会提示光照过强。前端曲线按采样时间绘制昼/夜两段目标带，后端规则、健康评分、诊断和虚拟执行共用同一时区（`Asia/Shanghai`）和 Crop Pack 配置。该光照通道仍标记为 `SIMULATION_ONLY`，时段与阈值可随作物、设施和地区的 Crop Pack 版本调整。
+每个 Crop Pack 阶段的 `target.lightLow/lightHigh` 表示白天生长目标；`target.lightSchedule` 负责时段切换，默认配置为 `06:00`—`18:00` 白天、夜间 `0`—`1000 lux` 休息带。夜间不生成 `LIGHT_DEFICIT` 缺光告警，也不会开放虚拟补光；若夜间超过上限仍会提示光照过强。前端曲线按采样时间绘制昼/夜两段目标带，后端规则、健康评分、诊断和虚拟执行共用同一时区（`Asia/Shanghai`）和 Crop Pack 配置。该光照通道仍标记为 `SIMULATION_ONLY`，时段与阈值可随作物、设施和地区的 Crop Pack 版本调整。农户补光计划按本机系统整点选择 1/2/4/6/8 小时，命令保存对应秒数（3600/7200/14400/21600/28800）；虚拟执行即时返回，不等待真实时长。
 
 重置目标可以是 `HISTORY`、`FORECAST` 或 `ALL`。重置只删除模拟遥测和预测快照，`sourceMode=REAL` 的硬件数据不会删除。硬件绑定状态按地块独立展示：有新鲜 `REAL/HARDWARE` 心跳时显示“硬件在线，可使用”，超时或断连显示“硬件离线”；硬件状态优先于模拟设备状态参与安全门。
 

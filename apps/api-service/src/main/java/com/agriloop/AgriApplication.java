@@ -148,6 +148,7 @@ class AgriProperties {
     private boolean seedData = true;
     private long sseHeartbeatSeconds = 15;
     private long maxIrrigationSeconds = 900;
+    private long maxLightingSeconds = 8 * 60 * 60;
     private double dailyWaterLimitLitres = 5000;
     private String cropPackPath = "classpath:/crop-packs";
     private boolean simulatorControlEnabled = true;
@@ -227,6 +228,8 @@ class AgriProperties {
     public void setSseHeartbeatSeconds(long sseHeartbeatSeconds) { this.sseHeartbeatSeconds = sseHeartbeatSeconds; }
     public long getMaxIrrigationSeconds() { return maxIrrigationSeconds; }
     public void setMaxIrrigationSeconds(long maxIrrigationSeconds) { this.maxIrrigationSeconds = maxIrrigationSeconds; }
+    public long getMaxLightingSeconds() { return maxLightingSeconds; }
+    public void setMaxLightingSeconds(long maxLightingSeconds) { this.maxLightingSeconds = maxLightingSeconds; }
     public double getDailyWaterLimitLitres() { return dailyWaterLimitLitres; }
     public void setDailyWaterLimitLitres(double dailyWaterLimitLitres) { this.dailyWaterLimitLitres = dailyWaterLimitLitres; }
     public String getCropPackPath() { return cropPackPath; }
@@ -4818,7 +4821,7 @@ class AgriEngine {
         double requestedBoost = Jsons.number(input, "boostLux", Double.NaN);
         if (!Double.isFinite(requestedBoost) || requestedBoost <= 0) requestedBoost = Math.max(1000, (low + high) / 2.0 - current);
         requestedBoost = Math.min(50_000, requestedBoost);
-        long duration = Math.max(1, Math.min(900, Jsons.whole(input, "durationSeconds", 60)));
+        long duration = Math.max(1, Math.min(properties.getMaxLightingSeconds(), Jsons.whole(input, "durationSeconds", 2 * 60 * 60)));
         Map<String, Object> device = deviceForPlot(plotId);
         String deviceStatus = Jsons.text(device, "status", "UNKNOWN").toUpperCase(Locale.ROOT);
         boolean offline = "OFFLINE".equals(deviceStatus);

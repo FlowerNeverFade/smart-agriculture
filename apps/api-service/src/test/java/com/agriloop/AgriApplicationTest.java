@@ -888,9 +888,10 @@ class AgriApplicationTest {
         try {
             Map<String, Object> command = engine.virtualLighting(Map.of(
                     "plotId", "plot-a01", "idempotencyKey", "test-lighting-" + System.nanoTime(), "confirmed", true,
-                    "allowOfflineDemo", true, "boostLux", 6000, "durationSeconds", 1), farmer);
+                    "allowOfflineDemo", true, "boostLux", 6000, "durationSeconds", 8 * 60 * 60), farmer);
             assertThat(command).containsEntry("type", "LIGHT_BOOST").containsEntry("offlineDemoOverride", true);
-            Thread.sleep(250);
+            assertThat(command).containsEntry("durationSeconds", 8 * 60 * 60L);
+            Thread.sleep(1200);
             Map<String, Object> saved = store.find("command", Jsons.text(command, "commandId", ""));
             assertThat(Jsons.text(Jsons.map(new ObjectMapper(), saved.get("ack")), "status", "")).isEqualTo("SUCCEEDED");
             assertThat(Jsons.text(store.find("device", deviceId), "status", "")).isEqualTo("OFFLINE");

@@ -2194,13 +2194,14 @@ const app = createApp({
     const virtual_lighting_busy = ref(false);
     const virtual_lighting_idempotency_key = ref('');
     const virtual_lighting_boost = ref(6000);
-    const virtual_lighting_duration_seconds = ref(300);
+    const virtual_lighting_duration_seconds = ref(2 * 60 * 60);
     const virtual_lighting_schedule_started_at = ref(Date.now());
     const virtual_lighting_duration_values = Object.freeze([
-      { value: 60, label: '1 分钟' },
-      { value: 300, label: '5 分钟' },
-      { value: 600, label: '10 分钟' },
-      { value: 900, label: '15 分钟' }
+      { value: 1 * 60 * 60, label: '1 小时' },
+      { value: 2 * 60 * 60, label: '2 小时' },
+      { value: 4 * 60 * 60, label: '4 小时' },
+      { value: 6 * 60 * 60, label: '6 小时' },
+      { value: 8 * 60 * 60, label: '8 小时' }
     ]);
     const virtual_lighting_duration_options = computed(() => {
       const startedAt = Number(virtual_lighting_schedule_started_at.value) || Date.now();
@@ -2213,7 +2214,7 @@ const app = createApp({
       const info = advice_light_status.value;
       const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
       const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
-      const durationSeconds = Math.max(1, Math.min(900, Number(virtual_lighting_duration_seconds.value) || 300));
+      const durationSeconds = Math.max(1, Math.min(8 * 60 * 60, Number(virtual_lighting_duration_seconds.value) || 2 * 60 * 60));
       const durationOption = virtual_lighting_duration_options.value.find((item) => item.value === durationSeconds);
       return { ...info, boost, after, durationSeconds, durationLabel: durationOption?.label || `${format_system_time(virtual_lighting_schedule_started_at.value)}—${format_system_time(Number(virtual_lighting_schedule_started_at.value) + durationSeconds * 1000)}` };
     });
@@ -4552,7 +4553,9 @@ const app = createApp({
       virtual_lighting_error.value = '';
       virtual_lighting_busy.value = false;
       virtual_lighting_boost.value = Math.max(1000, Math.round((Number(advice_light_status.value.high || 30000) - Number(advice_light_status.value.value || 0)) * .65));
-      virtual_lighting_schedule_started_at.value = Date.now();
+      const scheduleStart = new Date();
+      scheduleStart.setMinutes(0, 0, 0);
+      virtual_lighting_schedule_started_at.value = scheduleStart.getTime();
       virtual_lighting_idempotency_key.value = `virtual-lighting-${advice_plot.value.plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       show_virtual_lighting.value = true;
     };

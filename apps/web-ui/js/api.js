@@ -19,6 +19,7 @@ let demoInspectionSequence = 0;
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
 const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 10, cooldownMinutes: 0, automaticWateringThreshold: 10 });
+const MAX_LIGHTING_DURATION_SECONDS = 8 * 60 * 60;
 const HUMAN_EVIDENCE_TOLERANCE_PERCENT = 5;
 const AUTH_SESSION_KEYS = Object.freeze(['agriloop_token', 'agriloop_user', 'agriloop_session_mode']);
 
@@ -4775,7 +4776,7 @@ export class ApiService {
     return command;
   }
 
-  async executeVirtualLighting({ plotId, boostLux, durationSeconds = 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
+  async executeVirtualLighting({ plotId, boostLux, durationSeconds = 2 * 60 * 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
     if (!plotId) throw new ApiError('执行补光前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有补光执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     if (confirmed !== true) throw new ApiError('执行补光前需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
@@ -4811,7 +4812,7 @@ export class ApiService {
     }
     const command = {
       commandId: `cmd-light-${Math.random().toString(36).substring(2, 9)}`, plotId, idempotencyKey: key, type: 'LIGHT_BOOST',
-      durationSeconds: Math.max(1, Math.min(900, Number(durationSeconds) || 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
+      durationSeconds: Math.max(1, Math.min(MAX_LIGHTING_DURATION_SECONDS, Number(durationSeconds) || 2 * 60 * 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
       targetLightLow: low, targetLightHigh: high, deviceStatusAtRequest: plot.deviceStatus || 'UNKNOWN', offlineDemoOverride: allowOfflineDemo && String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE',
       approvalRequired: false, confirmationMode: 'OPERATOR_CONFIRMED', confirmedBy: this._demoActorId(), confirmedAt: new Date().toISOString(), status: finalOutcome,
       transport: 'MQTT_VIRTUAL_ACTUATOR', executionMode: 'SIMULATED', provenance: 'SIMULATED', sourceMode: 'SIMULATION', virtualOnly: true, riskLevel: 'MEDIUM', source,

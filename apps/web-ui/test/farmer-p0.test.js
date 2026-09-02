@@ -274,6 +274,8 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /virtual_lighting_duration_seconds/);
   assert.match(source, /virtual_lighting_schedule_started_at/);
+  assert.match(source, /1 \* 60 \* 60/);
+  assert.match(source, /8 \* 60 \* 60/);
   assert.match(source, /format_system_time/);
   assert.match(source, /durationSeconds: preview\.durationSeconds/);
   assert.match(farmerSurface, /选择补光时段/);
@@ -296,9 +298,9 @@ test('demo operation system can execute offline virtual lighting and write a lig
     metrics: { ...plot.metrics, LIGHT: { ...plot.metrics.LIGHT, value: 1000 } }
   });
   try {
-    const command = await service.executeVirtualLighting({ plotId: 'plot-a01', boostLux: 6000, durationSeconds: 600, confirmed: true, allowOfflineDemo: true, idempotencyKey: `lighting-test-${Date.now()}` });
+    const command = await service.executeVirtualLighting({ plotId: 'plot-a01', boostLux: 6000, durationSeconds: 8 * 60 * 60, confirmed: true, allowOfflineDemo: true, idempotencyKey: `lighting-test-${Date.now()}` });
     assert.equal(command.type, 'LIGHT_BOOST');
-    assert.equal(command.durationSeconds, 600);
+    assert.equal(command.durationSeconds, 8 * 60 * 60);
     assert.equal(command.executionMode, 'SIMULATED');
     assert.equal(command.offlineDemoOverride, true);
     assert.equal(service.demoPlots.get('plot-a01').metrics.LIGHT.value, 7000);
