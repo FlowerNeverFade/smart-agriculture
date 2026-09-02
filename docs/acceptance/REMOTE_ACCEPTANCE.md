@@ -8,7 +8,7 @@
 - 运行方式：Java 17 + Spring Boot 3 + Supervisor（容器无 Docker/systemd）
 - 依赖：PostgreSQL 14、Redis 6、Mosquitto 2
 - API：`127.0.0.1:8080`，由 Nginx 6006 自定义服务代理
-- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 优先，虚拟执行器：`virtual`
+- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 提供可追溯事实，普通回答由模型生成，虚拟执行器：`virtual`
 - 演示账号：`farmer`（种植农户）、`admin`（农场管理员）、`sysadmin`（系统管理员），统一演示密码在受控环境中维护，不写入仓库。
 
 ## 2026-08-26 多指标曲线发布验收

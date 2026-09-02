@@ -30,17 +30,19 @@ test('farm Crop Pack UI exposes equal-size add tile and visual wizard', () => {
   assert.match(styles, /"Segoe UI Emoji"/);
 });
 
-test('farm governance page is a separate rules and strategies entry', () => {
+test('farm governance page keeps rules and uses controlled experience learning', () => {
   const source = readFileSync(new URL('../js/modules/admin-rules-strategies.js', import.meta.url), 'utf8');
   assert.match(source, /规则与策略/);
   assert.match(source, /规则集/);
-  assert.match(source, /策略候选集/);
-  // 现行治理流程拆分为“批准”与“启用”两个状态动作；页面仍需明确呈现批准/启用语义。
-  assert.match(source, /批准(?:并)?启用|>批准<|>启用</);
+  assert.match(source, /受控学习案例/);
+  assert.match(source, /合格经验/);
+  assert.doesNotMatch(source, /策略候选集/);
   assert.match(source, /新增规则/);
   assert.match(source, /createRule/);
   assert.match(source, /水分不足/);
-  assert.match(source, /候选方案/);
+  assert.match(source, /重新评估/);
+  assert.match(source, /审核纳入/);
+  assert.match(source, /标记反例/);
   assert.doesNotMatch(source, /FARM RULE/);
 });
 

@@ -737,6 +737,7 @@ class AgriApplicationTest {
 
     @Test
     void diagnosisExplanationKeepsRuleFactsAndLeavesAuditableFallback() {
+        properties.setAiMode("rules");
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> diagnosis = engine.diagnose("plot-a01", Map.of("scenarioId", "normal", "traceId", "test-diagnosis-explanation"));
         String diagnosisId = String.valueOf(diagnosis.get("diagnosisId"));
@@ -763,6 +764,7 @@ class AgriApplicationTest {
         var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
         Map<String, Object> endpointResult = responseData(controller.diagnosisExplain(diagnosisId, Map.of(), authentication));
         assertThat(endpointResult.get("aiExplanation")).isEqualTo(cached.get("aiExplanation"));
+        properties.setAiMode("openai-compatible");
     }
 
     @Test
@@ -1615,24 +1617,29 @@ class AgriApplicationTest {
     }
 
     @Test
-    void greetingAndAmbiguousShortInputUseConciseFastPath() {
+    void greetingAndAmbiguousShortInputUseDeterministicGuardWhenModelDisabled() {
+        properties.setAiMode("rules");
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> greeting = engine.agentChat(Map.of("message", "hi", "plotId", "plot-a01"), farmer);
         assertThat(greeting.get("intent")).isEqualTo("GREETING");
-        assertThat(greeting.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(greeting.get("adapter")).isEqualTo("deterministic-guard");
+        assertThat(greeting.get("degraded")).isEqualTo(true);
         assertThat(String.valueOf(greeting.get("narrative"))).doesNotContain("traceId", "<think>");
 
         Map<String, Object> shortInput = engine.agentChat(Map.of("message", "1", "plotId", "plot-a01"), farmer);
         assertThat(shortInput.get("intent")).isEqualTo("CLARIFICATION");
         assertThat(String.valueOf(shortInput.get("narrative"))).contains("编号");
+        properties.setAiMode("openai-compatible");
     }
 
     @Test
     void capabilityQuestionIsConciseAndSafetyBoundaryWins() {
+        properties.setAiMode("rules");
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> capability = engine.agentChat(Map.of("message", "你具备智慧农田专业知识吗", "plotId", "plot-a01"), farmer);
         assertThat(capability.get("intent")).isEqualTo("CAPABILITY_QUERY");
-        assertThat(capability.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(capability.get("adapter")).isEqualTo("deterministic-guard");
+        assertThat(capability.get("degraded")).isEqualTo(true);
         assertThat(String.valueOf(capability.get("narrative"))).doesNotContain("traceId", "<think>");
 
         assertThat(engine.safetyNarrativeOverride("请通过 MQTT 发送开阀命令", Map.of()))
@@ -1644,6 +1651,7 @@ class AgriApplicationTest {
                 "executable", false, "readinessStatus", "NEEDS_EVIDENCE"));
         assertThat(engine.safetyNarrativeOverride("给我灌溉建议", blockedPlan))
                 .contains("证据不足", "人工复核");
+        properties.setAiMode("openai-compatible");
     }
 
     @Test

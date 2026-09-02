@@ -8,7 +8,7 @@ import { EXTENDED_CROP_PACK_DETAILS } from './crop-guidance-extended.js';
 export const MOCK_DATA = {
   system: {
     mode: "standalone",
-    aiMode: "rules-only",
+    aiMode: "openai-compatible",
     database: "UP",
     redis: "UP",
     redisStream: "agri.telemetry",
@@ -320,7 +320,7 @@ export const MOCK_DATA = {
       timestamp: "5 分钟前",
       timeIso: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       badge: { text: "WATER_DEFICIT", color: "amber" },
-      author: { name: "AgriLoop 规则与诊断内核", tag: "智能内核", avatar: "🤖" },
+      author: { name: "农智闭环规则与诊断内核", tag: "智能内核", avatar: "🤖" },
       summary: "土壤湿度降至 16.8%（低于番茄结果期基线 20%），系统已完成干旱与传感器漂移分流校验，确认数据质量良好，置信度 92%。",
       details: {
         primaryCause: "缺水风险（真实土壤缺水）",
@@ -1374,7 +1374,7 @@ export const MOCK_DATA = {
       { name: 'Redis Streams', status: 'UP', pending: 12, lag: '0.2s' },
       { name: 'MQTT Broker', status: 'UP', connections: 8, messagesPerSec: 45 },
       { name: 'SSE Gateway', status: 'UP', activeSessions: 3 },
-      { name: 'API Service', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
+      { name: '接口服务', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
       { name: '智能模型服务', status: 'UP', mode: 'full' }
     ],
     recentEvents: [
@@ -1557,7 +1557,7 @@ export const MOCK_DATA = {
         "系统已完成干旱与传感器漂移分流校验，置信度 92%，判定为真实缺水。",
         "建议先结合现场巡田核实；安全门通过后，当前操作人可确认并执行补水处方。"
       ],
-      sender: "AgriLoop 监测内核",
+      sender: "农智闭环监测内核",
       read: false,
       time_iso: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
       time_label: "8 分钟前"
@@ -1615,7 +1615,7 @@ export const MOCK_DATA = {
       body_paragraphs: [
         "系统已针对 温室1缺水风险生成结构化灌溉处方。",
         "建议时长 8.5 分钟，水量 153 升，预计土壤湿度由 16.8% 回升至 30.0%。",
-        "处方无需管理员审批；请核对地块、水量和安全门后确认执行，系统将回传虚拟命令 ACK 与效果评价。"
+        "处方无需管理员审批；请核对地块、水量和安全门后确认执行，系统将回传虚拟命令执行回执与效果评价。"
       ],
       sender: "处方决策引擎",
       read: false,

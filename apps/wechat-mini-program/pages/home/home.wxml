@@ -1,6 +1,6 @@
 <view class="page home-page">
   <view class="home-hero">
-    <view class="hero-kicker">AgriLoop · {{roleLabel}}</view>
+    <view class="hero-kicker">农智闭环 · {{roleLabel}}</view>
     <view class="hero-title">{{roleTitle}}</view>
     <view class="hero-meta">
       <text>{{farmLabel}}</text>

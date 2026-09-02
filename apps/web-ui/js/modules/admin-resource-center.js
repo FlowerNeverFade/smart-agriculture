@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260901-v593-market-v3';
+import { api } from '../api.js?v=20260902-ai-direct-v2';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -6,8 +6,8 @@ import {
   deviceRelatedAlerts,
   deviceRelatedWorkOrders,
   formatHealthScore
-} from '../admin-state.js?v=20260901-v593-market-v3';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260901-v593-market-v3';
+} from '../admin-state.js?v=20260902-v5911-zhcn-v1';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -370,7 +370,7 @@ export const AdminResourceCenterView = {
               <label><span>设备编号</span><input v-model.trim="deviceForm.deviceId" required placeholder="例如 SENSOR-A04" :readonly="deviceForm.mode === 'edit'"></label>
               <label><span>设备名称</span><input v-model.trim="deviceForm.name" required placeholder="例如 A04 环境采集器"></label>
               <label><span>设备类型</span><select v-model="deviceForm.type"><option value="ENVIRONMENTAL_SENSOR">环境传感器</option><option value="IRRIGATION_CONTROLLER">灌溉控制器</option><option value="FLOW_METER">流量计</option></select></label>
-              <label><span>接入方式</span><select v-model="deviceForm.sourceMode" :disabled="deviceForm.mode === 'edit'"><option value="SIMULATION">模拟设备</option><option value="REAL">真实设备（MQTT）</option></select></label>
+              <label><span>接入方式</span><select v-model="deviceForm.sourceMode" :disabled="deviceForm.mode === 'edit'"><option value="SIMULATION">模拟设备</option><option value="REAL">真实设备（设备消息协议）</option></select></label>
             </div>
             <p class="admin-hint">登记和绑定不会把设备标记为在线；只有后端收到心跳或遥测后才显示在线。</p>
           </div>

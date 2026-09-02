@@ -1,13 +1,14 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v5910-main-merge-v2';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
-import { presentRoleUser } from './roles.js?v=20260901-v5910-main-merge-v2';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-ai-direct-v2';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
+import { presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v5910-main-merge-v2';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
-import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
+import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260902-v5911-zhcn-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from './message-read-state.js?v=20260902-message-read-v3';
 import {
   agentResponseSource,
   agentResponseText,
@@ -30,7 +31,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v5910-main-merge-v2';
+} from './live-data.js?v=20260902-ai-direct-v2';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -303,7 +304,7 @@ function crop_manual_guide(pack, stage) {
     lines.push(`白天（${dayStart}—${dayEnd}）光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux；夜间目标 ${nightLow}~${nightHigh} lux，处于休息时段时不触发缺光预警、不执行补光。CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage?.riskFocus?.length) {
-    lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || code).join('、')}。`);
+    lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || '其他风险').join('、')}。`);
   }
   if (stage?.taskTemplates?.length) {
     const tasks = stage.taskTemplates.map((task) => {
@@ -464,7 +465,7 @@ function normalize_similar_cases(raw) {
       title: `${crop} · ${FEEDBACK_CAUSE_LABELS[cause] || cause || '相似情境'}`,
       result,
       similarity,
-      source: `SIMULATED · ${item.ruleVersion || '已完成评价案例'}`,
+      source: `模拟数据 · ${item.ruleVersion || '已完成评价案例'}`,
       raw: item
     };
   });
@@ -1222,8 +1223,7 @@ const app = createApp({
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
-    const current_preset_label = computed(() => PRESET_OPTIONS.find((item) => item.value === user_settings.value.preset)?.label || 'Codex 中性');
-    const current_font_label = computed(() => FONT_FAMILY_OPTIONS.find((item) => item.value === user_settings.value.fontFamily)?.label || '系统默认');
+    const current_preset_label = computed(() => PRESET_OPTIONS.find((item) => item.value === user_settings.value.preset)?.label || '简洁中性');
     const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -1296,6 +1296,14 @@ const app = createApp({
     const current_role = computed(() => user.value?.role || 'FARMER');
     const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
+    const message_read_account_id = String(initial_user.userId || initial_user.username || fallback_user.username || 'anonymous');
+    const message_read_storage_key = messageReadStorageKey(is_formal_session ? 'live' : 'demo', message_read_account_id);
+    const read_message_ids = ref(loadReadMessageIds(message_read_storage_key));
+    const hydrate_message_read_state = (items = []) => (Array.isArray(items) ? items : []).map((message) => ({
+      ...message,
+      read: Boolean(message?.read || read_message_ids.value.has(String(message?.id || '').trim()))
+    }));
+
     const farm = ref(is_formal_session ? {} : MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
     // The demo API hydrates browser-session effects before the app mounts.
@@ -1334,7 +1342,7 @@ const app = createApp({
       sessionMode: is_formal_session ? 'live' : 'demo'
     }));
 
-    const messages = ref(is_formal_session ? [] : (MOCK_DATA.farmer_messages || []).map(normalize_demo_message));
+    const messages = ref(is_formal_session ? [] : hydrate_message_read_state((MOCK_DATA.farmer_messages || []).map(normalize_demo_message)));
     const deleted_message_ids = ref(new Set(JSON.parse(localStorage.getItem('agriloop_deleted_messages') || '[]')));
     const tasks = ref(is_formal_session ? [] : MOCK_DATA.farmer_tasks.map((task) => ({ ...task })));
     const inspection_records = ref(is_formal_session ? [] : (MOCK_DATA.inspections || []).map((record) => ({
@@ -2288,12 +2296,12 @@ const app = createApp({
       const cause = String(diagnosis.primaryCause || '').toUpperCase();
       const confidence = Number(diagnosis.confidence);
       return {
-        causeLabel: FEEDBACK_CAUSE_LABELS[cause] || cause || '待分析',
+        causeLabel: FEEDBACK_CAUSE_LABELS[cause] || '待分析',
         confidenceLabel: Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : '—',
         summary: diagnosis.summary || diagnosis.explanation || irrigation_plan.value?.why || advice_plan.value?.why || '系统已根据当前地块数据完成规则诊断。',
         candidates: (diagnosis.candidateCauses || []).slice(0, 3).map((item) => ({
           code: item.code,
-          label: FEEDBACK_CAUSE_LABELS[String(item.code || '').toUpperCase()] || item.code,
+          label: FEEDBACK_CAUSE_LABELS[String(item.code || '').toUpperCase()] || '其他原因',
           confidence: Number.isFinite(Number(item.confidence)) ? `${Math.round(Number(item.confidence) * 100)}%` : '—'
         })),
         supporting: (diagnosis.supportingEvidence || []).map(evidence_view),
@@ -2317,14 +2325,14 @@ const app = createApp({
       const advisoryCodes = Array.isArray(readiness.advisoryEvidence) ? readiness.advisoryEvidence : [];
       return {
         status,
-        statusLabel: READINESS_STATUS_LABELS[status] || status,
+        statusLabel: READINESS_STATUS_LABELS[status] || '状态未知',
         score: Number.isFinite(Number(readiness.score)) ? Math.round(Number(readiness.score) * 100) : null,
         missing: blockingCodes.slice(0, 6).map((item, index) => evidence_view(item, index)),
         advisory: advisoryCodes.slice(0, 6).map((item, index) => evidence_view(item, index)),
         executionAllowed: readiness.executionAllowed !== false && status === 'READY' && blockingCodes.length === 0,
         requiredActions: (readiness.requiredActions || []).slice(0, 6).map((item, index) => ({
           id: `${item.type || 'ACTION'}-${item.action || index}`,
-          label: EVIDENCE_LABELS[item.action] || EVIDENCE_LABELS[item.type] || item.action || item.type || '补充检查',
+          label: EVIDENCE_LABELS[item.action] || EVIDENCE_LABELS[item.type] || '补充检查',
           priority: item.priority || 'HIGH'
         })),
         gates: Object.entries(readiness.hardGates || {}).map(([key, value]) => ({
@@ -2592,7 +2600,7 @@ const app = createApp({
     const qa_history = assistant_messages;
     const qa_audit = ref(null);
     const qa_details_open = ref(false);
-    const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示规则');
+    const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示助手（未连接模型）');
     const qa_busy = assistant_busy;
     const qa_plot_id = assistant_plot_id;
     const crop_manuals = ref([]);
@@ -3194,7 +3202,7 @@ const app = createApp({
       }
     };
 
-    const availability_label = (code) => CROP_MANUAL_AVAILABILITY[code] || code || '—';
+    const availability_label = (code) => CROP_MANUAL_AVAILABILITY[code] || '—';
     const similar_cases = computed(() => {
       if (similar_cases_live.value.length) return similar_cases_live.value;
       if (is_formal_session) return [];
@@ -3307,7 +3315,7 @@ const app = createApp({
 
     const status_label = (status) => STATUS_LABELS[status] || workStatusLabel(status);
     const priority_label = (priority) => PRIORITY_LABELS[priority] || (String(priority || '').toUpperCase() === 'CRITICAL' ? '紧急' : priority || '普通');
-    const category_label = (category) => CATEGORY_LABELS[category] || sourceLabel(category, category || '系统');
+    const category_label = (category) => CATEGORY_LABELS[category] || sourceLabel(category, '系统');
     const source_label = (value) => sourceLabel(value, '—');
     const device_status_label = (value) => genericStatusLabel(value, '状态未知');
     const metric_label = (value, fallback = '未知指标') => metricLabel(value, fallback);
@@ -3315,7 +3323,7 @@ const app = createApp({
     const request_status_label = (value) => status_label(value);
     const scenario_label = (value) => scenarioLabel(value, '未设置');
     const alert_level_label = (level) => ALERT_LEVEL_LABELS[String(level || '').toUpperCase()] || level || '—';
-    const alert_status_label = (status) => ALERT_STATUS_LABELS[String(status || '').toUpperCase()] || status || '—';
+    const alert_status_label = (status) => ALERT_STATUS_LABELS[String(status || '').toUpperCase()] || '—';
 
     const message_actions = (msg) => {
       if (!msg) return [];
@@ -3344,7 +3352,6 @@ const app = createApp({
 
     const handle_message_action = async (msg, actionId) => {
       if (!msg) return;
-      mark_read(msg);
       const plotId = msg.plotId || plots.value[0]?.plotId;
       if (actionId === 'task') {
         const taskId = msg.linkedWorkOrderId || msg.workOrderId;
@@ -3403,17 +3410,17 @@ const app = createApp({
       return { background: `conic-gradient(${color} ${score}%, var(--g-border-subtle) 0)` };
     };
     const format_record_time = (iso) => format_relative_label(iso) || '刚刚';
-    const soil_surface_label = (code) => ({ DRY: '偏干', NORMAL: '正常', WET: '偏湿' }[code] || code || '—');
+    const soil_surface_label = (code) => ({ DRY: '偏干', NORMAL: '正常', WET: '偏湿' }[code] || '—');
     const crop_condition_label = (code) => ({
       HEALTHY: '长势正常',
       LEAF_SLIGHT_WILT: '叶片轻微萎蔫',
       PEST_SUSPECTED: '疑似病虫害'
-    }[code] || code || '—');
+    }[code] || (code ? '其他长势' : '—'));
     const evidence_type_label = (code) => ({
       FIELD_INSPECTION: '现场巡田',
       RETEST: '传感器复测',
       DEVICE_CHECK: '设备检查'
-    }[code] || code || '—');
+    }[code] || (code ? '其他证据' : '—'));
     const find_plot_name = (plot_id) => find_plot_by_id(plots.value, plot_id)?.name || plot_id || '—';
 
     const replace_ref_array = (target, values) => {
@@ -3699,10 +3706,13 @@ const app = createApp({
       .join('\n');
 
     const apply_messages = (nextMessages) => {
-      const incoming = (Array.isArray(nextMessages) ? nextMessages : []).filter((message) => !deleted_message_ids.value.has(message.id));
+      const incoming = hydrate_message_read_state((Array.isArray(nextMessages) ? nextMessages : []).filter((message) => !deleted_message_ids.value.has(message.id)));
       const readState = new Map(messages.value.map((message) => [message.id, Boolean(message.read)]));
       incoming.forEach((message) => {
-        if (readState.has(message.id)) message.read = readState.get(message.id);
+        // Read state is monotonic from the user's perspective: a refresh may
+        // upgrade a message from the backend, but must not resurrect a local
+        // message that the farmer already opened.
+        message.read = Boolean(message.read || readState.get(message.id) === true);
       });
       if (message_fingerprint(messages.value) === message_fingerprint(incoming)) {
         // Keep object identity so the message center does not flicker while
@@ -4176,11 +4186,12 @@ const app = createApp({
     };
 
     const open_message = (msg) => {
+      if (!msg) return;
       selected_message.value = msg;
+      mark_message_read(msg);
       analysis_result.value = '';
       analysis_error.value = '';
-      // 不在打开时自动标记已读，保留“标记已读”按钮的可操作性；
-      // 未读状态由用户在详情页主动点击按钮后切换。
+      // 单条消息打开即读；进入消息中心本身不会批量改变其他消息。
     };
 
     const open_message_from_dashboard = (msg) => {
@@ -4194,10 +4205,16 @@ const app = createApp({
       analysis_error.value = '';
     };
 
-    const mark_read = (msg) => {
-      if (msg.read) return;
+    const mark_message_read = (msg) => {
+      const id = String(msg?.id || '').trim();
+      if (!id) return false;
       msg.read = true;
-      show_toast('已标记为已读');
+      if (read_message_ids.value.has(id)) return false;
+      const next = new Set(read_message_ids.value);
+      next.add(id);
+      read_message_ids.value = next;
+      saveReadMessageIds(message_read_storage_key, next);
+      return true;
     };
 
     const clear_read_messages = () => {
@@ -4208,6 +4225,10 @@ const app = createApp({
       }
       readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
       localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
+      const nextReadIds = new Set(read_message_ids.value);
+      readMessages.forEach((message) => nextReadIds.delete(String(message.id || '').trim()));
+      read_message_ids.value = nextReadIds;
+      saveReadMessageIds(message_read_storage_key, nextReadIds);
       messages.value = messages.value.filter((m) => !m.read);
       if (selected_message.value && selected_message.value.read) {
         selected_message.value = null;
@@ -4422,7 +4443,7 @@ const app = createApp({
     const suggestion_recovery_detail = computed(() => {
       if (!active_suggestion.value) return '';
       if (suggestion_recovery_status.value) return suggestion_recovery_status.value;
-      if (active_suggestion.value.kind === 'IRRIGATION') return '命令已提交，等待设备 ACK 和效果评价。';
+      if (active_suggestion.value.kind === 'IRRIGATION') return '命令已提交，等待设备执行回执和效果评价。';
       if (active_suggestion.value.kind === 'TASK') return '任务结果已提交，等待管理员验收。';
       return '已确认处理，等待现场复测或设备心跳恢复。';
     });
@@ -4724,7 +4745,7 @@ const app = createApp({
               await load_irrigation_plan(active.plotId, { silent: true });
             }
           }
-          suggestion_recovery_status.value = '灌溉命令已提交，等待设备 ACK 和效果评价。';
+          suggestion_recovery_status.value = '灌溉命令已提交，等待设备执行回执和效果评价。';
           suggestion_flow_stage.value = 'RESULT';
           show_toast(is_live.value ? '灌溉命令已提交，等待设备回执' : '演示灌溉已执行，不会控制真实水泵');
         } else if (active.kind === 'TASK') {
@@ -4825,7 +4846,7 @@ const app = createApp({
         }
         suggestion_result.value = saved;
         suggestion_recovery_status.value = active.kind === 'IRRIGATION'
-          ? '复测结果已记录；系统 ACK 和效果评价仍以设备与遥测为准。'
+          ? '复测结果已记录；系统执行回执和效果评价仍以设备与遥测为准。'
           : (active.kind === 'TASK' ? '结果已提交，等待管理员验收。' : '结果已记录，等待现场复测或设备心跳恢复。');
         suggestion_flow_stage.value = 'RECOVERY';
         show_toast('处理结果已记录');
@@ -5133,10 +5154,10 @@ const app = createApp({
       return `conversation-${identity}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.slice(0, 116);
     };
     const assistant_service_label = computed(() => ({
-      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示规则'
+      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示助手'
     }[assistant_service_status.value] || '服务状态未知'));
     const assistant_service_tone = computed(() => assistant_service_status.value === 'DEGRADED' ? 'is-degraded' : assistant_service_status.value === 'DEMO' ? 'is-demo' : 'is-ready');
-    const assistant_source_label = computed(() => is_formal_session ? (assistant_service_status.value === 'DEGRADED' ? '规则降级回答' : '后端智能服务') : '演示规则');
+    const assistant_source_label = computed(() => is_formal_session ? (assistant_service_status.value === 'DEGRADED' ? '安全降级回答' : '后端智能服务') : '演示助手（未连接模型）');
     const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
     const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
     const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
@@ -5145,7 +5166,7 @@ const app = createApp({
       ? '土壤含水量低于 10% 时触发虚拟浇水；系统会再次检查最新数据、设备健康和水量上限。'
       : '写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。';
     const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
-    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || source || '规则引擎');
+    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || '智能助手');
     const assistant_action_arguments = (proposal) => {
       const summary = proposal?.argumentSummary || proposal?.argumentsSummary || proposal?.parameterSummary;
       if (summary) return summary;
@@ -6021,7 +6042,7 @@ const app = createApp({
     const defer_workspace_refresh = (task) => {
       const run = () => {
         Promise.resolve().then(task).catch((error) => {
-          console.warn('[AgriLoop] deferred farmer refresh failed:', error);
+          console.warn('[农智闭环] 延迟刷新失败：', error);
         });
       };
       if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 1400 });
@@ -6188,11 +6209,9 @@ const app = createApp({
       accent_options: ACCENT_OPTIONS,
       preset_options: PRESET_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
-      font_options: FONT_FAMILY_OPTIONS,
       current_accent_label,
       current_surface_style_label,
       current_preset_label,
-      current_font_label,
       update_user_setting,
       reset_user_settings,
       is_sidebar_open,
@@ -6529,7 +6548,6 @@ const app = createApp({
       open_message_from_dashboard,
       clear_read_messages,
       close_message,
-      mark_read,
       generate_analysis,
       open_task,
       open_task_from_dashboard,

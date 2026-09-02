@@ -4,7 +4,7 @@
 
 :root {
   /* Typography */
-  --g-font-family: 'Google Sans', 'Roboto', 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, sans-serif;
+  --g-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   
   /* Color Palette - Light Theme */
   --g-bg: #f8f9fa;

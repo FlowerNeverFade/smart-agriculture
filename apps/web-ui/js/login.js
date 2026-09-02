@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260901-v5910-main-merge-v2';
+import { ApiError, api } from './api.js?v=20260902-ai-direct-v2';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260901-v5910-main-merge-v2';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -61,6 +61,7 @@ const REGISTRATION_ROLE_NOTES = Object.freeze({
 });
 
 function syncRegistrationRole() {
+  if (!registerRole) return;
   const role = registerRole.value || 'FARMER';
   const needsAuthorization = role === 'SYSTEM_ADMIN';
   const needsFarmProfile = role === 'FARM_ADMIN';
@@ -95,11 +96,13 @@ function showToast(message) {
 }
 
 function setFormError(form, target, message) {
+  if (!form || !target) return;
   target.textContent = message;
   form.classList.toggle('has-error', Boolean(message));
 }
 
 function setLoading(button, loading) {
+  if (!button) return;
   button.disabled = loading;
   button.classList.toggle('is-loading', loading);
 }
@@ -267,6 +270,7 @@ function enhanceRoleSelect(select) {
 }
 
 function focusRoleSelect(select) {
+  if (!select) return;
   const controller = customSelectControllers.get(select);
   if (controller) controller.focus();
   else select.focus();
@@ -275,9 +279,9 @@ function focusRoleSelect(select) {
 function switchView(name, focusTarget = null) {
   closeCustomSelects();
   authViews.forEach((view) => { view.hidden = view.dataset.authView !== name; });
-  glassPanel.dataset.view = name;
-  demoPanel.hidden = true;
-  demoToggle.setAttribute('aria-expanded', 'false');
+  if (glassPanel) glassPanel.dataset.view = name;
+  if (demoPanel) demoPanel.hidden = true;
+  demoToggle?.setAttribute('aria-expanded', 'false');
   setFormError(loginForm, loginError, '');
   setFormError(registerForm, registerError, '');
   setFormError(recoveryForm, recoveryError, '');
@@ -546,8 +550,8 @@ document.querySelectorAll('[data-reveal]').forEach((button) => {
   });
 });
 
-document.getElementById('showRegister').addEventListener('click', () => switchView('register', registerUsername));
-document.getElementById('showRecovery').addEventListener('click', () => {
+document.getElementById('showRegister')?.addEventListener('click', () => switchView('register', registerUsername));
+document.getElementById('showRecovery')?.addEventListener('click', () => {
   recoveryUsername.value = username.value.trim();
   switchView('recovery', recoveryUsername.value ? recoveryCodeInput : recoveryUsername);
 });
@@ -555,13 +559,13 @@ document.querySelectorAll('[data-back-to-login]').forEach((button) => {
   button.addEventListener('click', () => switchView('login', username));
 });
 
-demoToggle.addEventListener('click', () => {
+demoToggle?.addEventListener('click', () => {
   const willOpen = demoPanel.hidden;
   demoPanel.hidden = !willOpen;
   demoToggle.setAttribute('aria-expanded', String(willOpen));
 });
 
-demoPanel.querySelectorAll('[data-user]').forEach((button) => {
+demoPanel?.querySelectorAll('[data-user]').forEach((button) => {
   button.addEventListener('click', () => {
     const account = button.dataset.user;
     const user = demoUserFor(account);
@@ -578,12 +582,12 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
   });
 });
 
-[loginRole, registerRole].forEach((select) => {
+[loginRole, registerRole].filter(Boolean).forEach((select) => {
   const controller = enhanceRoleSelect(select);
   if (controller) customSelectControllers.set(select, controller);
 });
 
-registerRole.addEventListener('change', syncRegistrationRole);
+registerRole?.addEventListener('change', syncRegistrationRole);
 syncRegistrationRole();
 
 document.addEventListener('pointerdown', (event) => {
@@ -592,17 +596,18 @@ document.addEventListener('pointerdown', (event) => {
   });
 });
 
-loginForm.addEventListener('submit', submitLogin);
-registerForm.addEventListener('submit', submitRegistration);
-recoveryForm.addEventListener('submit', submitRecovery);
-copyRecoveryCode.addEventListener('click', copyCode);
-recoveryCodeContinue.addEventListener('click', continueAfterRecoveryCode);
+loginForm?.addEventListener('submit', submitLogin);
+registerForm?.addEventListener('submit', submitRegistration);
+recoveryForm?.addEventListener('submit', submitRecovery);
+copyRecoveryCode?.addEventListener('click', copyCode);
+recoveryCodeContinue?.addEventListener('click', continueAfterRecoveryCode);
 
 [
   [loginForm, loginError],
   [registerForm, registerError],
   [recoveryForm, recoveryError]
 ].forEach(([form, error]) => {
+  if (!form || !error) return;
   form.addEventListener('input', () => {
     if (error.textContent) setFormError(form, error, '');
   });
@@ -632,11 +637,16 @@ if (previewUser) {
     window.location.replace(target);
   } else {
     if (storedSession?.mode === 'demo') api.clearSession();
-    backgroundController = createAmbientLiquidField({
-      canvas: liquidCanvas,
-      fallback: liquidFallback,
-      glassPanel
-    });
+    if (liquidCanvas && liquidFallback) {
+      backgroundController = createAmbientLiquidField({
+        canvas: liquidCanvas,
+        fallback: liquidFallback,
+        glassPanel
+      });
+    }
+    if (previewParams.get('view') === 'recovery' && recoveryUsername) {
+      switchView('recovery', recoveryUsername);
+    }
     syncTaskMode();
     requestAnimationFrame(() => document.body.classList.add('is-mounted'));
   }

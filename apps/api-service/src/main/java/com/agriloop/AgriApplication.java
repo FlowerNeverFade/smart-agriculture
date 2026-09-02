@@ -109,7 +109,8 @@ public class AgriApplication {
 @ConfigurationProperties(prefix = "agriloop")
 class AgriProperties {
     private String mode = "standalone";
-    private String aiMode = "rules-only";
+    /** Prefer the configured OpenAI-compatible model; rules remain an explicit fallback. */
+    private String aiMode = "openai-compatible";
     /** OpenAI-compatible endpoint used by the optional Qwen/vLLM adapter. */
     private String llmBaseUrl = "http://127.0.0.1:8000/v1";
     private String llmModel = "Qwen3.8-27B";
@@ -118,10 +119,14 @@ class AgriProperties {
     private String llmApiKey = "";
     private long llmTimeoutMs = 30000;
     private int llmMaxTokens = 768;
-    /** Short private reasoning is enabled by default; callers fall back on timeout. */
-    private boolean llmEnableThinking = true;
+    /**
+     * Retained for configuration compatibility. The production chat path is
+     * intentionally forced to direct generation regardless of an old .env
+     * value; deterministic safety checks still run before and after the call.
+     */
+    private boolean llmEnableThinking = false;
     private boolean llmPreserveThinking = false;
-    private String llmReasoningEffort = "low";
+    private String llmReasoningEffort = "none";
     /** Maximum number of prior user/assistant messages supplied as dialogue context. */
     private int llmHistoryMessages = 8;
     private String commandMode = "virtual";
@@ -1624,8 +1629,6 @@ class AgriEngine {
     private static final int AGENT_IMAGE_MAX_COUNT = 4;
     private static final int AGENT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
     private static final int AGENT_IMAGE_MAX_TOTAL_BYTES = 24 * 1024 * 1024;
-    /** Keep private reasoning responsive; a plain generation retry follows on timeout. */
-    private static final long AGENT_THINKING_TIMEOUT_MS = 12000L;
     private static final long AGENT_PLAIN_TIMEOUT_MS = 30000L;
     private static final Pattern AGENT_IMAGE_DATA_URL = Pattern.compile(
             "^data:(image/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$", Pattern.CASE_INSENSITIVE);
@@ -2634,7 +2637,7 @@ class AgriEngine {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("farmId", farmId); result.put("plots", cards); result.put("activeAlertCount", activeAlerts);
         result.put("pendingWorkOrderCount", pendingTasks); result.put("eventCount", store.eventCount());
-        result.put("dataMode", properties.getMode()); result.put("aiMode", properties.getAiMode());
+        result.put("dataMode", properties.getMode()); result.put("aiMode", configuredAiMode());
         result.put("generatedAt", Instant.now().toString());
         return result;
     }
@@ -2883,7 +2886,7 @@ class AgriEngine {
         status.put("persistence", store.persistenceKind());
         // ai 字段为真实连通性探测结果（UP/DEGRADED/DOWN/规则模式），aiMode 保留配置模式
         status.put("ai", checkLlmHealth());
-        status.put("aiMode", properties.getAiMode());
+        status.put("aiMode", configuredAiMode());
         status.put("llmModel", properties.getLlmModel());
         // 运行时长（秒）与接口版本
         status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
@@ -2900,6 +2903,13 @@ class AgriEngine {
     private volatile long llmHealthCheckedAt = 0L;
     private final Object llmHealthLock = new Object();
 
+    /** Resolve an omitted or blank mode to the model-first production default. */
+    private String configuredAiMode() {
+        String configured = properties.getAiMode();
+        if (configured == null || configured.isBlank()) return "openai-compatible";
+        return configured.trim().toLowerCase(Locale.ROOT);
+    }
+
     /**
      * 探测配置的外部 AI 服务是否真实在线。
      * - openai / openai-compatible：GET {baseUrl}/models，3 秒超时，2xx=UP，否则 DOWN
@@ -2907,8 +2917,8 @@ class AgriEngine {
      * - rules-only 等规则模式：不依赖外部 AI，返回配置模式（由前端展示为规则模式）
      */
     String checkLlmHealth() {
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
-        boolean needsExternal = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        String aiMode = configuredAiMode();
+        boolean needsExternal = isOpenAiCompatibleMode(aiMode);
         if (!needsExternal) {
             // 规则/演示/未接通适配：不探测，返回保守语义
             return aiMode.equals("mock") || aiMode.equals("maxkb") ? "DEGRADED" : aiMode;
@@ -3969,8 +3979,8 @@ class AgriEngine {
         if (!force && !Jsons.text(existing, "text", "").isBlank()) return diagnosis;
 
         String traceId = Jsons.id("run");
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
-        boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        String aiMode = configuredAiMode();
+        boolean openAiCompatible = isOpenAiCompatibleMode(aiMode);
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         Map<String, Object> facts = diagnosisExplanationFacts(diagnosis, plotId);
         String fallback = rulesDiagnosisExplanation(diagnosis);
@@ -4018,7 +4028,7 @@ class AgriEngine {
 
         Map<String, Object> explanation = new LinkedHashMap<>();
         explanation.put("text", text);
-        explanation.put("sourceLabel", degraded ? (aiMode.equals("mock") ? "演示规则解释" : "规则降级解释") : "Qwen 实时解释");
+        explanation.put("sourceLabel", degraded ? (aiMode.equals("mock") ? "演示助手解释（未连接模型）" : "安全降级解释") : "Qwen 实时解释");
         explanation.put("adapter", adapter);
         explanation.put("degraded", degraded);
         explanation.put("provenance", "DERIVED");
@@ -8086,7 +8096,7 @@ class AgriEngine {
         answer.put("traceId", traceId);
         answer.put("conversationId", conversationId);
         answer.put("plotId", plotId);
-        answer.put("mode", properties.getAiMode());
+        answer.put("mode", configuredAiMode());
         answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
         Map<String, Object> roleProfile = agentRoleProfile(principal);
         answer.put("role", principal.role);
@@ -8101,12 +8111,15 @@ class AgriEngine {
                     "images", agentImageMetadata(agentImages)));
         }
 
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
-        boolean openAiCompatible = aiMode.equals("openai") || aiMode.equals("openai-compatible");
+        String aiMode = configuredAiMode();
+        boolean openAiCompatible = isOpenAiCompatibleMode(aiMode);
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
-        boolean fastPath = false;
+        // Deterministic guards are kept for empty/identifier-only input and for
+        // deployments that explicitly have no model adapter.  They must not
+        // short-circuit normal conversation when the model is available.
+        boolean deterministicOnly = false;
         // A photo is evidence for a model-assisted observation, not a safe basis
         // for silently triggering the deterministic mutation parser.
         Map<String, Object> actionProposal = agentImages.isEmpty() ? planAgentAction(message, plotId, principal, traceId) : null;
@@ -8118,7 +8131,11 @@ class AgriEngine {
             if (hasPreview) answer.put("actionProposal", actionProposal);
             answer.put("summary", Jsons.text(actionProposal, "summary", "需要补充信息"));
             answer.put("narrative", Jsons.text(actionProposal, "clarification", Jsons.text(actionProposal, "summary", "已生成操作预览，等待确认执行。")));
-            answer.put("narrativeProvenance", "DERIVED"); answer.put("adapter", "rules-agent"); fastPath = true;
+            answer.put("narrativeProvenance", "DERIVED");
+            if (!openAiCompatible) {
+                answer.put("adapter", "rules-agent");
+                deterministicOnly = true;
+            }
         } else if (!agentImages.isEmpty()) {
             answer.put("intent", "IMAGE_ANALYSIS");
             answer.put("summary", "已读取 " + agentImages.size() + " 张用户图片并结合问题分析");
@@ -8128,15 +8145,17 @@ class AgriEngine {
                     "plotId", plotId,
                     "cropContext", plotCropContext(plotId)));
         } else if (isGreeting(message)) {
-            // Greetings and other social pleasantries do not need a 27B inference call.
-            // Keeping this deterministic also prevents a one-word message from causing
-            // the model to echo the whole telemetry context.
+            // Let the configured model make the conversational response.  Keep a
+            // deterministic fallback for rules-only deployments, where no model
+            // call is available by design.
             answer.put("intent", "GREETING");
             answer.put("summary", "已识别为问候");
             answer.put("narrative", agentGreeting(principal));
             answer.put("narrativeProvenance", "DERIVED");
-            answer.put("adapter", "rules-fast-path");
-            fastPath = true;
+            if (!openAiCompatible) {
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
+            }
         } else if (isContextualFollowUp(message) && !recentHistory.isEmpty()) {
             // Resolve short follow-ups from this conversation before the
             // low-information guard, so "为什么/继续/怎么办" can refer to
@@ -8156,8 +8175,16 @@ class AgriEngine {
             // report and avoids implying that telemetry informed the reply.
             answer.put("knowledgeEvidence", List.of());
             answer.put("narrativeProvenance", "DERIVED");
-            answer.put("adapter", "rules-fast-path");
-            fastPath = true;
+            // Empty input and a standalone identifier have a deterministic,
+            // useful clarification.  Other short/ambiguous text should still
+            // be phrased by the model when it is available.
+            String compactInput = message == null ? "" : message.trim()
+                    .replaceAll("[\\s，。！？,.!?、:：;；]+", "");
+            boolean hardFastPath = compactInput.isBlank() || isNumberOrIdentifierInput(compactInput);
+            if (hardFastPath || !openAiCompatible) {
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
+            }
         } else if (isCapabilityQuestion(message)) {
             answer.put("intent", "CAPABILITY_QUERY");
             answer.put("summary", "已读取农智助手能力范围");
@@ -8166,13 +8193,15 @@ class AgriEngine {
                     "factsBoundary", "实时事实来自规则、数据库和检索知识；控制命令必须经过安全门和人工确认",
                     "scope", roleProfile.get("scopeLabel"),
                     "unsupported", roleProfile.get("restrictions")));
-            // Capability questions are a stable contract, not a generative task.
-            // Answering them locally avoids a needless 27B round trip and keeps
-            // the product boundary concise even when an LLM is enabled.
+            // The capability list is deterministic context, while the model can
+            // explain it naturally for a live deployment.  Keep the local text
+            // as the safe fallback when the model is disabled.
             answer.put("narrative", agentCapabilityNarrative(principal, roleProfile));
             answer.put("narrativeProvenance", "DERIVED");
-            answer.put("adapter", "rules-fast-path");
-            fastPath = true;
+            if (!openAiCompatible) {
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
+            }
         } else if (principal.isSystemAdmin() && isPlatformStatusQuestion(message)) {
             boolean mqttCommandAvailable = mqttCommands.available();
             Map<String, Object> status = dependencyStatus(mqttCommandAvailable);
@@ -8274,9 +8303,16 @@ class AgriEngine {
         boolean degraded = false;
         String degradationReason = null;
         String rawNarrative = null;
-        if (fastPath) {
-            // The deterministic answer above is intentional and is not presented as
-            // a fabricated model response.
+        if (deterministicOnly) {
+            // A guard response is intentionally short and is not presented as a
+            // model-generated answer.  An explicit non-model deployment is still
+            // marked degraded so the UI cannot mistake it for live AI.
+            if (!openAiCompatible) {
+                degraded = true;
+                degradationReason = aiMode.equals("rules-only")
+                        ? "RULES_ONLY_CONFIGURED"
+                        : aiMode.equals("mock") ? "DEMO_RULES_CONFIGURED" : "AI_ADAPTER_UNAVAILABLE_FALLBACK";
+            }
         } else if (aiMode.equals("rules-only")) {
             degraded = true;
             degradationReason = "RULES_ONLY_CONFIGURED";
@@ -8292,6 +8328,9 @@ class AgriEngine {
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
                 answer.put("narrativeProvenance", "DERIVED");
+                // A proposal is deterministic, but its human-facing explanation
+                // is still a real model response when the adapter is available.
+                answer.put("adapter", "openai-compatible");
                 answer.put("llm", Map.of("provider", "openai-compatible",
                         "model", agentImages.isEmpty() ? configuredLlmModel() : configuredVisionModel(),
                         "latencyMs", latencyMs,
@@ -8407,46 +8446,21 @@ class AgriEngine {
     }
 
     /**
-     * Prefer a short private-reasoning pass when enabled, then retry without
-     * thinking if the model is slow or the compatible server rejects the
-     * thinking parameters. The user should never wait for a second long pass.
+     * Use one bounded, final-answer-only inference pass. A second reasoning
+     * pass made the UI look like it was hanging and could leak internal tokens;
+     * safety and deterministic facts remain outside the model call.
      */
     private String callOpenAiCompatibleWithFallback(String userMessage, Map<String, Object> deterministicContext,
-                                                    List<Map<String, Object>> recentHistory,
-                                                    List<Map<String, Object>> imageInputs) throws IOException {
-        if (!properties.isLlmEnableThinking()) {
-            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
-                    false, Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
-        }
-        IOException thinkingFailure;
-        try {
-            long configuredTimeout = Math.max(1000L, properties.getLlmTimeoutMs());
-            long thinkingTimeout = Math.min(configuredTimeout, AGENT_THINKING_TIMEOUT_MS);
-            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
-                    true, thinkingTimeout);
-        } catch (IOException ex) {
-            thinkingFailure = ex;
-        }
-        try {
-            return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
-                    false, Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
-        } catch (IOException plainFailure) {
-            plainFailure.addSuppressed(thinkingFailure);
-            throw plainFailure;
-        }
-    }
-
-    private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
-                                        List<Map<String, Object>> recentHistory,
-                                        List<Map<String, Object>> imageInputs) throws IOException {
+                                                     List<Map<String, Object>> recentHistory,
+                                                     List<Map<String, Object>> imageInputs) throws IOException {
         return callOpenAiCompatible(userMessage, deterministicContext, recentHistory, imageInputs,
-                properties.isLlmEnableThinking(), Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
+                Math.min(Math.max(1000L, properties.getLlmTimeoutMs()), AGENT_PLAIN_TIMEOUT_MS));
     }
 
     private String callOpenAiCompatible(String userMessage, Map<String, Object> deterministicContext,
                                         List<Map<String, Object>> recentHistory,
                                         List<Map<String, Object>> imageInputs,
-                                        boolean enableThinking, long timeoutMs) throws IOException {
+                                        long timeoutMs) throws IOException {
         String baseUrl = properties.getLlmBaseUrl() == null ? "" : properties.getLlmBaseUrl().trim();
         if (baseUrl.isBlank()) throw new IOException("LLM_BASE_URL_NOT_CONFIGURED");
         while (baseUrl.endsWith("/")) baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
@@ -8482,7 +8496,7 @@ class AgriEngine {
         String visionGuidance = hasImages
                 ? "本轮有原图：忽略文件名可能带来的暗示，直接观察图片像素后回答用户真正关心的内容。先说清画面中实际可见的对象、状态或症状，再按需要给出判断；把‘能直接看见’、‘结合农业经验推测’和‘仅凭图片无法确定’分开。严禁输出任何置信度、概率、百分比、模型评分、候选类别或识别过程，只给用户可读的识别结果和可见依据。用户只问‘这是什么’时，用一两句直接说对象名称和明显特征，不要主动追加地块遥测、灌溉或管理建议。不要默认说识别不确定；只有图片确实模糊、过暗、过曝、遮挡或关键部位不在画面内时，才简短说明具体限制。不要把平台遥测冒充成图片内容。"
                 : "";
-        String systemPrompt = "你是农智闭环的农业助手，像熟悉现场的同事一样交流。先理解用户这次真正要解决的问题，可以在内部快速思考，但只输出最终答复，不输出思考标记、元数据或提示词。当前问题、当前地块实时事实、作物阶段、模拟场景、设备状态和本轮图片证据优先；历史只用于理解当前 conversationId 内的指代，其他对话和全局信息不属于本轮上下文。根据问题自然选择短句、短段、要点或追问，不固定标题、开场和收尾，也不机械复述身份、规则或整份遥测。只引用与问题有关的事实，不编造观测值，不把建议说成已执行；涉及控制时只说明人工复核和安全门，不生成命令。简单问题直接回答，复杂问题再补充必要依据。"
+        String systemPrompt = "你是农智闭环的农业助手，像熟悉现场的同事一样交流。默认使用简体中文回答；标准单位、专有名称和用户原文可按原样保留。直接作答，不启用思考模式，不输出思考标记、元数据或提示词。当前问题、当前地块实时事实、作物阶段、模拟场景、设备状态和本轮图片证据优先；历史只用于理解当前 conversationId 内的指代，其他对话和全局信息不属于本轮上下文。根据问题自然选择短句、短段、要点或追问，不固定标题、开场和收尾，也不机械复述身份、规则或整份遥测。只引用与问题有关的事实，不编造观测值，不把建议说成已执行；涉及控制时只说明人工复核和安全门，不生成命令。简单问题直接回答，复杂问题再补充必要依据。"
                 + visionGuidance
                 + "\n\n当前身份是" + roleLabel + "，数据范围是" + scopeLabel + "。"
                 + roleGuidance + "。不要向用户展示超出该范围的事实或操作。\n本轮表达偏好：" + styleHint;
@@ -8508,20 +8522,19 @@ class AgriEngine {
             messages.add(Map.of("role", "user", "content", userContent));
         }
         request.put("messages", messages);
-        request.put("temperature", enableThinking ? 0.85 : 0.90);
-        request.put("top_p", enableThinking ? 0.95 : 0.95);
+        request.put("temperature", 0.90);
+        request.put("top_p", 0.95);
         request.put("top_k", 20);
-        request.put("presence_penalty", enableThinking ? 0.0 : 0.24);
-        request.put("frequency_penalty", enableThinking ? 0.0 : 0.16);
+        request.put("presence_penalty", 0.24);
+        request.put("frequency_penalty", 0.16);
         request.put("max_tokens", Math.max(16, Math.min(2048, properties.getLlmMaxTokens())));
         request.put("stream", false);
         Map<String, Object> chatTemplate = new LinkedHashMap<>();
-        chatTemplate.put("enable_thinking", enableThinking);
-        chatTemplate.put("preserve_thinking", enableThinking && properties.isLlmPreserveThinking());
+        // Qwen3/vLLM reads this flag from chat_template_kwargs. Keep it false
+        // even when an old .env still contains LLM_ENABLE_THINKING=true.
+        chatTemplate.put("enable_thinking", false);
+        chatTemplate.put("preserve_thinking", false);
         request.put("chat_template_kwargs", chatTemplate);
-        if (enableThinking && properties.getLlmReasoningEffort() != null && !properties.getLlmReasoningEffort().isBlank()) {
-            request.put("reasoning_effort", properties.getLlmReasoningEffort().trim());
-        }
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofMillis(Math.max(1000L, timeoutMs)))
@@ -8551,16 +8564,18 @@ class AgriEngine {
                 StringBuilder joined = new StringBuilder();
                 content.forEach(part -> {
                     if (part.isTextual()) joined.append(part.asText());
-                    else if (part.has("text")) joined.append(part.path("text").asText());
+                    else {
+                        String type = part.path("type").asText("").toLowerCase(Locale.ROOT);
+                        if (!type.contains("reason") && !type.contains("think") && part.has("text")) {
+                            joined.append(part.path("text").asText());
+                        }
+                    }
                 });
                 text = joined.toString();
             } else text = "";
-            // Some OpenAI-compatible servers expose only reasoning_content when a
-            // template ignores enable_thinking=false. Return it so the sanitizer can
-            // still prevent reasoning leakage instead of exposing a raw JSON object.
-            if ((text == null || text.isBlank()) && messageNode.path("reasoning_content").isTextual()) {
-                text = messageNode.path("reasoning_content").asText();
-            }
+            // Never use reasoning_content as the public answer. If a compatible
+            // server ignored the disabled-thinking flag, degrade to the safe
+            // deterministic response instead of exposing private reasoning.
             if (text == null || text.isBlank()) throw new IOException("LLM_EMPTY_RESPONSE");
             return text.trim();
         } catch (JsonProcessingException ex) {
@@ -8570,6 +8585,10 @@ class AgriEngine {
 
     private String configuredLlmModel() {
         return properties.getLlmModel() == null || properties.getLlmModel().isBlank() ? "Qwen3.8-27B" : properties.getLlmModel().trim();
+    }
+
+    private boolean isOpenAiCompatibleMode(String aiMode) {
+        return Set.of("full", "openai", "openai-compatible").contains(aiMode);
     }
 
     private String configuredVisionModel() {

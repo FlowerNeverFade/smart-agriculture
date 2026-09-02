@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildLiveFeedItems, metricLabel, normalizeFarmerTask } from '../js/live-data.js';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from '../js/message-read-state.js';
 import { MOCK_DATA } from '../js/mock-data.js';
 import { canExecuteIrrigation, roleCan } from '../js/roles.js';
 
@@ -12,7 +13,34 @@ globalThis.localStorage ||= {
   removeItem: (key) => storage.delete(key)
 };
 
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+}
+
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
+
+test('farmer message read state is account-scoped, durable and tolerant of bad storage', () => {
+  const store = memoryStorage();
+  const demoKey = messageReadStorageKey('demo', 'farmer:one');
+  const liveKey = messageReadStorageKey('live', 'farmer:one');
+  const otherAccountKey = messageReadStorageKey('demo', 'farmer:two');
+
+  assert.equal(demoKey, 'agriloop_read_messages:demo:farmer%3Aone');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+  store.setItem(demoKey, '{not-json');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+
+  assert.equal(saveReadMessageIds(demoKey, ['msg-2', 'msg-1', 'msg-2', ''], store), true);
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], ['msg-1', 'msg-2']);
+  assert.deepEqual([...loadReadMessageIds(liveKey, store)], []);
+  assert.deepEqual([...loadReadMessageIds(otherAccountKey, store)], []);
+  assert.equal(saveReadMessageIds(demoKey, ['msg-3'], { setItem() { throw new Error('quota'); } }), false);
+});
 
 test('legacy farmer task records retain an actionable work-order identity', () => {
   const task = normalizeFarmerTask({ id: 'ft-demo', status: 'IN_PROGRESS', title: '演示任务' });
@@ -280,6 +308,25 @@ test('demo operation system can execute offline virtual lighting and write a lig
   }
 });
 
+test('farmer message center shows unread dots and marks only opened messages as read', async () => {
+  const [html, source, css] = await Promise.all([
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
+    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /v-if="!msg\.read" class="farmer-message-unread-dot" role="img" aria-label="未读"/);
+  assert.doesNotMatch(html, /标记已读/);
+  assert.doesNotMatch(html, /@click="mark_read/);
+  assert.match(source, /messageReadStorageKey/);
+  assert.match(source, /saveReadMessageIds/);
+  const openStart = source.indexOf('const open_message =');
+  const openEnd = source.indexOf('const open_message_from_dashboard', openStart);
+  assert.ok(openStart >= 0 && openEnd > openStart, 'single-message open handler should exist');
+  assert.match(source.slice(openStart, openEnd), /mark_message_read\(msg\)/);
+  assert.match(source, /const mark_message_read = \(msg\) =>/);
+  assert.match(css, /\.farmer-message-unread-dot\s*\{[\s\S]*?background:\s*var\(--g-danger/);
+});
+
 test('farmer can read plot simulation strategy and forecast curve', async () => {
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read'] } });
@@ -342,10 +389,10 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(html, /current_view === 'assistant'/);
   assert.doesNotMatch(html, /farmer-ai-dock|farmer-ai-consult|show_ai_consult/);
   const surface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', 'Enter 发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
+  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', '回车发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
     assert.match(surface, new RegExp(marker));
   }
-  assert.match(surface, /Shift\+Enter 换行/);
+  assert.match(surface, /组合键换行/);
   assert.match(source, /id: 'assistant', label: '农智助手'/);
   assert.match(source, /assistant_drawer_open/);
   assert.match(source, /getAgentConversations/);

@@ -1,3 +1,4 @@
 *.sh text eol=lf
 gradlew text eol=lf
 *.py text eol=lf
+apps/web-ui/js/modules/admin-ai-chat.js whitespace=cr-at-eol
