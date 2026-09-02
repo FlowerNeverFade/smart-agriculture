@@ -47,9 +47,9 @@ agriloop:
   llm-api-key: ${LLM_API_KEY:}
   llm-timeout-ms: ${LLM_TIMEOUT_MS:30000}
   llm-max-tokens: ${LLM_MAX_TOKENS:768}
-  llm-enable-thinking: ${LLM_ENABLE_THINKING:true}
+  llm-enable-thinking: ${LLM_ENABLE_THINKING:false}
   llm-preserve-thinking: ${LLM_PRESERVE_THINKING:false}
-  llm-reasoning-effort: ${LLM_REASONING_EFFORT:low}
+  llm-reasoning-effort: ${LLM_REASONING_EFFORT:none}
   llm-history-messages: ${LLM_HISTORY_MESSAGES:8}
   command-mode: ${COMMAND_MODE:virtual}
   forecast-mode: ${FORECAST_MODE:deterministic}
