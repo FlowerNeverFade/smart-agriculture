@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { buildLiveFeedItems, metricLabel, normalizeFarmerTask } from '../js/live-data.js';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from '../js/message-read-state.js';
 import { MOCK_DATA } from '../js/mock-data.js';
 import { canExecuteIrrigation, roleCan } from '../js/roles.js';
 
@@ -12,7 +13,34 @@ globalThis.localStorage ||= {
   removeItem: (key) => storage.delete(key)
 };
 
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+}
+
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
+
+test('farmer message read state is account-scoped, durable and tolerant of bad storage', () => {
+  const store = memoryStorage();
+  const demoKey = messageReadStorageKey('demo', 'farmer:one');
+  const liveKey = messageReadStorageKey('live', 'farmer:one');
+  const otherAccountKey = messageReadStorageKey('demo', 'farmer:two');
+
+  assert.equal(demoKey, 'agriloop_read_messages:demo:farmer%3Aone');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+  store.setItem(demoKey, '{not-json');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+
+  assert.equal(saveReadMessageIds(demoKey, ['msg-2', 'msg-1', 'msg-2', ''], store), true);
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], ['msg-1', 'msg-2']);
+  assert.deepEqual([...loadReadMessageIds(liveKey, store)], []);
+  assert.deepEqual([...loadReadMessageIds(otherAccountKey, store)], []);
+  assert.equal(saveReadMessageIds(demoKey, ['msg-3'], { setItem() { throw new Error('quota'); } }), false);
+});
 
 test('legacy farmer task records retain an actionable work-order identity', () => {
   const task = normalizeFarmerTask({ id: 'ft-demo', status: 'IN_PROGRESS', title: '演示任务' });
@@ -227,6 +255,25 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(html, /farmer-no-action-modal/);
   assert.match(html, /farmer-manual-irrigation-modal/);
   assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);
+});
+
+test('farmer message center shows unread dots and marks only opened messages as read', async () => {
+  const [html, source, css] = await Promise.all([
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
+    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /v-if="!msg\.read" class="farmer-message-unread-dot" role="img" aria-label="未读"/);
+  assert.doesNotMatch(html, /标记已读/);
+  assert.doesNotMatch(html, /@click="mark_read/);
+  assert.match(source, /messageReadStorageKey/);
+  assert.match(source, /saveReadMessageIds/);
+  const openStart = source.indexOf('const open_message =');
+  const openEnd = source.indexOf('const open_message_from_dashboard', openStart);
+  assert.ok(openStart >= 0 && openEnd > openStart, 'single-message open handler should exist');
+  assert.match(source.slice(openStart, openEnd), /mark_message_read\(msg\)/);
+  assert.match(source, /const mark_message_read = \(msg\) =>/);
+  assert.match(css, /\.farmer-message-unread-dot\s*\{[\s\S]*?background:\s*var\(--g-danger/);
 });
 
 test('farmer can read plot simulation strategy and forecast curve', async () => {

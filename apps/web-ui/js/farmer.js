@@ -7,6 +7,7 @@ import { agentRolePresentation } from './agent-presentation.js?v=20260901-v600-m
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v600-main-merge-v1';
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v600-main-merge-v1';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from './message-read-state.js?v=20260902-message-read-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -1183,6 +1184,14 @@ const app = createApp({
     const current_role = computed(() => user.value?.role || 'FARMER');
     const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
+    const message_read_account_id = String(initial_user.userId || initial_user.username || fallback_user.username || 'anonymous');
+    const message_read_storage_key = messageReadStorageKey(is_formal_session ? 'live' : 'demo', message_read_account_id);
+    const read_message_ids = ref(loadReadMessageIds(message_read_storage_key));
+    const hydrate_message_read_state = (items = []) => (Array.isArray(items) ? items : []).map((message) => ({
+      ...message,
+      read: Boolean(message?.read || read_message_ids.value.has(String(message?.id || '').trim()))
+    }));
+
     const farm = ref(is_formal_session ? {} : MOCK_DATA.farms[0]);
     const assigned_plot_names = new Set(fallback_user.plot_names || []);
     // The demo API hydrates browser-session effects before the app mounts.
@@ -1221,7 +1230,7 @@ const app = createApp({
       sessionMode: is_formal_session ? 'live' : 'demo'
     }));
 
-    const messages = ref(is_formal_session ? [] : (MOCK_DATA.farmer_messages || []).map(normalize_demo_message));
+    const messages = ref(is_formal_session ? [] : hydrate_message_read_state((MOCK_DATA.farmer_messages || []).map(normalize_demo_message)));
     const deleted_message_ids = ref(new Set(JSON.parse(localStorage.getItem('agriloop_deleted_messages') || '[]')));
     const tasks = ref(is_formal_session ? [] : MOCK_DATA.farmer_tasks.map((task) => ({ ...task })));
     const inspection_records = ref(is_formal_session ? [] : (MOCK_DATA.inspections || []).map((record) => ({
@@ -3079,7 +3088,6 @@ const app = createApp({
 
     const handle_message_action = async (msg, actionId) => {
       if (!msg) return;
-      mark_read(msg);
       const plotId = msg.plotId || plots.value[0]?.plotId;
       if (actionId === 'task') {
         const taskId = msg.linkedWorkOrderId || msg.workOrderId;
@@ -3434,10 +3442,13 @@ const app = createApp({
       .join('\n');
 
     const apply_messages = (nextMessages) => {
-      const incoming = (Array.isArray(nextMessages) ? nextMessages : []).filter((message) => !deleted_message_ids.value.has(message.id));
+      const incoming = hydrate_message_read_state((Array.isArray(nextMessages) ? nextMessages : []).filter((message) => !deleted_message_ids.value.has(message.id)));
       const readState = new Map(messages.value.map((message) => [message.id, Boolean(message.read)]));
       incoming.forEach((message) => {
-        if (readState.has(message.id)) message.read = readState.get(message.id);
+        // Read state is monotonic from the user's perspective: a refresh may
+        // upgrade a message from the backend, but must not resurrect a local
+        // message that the farmer already opened.
+        message.read = Boolean(message.read || readState.get(message.id) === true);
       });
       if (message_fingerprint(messages.value) === message_fingerprint(incoming)) {
         // Keep object identity so the message center does not flicker while
@@ -3794,11 +3805,12 @@ const app = createApp({
     };
 
     const open_message = (msg) => {
+      if (!msg) return;
       selected_message.value = msg;
+      mark_message_read(msg);
       analysis_result.value = '';
       analysis_error.value = '';
-      // 不在打开时自动标记已读，保留“标记已读”按钮的可操作性；
-      // 未读状态由用户在详情页主动点击按钮后切换。
+      // 单条消息打开即读；进入消息中心本身不会批量改变其他消息。
     };
 
     const open_message_from_dashboard = (msg) => {
@@ -3812,10 +3824,16 @@ const app = createApp({
       analysis_error.value = '';
     };
 
-    const mark_read = (msg) => {
-      if (msg.read) return;
+    const mark_message_read = (msg) => {
+      const id = String(msg?.id || '').trim();
+      if (!id) return false;
       msg.read = true;
-      show_toast('已标记为已读');
+      if (read_message_ids.value.has(id)) return false;
+      const next = new Set(read_message_ids.value);
+      next.add(id);
+      read_message_ids.value = next;
+      saveReadMessageIds(message_read_storage_key, next);
+      return true;
     };
 
     const clear_read_messages = () => {
@@ -3826,6 +3844,10 @@ const app = createApp({
       }
       readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
       localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
+      const nextReadIds = new Set(read_message_ids.value);
+      readMessages.forEach((message) => nextReadIds.delete(String(message.id || '').trim()));
+      read_message_ids.value = nextReadIds;
+      saveReadMessageIds(message_read_storage_key, nextReadIds);
       messages.value = messages.value.filter((m) => !m.read);
       if (selected_message.value && selected_message.value.read) {
         selected_message.value = null;
@@ -6005,7 +6027,6 @@ const app = createApp({
       open_message_from_dashboard,
       clear_read_messages,
       close_message,
-      mark_read,
       generate_analysis,
       open_task,
       open_task_from_dashboard,

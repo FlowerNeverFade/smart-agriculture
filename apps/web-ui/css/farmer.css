@@ -986,6 +986,14 @@
   font-weight: 600;
   color: var(--g-text-primary);
 }
+.farmer-message-unread-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--g-danger, #d95555);
+  box-shadow: 0 0 0 3px var(--g-danger-bg, rgba(217, 85, 85, .14));
+}
 .farmer-message-head {
   display: flex;
   flex-wrap: wrap;

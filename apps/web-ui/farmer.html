@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260901-v600-main-merge-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260901-v600-main-merge-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260902-message-read-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260901-v600-main-merge-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v600-main-merge-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v600-main-merge-v1">
@@ -929,6 +929,7 @@
                      :class="{active: selected_message && selected_message.id === msg.id, unread: !msg.read}"
                      @click="open_message(msg)">
                   <div class="farmer-message-head">
+                    <span v-if="!msg.read" class="farmer-message-unread-dot" role="img" aria-label="未读"></span>
                     <span class="farmer-message-tag" :class="'tag-' + msg.category">{{ category_label(msg.category) }}</span>
                     <span v-if="msg.category === 'alert' && msg.alertLevel" class="farmer-message-level">{{ alert_level_label(msg.alertLevel) }}</span>
                     <span class="farmer-message-time">{{ msg.time_label }}</span>
@@ -990,9 +991,6 @@
                   </div>
 
                   <div class="farmer-detail-footer">
-                    <button class="g-btn secondary farmer-btn-light" @click="mark_read(selected_message)" :disabled="selected_message.read">
-                      {{ selected_message.read ? '已读' : '标记已读' }}
-                    </button>
                     <button
                       class="g-btn primary farmer-btn-analyze"
                       :class="{ 'is-loading': analyzing }"
@@ -1845,6 +1843,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260901-v600-main-merge-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260902-message-read-v1"></script>
 </body>
 </html>
