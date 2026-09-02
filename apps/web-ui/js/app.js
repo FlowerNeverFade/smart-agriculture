@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-ai-direct-v2';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-manager-plot-order-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
@@ -15,6 +15,7 @@ import { AdminMemberManagementView } from './modules/admin-member-management.js?
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { reconcilePlotOrder } from './plot-display.js?v=20260902-manager-plot-order-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -621,11 +622,314 @@ const DashboardView = {
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
     const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
-    const visiblePlots = computed(() => (
+    const managerPlotSource = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const managerPlotOrderIds = ref([]);
+    const managerPlotOrderRevision = ref(0);
+    const managerPlotOrderLoaded = ref(false);
+    const managerPlotOrderBusy = ref(false);
+    const managerPlotOrderError = ref('');
+    const managerPlotOrderFarmId = ref('');
+    // Keep the server preference independent from the current plot snapshot.
+    // The preference request and the plot request are allowed to finish in
+    // either order; retaining the raw IDs lets the later snapshot apply the
+    // saved arrangement instead of falling back to its default order.
+    const managerPlotPreferenceOrder = ref(null);
+    const managerPlotDragState = ref({
+      active: false,
+      pointerId: null,
+      sourceIndex: -1,
+      targetIndex: -1,
+      startX: 0,
+      startY: 0,
+      longPressTimer: null,
+      movedBeforeActivation: false,
+      suppressClick: false,
+      snapshot: [],
+      dragPlotId: '',
+      dropTargetId: ''
+    });
+    const visiblePlots = computed(() => {
+      const source = managerPlotSource.value;
+      if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return source;
+      return managerPlotOrderIds.value.length ? reconcilePlotOrder(source, managerPlotOrderIds.value) : source;
+    });
+    const managerPlotOrderOf = (items) => (Array.isArray(items) ? items : [])
+      .map((plot) => String(plot?.plotId || '').trim())
+      .filter(Boolean);
+    const applyManagerPlotOrderPreference = () => {
+      const source = managerPlotSource.value;
+      const preferred = managerPlotPreferenceOrder.value;
+      const ordered = preferred === null ? source : reconcilePlotOrder(source, preferred);
+      managerPlotOrderIds.value = managerPlotOrderOf(ordered);
+    };
+    const resetManagerPlotDragState = ({ suppressClick = false } = {}) => {
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: null,
+        sourceIndex: -1,
+        targetIndex: -1,
+        startX: 0,
+        startY: 0,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick,
+        snapshot: [],
+        dragPlotId: '',
+        dropTargetId: ''
+      };
+    };
+    const clearManagerPlotDragTimer = () => {
+      const timer = managerPlotDragState.value.longPressTimer;
+      if (timer !== null) window.clearTimeout(timer);
+      managerPlotDragState.value.longPressTimer = null;
+    };
+    let managerPlotDragElement = null;
+    let managerPlotClickSuppressTimer = null;
+    let managerPlotOrderRequestVersion = 0;
+    const scheduleManagerPlotClickSuppressionReset = () => {
+      if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
+      managerPlotClickSuppressTimer = window.setTimeout(() => {
+        managerPlotClickSuppressTimer = null;
+        if (!managerPlotDragState.value.active) managerPlotDragState.value.suppressClick = false;
+      }, 500);
+    };
+    const restoreManagerPlotOrder = (order) => {
+      managerPlotPreferenceOrder.value = managerPlotOrderOf(order);
+      const ordered = reconcilePlotOrder(managerPlotSource.value, order);
+      managerPlotOrderIds.value = managerPlotOrderOf(ordered);
+      return ordered;
+    };
+    const loadManagerPlotOrderPreference = async (farmId, { announce = false } = {}) => {
+      const normalizedFarmId = String(farmId || '').trim();
+      const requestVersion = ++managerPlotOrderRequestVersion;
+      managerPlotOrderFarmId.value = normalizedFarmId;
+      managerPlotOrderIds.value = [];
+      managerPlotPreferenceOrder.value = null;
+      managerPlotOrderRevision.value = 0;
+      managerPlotOrderLoaded.value = false;
+      managerPlotOrderError.value = '';
+      if (!isFarmAdmin.value || !normalizedFarmId) {
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = true;
+        return false;
+      }
+      try {
+        const preference = await api.getFarmAdminWorkspacePreference(normalizedFarmId);
+        if (requestVersion !== managerPlotOrderRequestVersion || managerPlotOrderFarmId.value !== normalizedFarmId) return false;
+        managerPlotOrderRevision.value = Number(preference?.revision || 0);
+        managerPlotPreferenceOrder.value = Array.isArray(preference?.plotOrder)
+          ? managerPlotOrderOf(preference.plotOrder)
+          : [];
+        applyManagerPlotOrderPreference();
+        managerPlotOrderError.value = '';
+        return true;
+      } catch (error) {
+        if (requestVersion !== managerPlotOrderRequestVersion || managerPlotOrderFarmId.value !== normalizedFarmId) return false;
+        managerPlotOrderError.value = error?.message || '地块顺序暂未同步';
+        managerPlotPreferenceOrder.value = null;
+        applyManagerPlotOrderPreference();
+        if (announce) toast(`地块顺序暂未同步：${managerPlotOrderError.value}`, 'error');
+        return false;
+      } finally {
+        if (requestVersion === managerPlotOrderRequestVersion && managerPlotOrderFarmId.value === normalizedFarmId) {
+          managerPlotOrderLoaded.value = true;
+          applyManagerPlotOrderPreference();
+        }
+      }
+    };
+    // Apply a preference whenever the plot identity snapshot changes.  This
+    // intentionally watches IDs only, so telemetry refreshes do not reorder or
+    // re-render the manager cards unnecessarily.
+    watch(
+      () => managerPlotOrderOf(managerPlotSource.value).join('\u0001'),
+      () => {
+        if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return;
+        applyManagerPlotOrderPreference();
+      },
+      { immediate: true }
+    );
+    const removeManagerPlotDragListeners = () => {
+      window.removeEventListener('pointermove', handleManagerPlotPointerMove);
+      window.removeEventListener('pointerup', handleManagerPlotPointerUp);
+      window.removeEventListener('pointercancel', cancelManagerPlotDrag);
+    };
+    const finishManagerPlotDrag = ({ suppressClick = false } = {}) => {
+      clearManagerPlotDragTimer();
+      removeManagerPlotDragListeners();
+      if (managerPlotDragElement && managerPlotDragState.value.pointerId !== null) {
+        try { managerPlotDragElement.releasePointerCapture?.(managerPlotDragState.value.pointerId); } catch { /* pointer already released */ }
+      }
+      document.body.classList.remove('manager-plot-dragging');
+      managerPlotDragElement = null;
+      resetManagerPlotDragState({ suppressClick });
+    };
+    const managerPlotIndexAtPoint = (clientX, clientY) => {
+      const elements = document.elementsFromPoint?.(clientX, clientY) || [document.elementFromPoint(clientX, clientY)];
+      const draggingId = String(managerPlotDragState.value.dragPlotId || '');
+      const card = elements.map((element) => element?.closest?.('[data-manager-plot-id]'))
+        .find((candidate) => candidate && String(candidate.dataset?.managerPlotId || '') !== draggingId);
+      const plotId = String(card?.dataset?.managerPlotId || '').trim();
+      if (!plotId) return -1;
+      return visiblePlots.value.findIndex((plot) => String(plot.plotId) === plotId);
+    };
+    const activateManagerPlotDrag = () => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId === null || state.movedBeforeActivation || state.active || !managerPlotOrderLoaded.value) return;
+      state.active = true;
+      state.targetIndex = state.sourceIndex;
+      state.dragPlotId = String(visiblePlots.value[state.sourceIndex]?.plotId || '');
+      state.dropTargetId = '';
+      document.body.classList.add('manager-plot-dragging');
+      managerPlotDragElement?.setPointerCapture?.(state.pointerId);
+    };
+    const handleManagerPlotPointerMove = (event) => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+      if (!state.active) {
+        if (distance > 8) {
+          state.movedBeforeActivation = true;
+          clearManagerPlotDragTimer();
+        }
+        return;
+      }
+      event.preventDefault();
+      const targetIndex = managerPlotIndexAtPoint(event.clientX, event.clientY);
+      if (targetIndex < 0 || targetIndex === state.sourceIndex) {
+        state.targetIndex = state.sourceIndex;
+        state.dropTargetId = '';
+        return;
+      }
+      state.targetIndex = targetIndex;
+      state.dropTargetId = String(visiblePlots.value[targetIndex]?.plotId || '');
+    };
+    const moveManagerPlotToIndex = (items, sourceIndex, targetIndex) => {
+      const next = Array.isArray(items) ? items.slice() : [];
+      if (sourceIndex < 0 || sourceIndex >= next.length || targetIndex < 0 || targetIndex >= next.length || sourceIndex === targetIndex) return next;
+      const [dragged] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, dragged);
+      return next;
+    };
+    const saveManagerPlotOrder = async (farmId, nextOrder, previousOrder) => {
+      managerPlotOrderBusy.value = true;
+      try {
+        const saved = await api.saveFarmAdminWorkspacePreference(farmId, nextOrder, managerPlotOrderRevision.value);
+        if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return true;
+        managerPlotOrderRevision.value = Number(saved?.revision || managerPlotOrderRevision.value + 1);
+        managerPlotPreferenceOrder.value = Array.isArray(saved?.plotOrder)
+          ? managerPlotOrderOf(saved.plotOrder)
+          : managerPlotOrderOf(nextOrder);
+        applyManagerPlotOrderPreference();
+        managerPlotOrderError.value = '';
+        toast('地块排列已保存', 'success');
+        return true;
+      } catch (error) {
+        if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return false;
+        if (error?.code === 'FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT') {
+          try {
+            const latest = await api.getFarmAdminWorkspacePreference(farmId);
+            if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return false;
+            managerPlotOrderRevision.value = Number(latest?.revision || 0);
+            restoreManagerPlotOrder(latest?.plotOrder || previousOrder);
+            toast('其他设备已更新地块顺序，页面已同步最新排列', 'error');
+          } catch (refreshError) {
+            restoreManagerPlotOrder(previousOrder);
+            toast(`地块顺序冲突，恢复原排列失败：${refreshError?.message || '请刷新页面'}`, 'error');
+          }
+        } else {
+          restoreManagerPlotOrder(previousOrder);
+          toast(`地块排列保存失败：${error?.message || '请稍后重试'}`, 'error');
+        }
+        managerPlotOrderError.value = error?.message || '地块顺序保存失败';
+        return false;
+      } finally {
+        managerPlotOrderBusy.value = false;
+      }
+    };
+    const handleManagerPlotPointerUp = async (event) => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId !== event.pointerId) return;
+      const farmId = selectedFarmId.value;
+      const wasActive = state.active;
+      const previousOrder = state.snapshot.slice();
+      const nextPlots = wasActive ? moveManagerPlotToIndex(visiblePlots.value, state.sourceIndex, state.targetIndex) : visiblePlots.value;
+      const nextOrder = managerPlotOrderOf(nextPlots);
+      const changed = nextOrder.join('\u0001') !== previousOrder.join('\u0001');
+      if (wasActive && changed) managerPlotOrderIds.value = nextOrder;
+      finishManagerPlotDrag({ suppressClick: wasActive });
+      if (wasActive) scheduleManagerPlotClickSuppressionReset();
+      if (!wasActive || !changed || !farmId) return;
+      await saveManagerPlotOrder(farmId, nextOrder, previousOrder);
+    };
+    const cancelManagerPlotDrag = () => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId === null && !state.active) return;
+      const previousOrder = state.snapshot.slice();
+      const wasActive = state.active;
+      finishManagerPlotDrag({ suppressClick: wasActive });
+      if (wasActive) scheduleManagerPlotClickSuppressionReset();
+      if (wasActive && previousOrder.length) restoreManagerPlotOrder(previousOrder);
+    };
+    const handleManagerPlotPointerDown = (event, plot, index) => {
+      if (!isFarmAdmin.value || managerPlotOrderBusy.value || managerPlotDragState.value.pointerId !== null || !managerPlotOrderLoaded.value) return;
+      if (event.target?.closest?.('.manager-plot-actions')) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      managerPlotDragElement = event.currentTarget;
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: managerPlotOrderOf(visiblePlots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handleManagerPlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handleManagerPlotPointerUp);
+      window.addEventListener('pointercancel', cancelManagerPlotDrag);
+      managerPlotDragState.value.longPressTimer = window.setTimeout(activateManagerPlotDrag, 400);
+    };
+    const handleManagerPlotCardClick = (plot, event) => {
+      if (managerPlotDragState.value.suppressClick) {
+        managerPlotDragState.value.suppressClick = false;
+        return;
+      }
+      openPlotDetail(plot, event);
+    };
+    watch([selectedFarmId, isFarmAdmin], ([farmId, farmAdmin]) => {
+      if (!farmAdmin) {
+        managerPlotOrderRequestVersion += 1;
+        managerPlotOrderFarmId.value = '';
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = true;
+        cancelManagerPlotDrag();
+        return;
+      }
+      const normalizedFarmId = String(farmId || '').trim();
+      if (!normalizedFarmId) {
+        managerPlotOrderRequestVersion += 1;
+        managerPlotOrderFarmId.value = '';
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = false;
+        cancelManagerPlotDrag();
+        return;
+      }
+      if (managerPlotOrderFarmId.value === normalizedFarmId && managerPlotOrderLoaded.value) return;
+      cancelManagerPlotDrag();
+      void loadManagerPlotOrderPreference(normalizedFarmId);
+    }, { immediate: true });
     const devices = computed(() => props.state.devices || []);
     const deviceOptions = computed(() => devices.value
       .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
@@ -829,6 +1133,12 @@ const DashboardView = {
     };
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
+    onBeforeUnmount(() => {
+      cancelManagerPlotDrag();
+      if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
+      managerPlotClickSuppressTimer = null;
+      managerPlotOrderRequestVersion += 1;
+    });
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
@@ -853,6 +1163,11 @@ const DashboardView = {
       selectedFarmId,
       managedFarm,
       visiblePlots,
+      managerPlotDragState,
+      managerPlotOrderBusy,
+      handleManagerPlotCardClick,
+      handleManagerPlotPointerDown,
+      cancelManagerPlotDrag,
       devices,
       deviceOptions,
       deviceLabel,

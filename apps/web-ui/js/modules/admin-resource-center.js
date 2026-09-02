@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-ai-direct-v2';
+import { api } from '../api.js?v=20260902-manager-plot-order-v1';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,

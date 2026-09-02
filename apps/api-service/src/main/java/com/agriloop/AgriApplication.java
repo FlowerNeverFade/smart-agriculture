@@ -1580,6 +1580,7 @@ class AgriEngine {
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FARM_ADMIN");
     private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
     private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
+    private static final String FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE = "FARM_ADMIN_WORKSPACE";
     private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
@@ -2573,6 +2574,120 @@ class AgriEngine {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", principal.userId);
         result.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        result.put("plotOrder", new ArrayList<>(order));
+        result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
+        result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
+        return result;
+    }
+
+    synchronized Map<String, Object> farmAdminWorkspacePreference(String farmId, UserPrincipal principal) {
+        String selectedFarmId = requireFarmAdminWorkspaceFarm(farmId, principal);
+        return farmAdminWorkspacePreferenceView(principal, selectedFarmId,
+                store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmAdminWorkspacePreferenceId(principal, selectedFarmId)));
+    }
+
+    synchronized Map<String, Object> updateFarmAdminWorkspacePreference(Map<String, Object> input, String farmId,
+                                                                          UserPrincipal principal) {
+        String selectedFarmId = requireFarmAdminWorkspaceFarm(farmId, principal);
+        Map<String, Object> current = store.find(FARMER_WORKSPACE_PREFERENCE_TYPE,
+                farmAdminWorkspacePreferenceId(principal, selectedFarmId));
+        long currentRevision = current == null ? 0 : Jsons.whole(current, "revision", 0);
+        Map<String, Object> request = input == null ? Map.of() : input;
+        if (!(request.get("plotOrder") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID", "plotOrder 必须是数组");
+        }
+        long expectedRevision = requiredFarmerWorkspaceRevision(request);
+        if (expectedRevision != currentRevision) {
+            throw new ApiException(HttpStatus.CONFLICT, "FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT", "管理员地块顺序已在其他设备更新，请刷新后重试");
+        }
+
+        List<Map<String, Object>> availablePlots = activeFarmAdminPlots(selectedFarmId, principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> requestedOrder = normalizePreferenceOrder(request.get("plotOrder"));
+        if (requestedOrder.size() > FARMER_WORKSPACE_MAX_PLOTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID", "地块顺序数量超过上限");
+        }
+
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        for (String plotId : requestedOrder) {
+            if (availableIds.contains(plotId)) {
+                order.add(plotId);
+                continue;
+            }
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot != null && (!selectedFarmId.equals(Jsons.text(plot, "farmId", "")) || !canAccessPlot(principal, plotId))) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权设置该地块顺序");
+            }
+        }
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Instant now = Instant.now();
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("preferenceId", farmAdminWorkspacePreferenceId(principal, selectedFarmId));
+        saved.put("userId", principal.userId);
+        saved.put("farmId", selectedFarmId);
+        saved.put("scope", FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE);
+        saved.put("plotOrder", new ArrayList<>(order));
+        saved.put("revision", currentRevision + 1);
+        saved.put("updatedAt", now.toString());
+        saved.put("updatedBy", principal.userId);
+        store.saveDurably(FARMER_WORKSPACE_PREFERENCE_TYPE, farmAdminWorkspacePreferenceId(principal, selectedFarmId), saved,
+                "FARM_ADMIN_WORKSPACE_PREFERENCE_PERSISTENCE_UNAVAILABLE", "管理员地块顺序数据库不可用，当前仅可查看", "管理员地块顺序保存失败");
+        return farmAdminWorkspacePreferenceView(principal, selectedFarmId, saved);
+    }
+
+    private String requireFarmAdminWorkspaceFarm(String farmId, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_WORKSPACE_PREFERENCE_FORBIDDEN", "只有农场管理员可以设置农场地块顺序");
+        }
+        String selectedFarmId = String.valueOf(farmId == null ? "" : farmId).trim();
+        if (selectedFarmId.isBlank()) {
+            selectedFarmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
+        }
+        if (selectedFarmId.isBlank() || !principal.canAccessFarm(selectedFarmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        }
+        return selectedFarmId;
+    }
+
+    private String farmAdminWorkspacePreferenceId(UserPrincipal principal, String farmId) {
+        return principal.userId + ":" + FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE + ":" + farmId;
+    }
+
+    private List<Map<String, Object>> activeFarmAdminPlots(String farmId, UserPrincipal principal) {
+        return store.list("plot").stream()
+                .filter(plot -> farmId.equals(Jsons.text(plot, "farmId", "")))
+                .filter(plot -> canAccessPlot(principal, Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", "")))
+                .toList();
+    }
+
+    private Map<String, Object> farmAdminWorkspacePreferenceView(UserPrincipal principal, String farmId,
+                                                                  Map<String, Object> stored) {
+        List<Map<String, Object>> availablePlots = activeFarmAdminPlots(farmId, principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        normalizePreferenceOrder(stored == null ? null : stored.get("plotOrder")).forEach(id -> {
+            if (availableIds.contains(id)) order.add(id);
+        });
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", principal.userId);
+        result.put("farmId", farmId);
+        result.put("scope", FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE);
         result.put("plotOrder", new ArrayList<>(order));
         result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
         result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
@@ -9468,6 +9583,19 @@ class AgriController {
     ResponseEntity<?> updateFarmerWorkspacePreference(@RequestBody(required = false) Map<String, Object> body,
                                                       Authentication authentication) {
         return ok(engine.updateFarmerWorkspacePreference(body == null ? Map.of() : body, principal(authentication)));
+    }
+
+    @GetMapping("/users/me/preferences/farm-admin-workspace")
+    ResponseEntity<?> farmAdminWorkspacePreference(@RequestParam(required = false) String farmId,
+                                                   Authentication authentication) {
+        return ok(engine.farmAdminWorkspacePreference(farmId, principal(authentication)));
+    }
+
+    @PutMapping("/users/me/preferences/farm-admin-workspace")
+    ResponseEntity<?> updateFarmAdminWorkspacePreference(@RequestParam(required = false) String farmId,
+                                                         @RequestBody(required = false) Map<String, Object> body,
+                                                         Authentication authentication) {
+        return ok(engine.updateFarmAdminWorkspacePreference(body == null ? Map.of() : body, farmId, principal(authentication)));
     }
 
     @GetMapping("/auth/roles")

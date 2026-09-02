@@ -403,6 +403,48 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmAdminPlotOrderIsScopedByAccountAndFarm() {
+        String suffix = String.valueOf(System.nanoTime());
+        String firstId = "plot-admin-order-a-" + suffix;
+        String lastId = "plot-admin-order-z-" + suffix;
+        String otherFarmPlotId = "plot-admin-order-other-" + suffix;
+        List<String> plotIds = List.of(firstId, lastId, otherFarmPlotId);
+        store.save("plot", firstId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", firstId, "farmId", "farm-demo", "name", firstId, "status", "ACTIVE")));
+        store.save("plot", lastId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", lastId, "farmId", "farm-demo", "name", lastId, "status", "INACTIVE")));
+        store.save("plot", otherFarmPlotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", otherFarmPlotId, "farmId", "farm-other", "name", otherFarmPlotId, "status", "ACTIVE")));
+        String userId = "farm-admin-plot-order-" + suffix;
+        UserPrincipal admin = new UserPrincipal(userId, "plot-order-admin", "FARM_ADMIN", List.of("farm-demo"), List.of());
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        try {
+            Map<String, Object> initial = responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication));
+            assertThat(initial.get("revision")).isEqualTo(0L);
+            assertThat(initial.get("plotOrder")).isEqualTo(List.of(firstId, lastId));
+
+            Map<String, Object> saved = responseData(controller.updateFarmAdminWorkspacePreference(Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), "farm-demo", authentication));
+            assertThat(saved.get("scope")).isEqualTo("FARM_ADMIN_WORKSPACE");
+            assertThat(saved.get("farmId")).isEqualTo("farm-demo");
+            assertThat(saved.get("revision")).isEqualTo(1L);
+            assertThat(saved.get("plotOrder")).isEqualTo(List.of(lastId, firstId));
+            assertThat(responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication)).get("plotOrder"))
+                    .isEqualTo(List.of(lastId, firstId));
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.farmAdminWorkspacePreference("farm-other", authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmAdminWorkspacePreference(Map.of(
+                            "plotOrder", List.of(firstId), "expectedRevision", 0), "farm-demo", authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
+                            .isEqualTo("FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT"));
+        } finally {
+            store.delete("user-preference", userId + ":FARM_ADMIN_WORKSPACE:farm-demo");
+            plotIds.forEach(plotId -> store.delete("plot", plotId));
+        }
+    }
+
+    @Test
     void accountRegistrationAndRecoveryRotateCredentials() {
         String username = "grower" + System.nanoTime();
         String firstPassword = "FieldPass2026";

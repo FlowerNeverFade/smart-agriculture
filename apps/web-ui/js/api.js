@@ -665,9 +665,22 @@ function normalizeUserAccount(item, sourceMode = 'ACCOUNT') {
   };
 }
 
+function workspacePreferenceStorageKey(scope, user, scopeId = '') {
+  const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
+  const normalizedScope = String(scope || 'WORKSPACE').trim().toUpperCase() || 'WORKSPACE';
+  const normalizedScopeId = String(scopeId || '').trim() || 'global';
+  return `agriloop_demo_workspace_preference:${normalizedScope}:${identity}:${normalizedScopeId}`;
+}
+
 function farmerWorkspacePreferenceStorageKey(user) {
+  // Keep the established farmer key so existing local demo arrangements are
+  // not silently reset when the manager-scoped preference is introduced.
   const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
   return `agriloop_demo_farmer_workspace_preference:${identity}`;
+}
+
+function farmAdminWorkspacePreferenceStorageKey(user, farmId) {
+  return workspacePreferenceStorageKey('FARM_ADMIN_WORKSPACE', user, farmId);
 }
 
 const DEMO_MARKET_CATALOG = Object.freeze([
@@ -749,6 +762,9 @@ const API_ERROR_MESSAGES = Object.freeze({
   ACCOUNT_SYSTEM_ADMIN_PROTECTED: '系统管理员账号受永久保护，不能执行此操作',
   ACCOUNT_PERSISTENCE_UNAVAILABLE: '账号持久化服务暂不可用，请稍后再试',
   PLOT_PERSISTENCE_UNAVAILABLE: '地块持久化服务暂不可用，请稍后再试',
+  FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID: '管理员地块顺序配置无效，请刷新后重试',
+  FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT: '管理员地块顺序已在其他设备更新，请刷新后重试',
+  FARM_ADMIN_WORKSPACE_PREFERENCE_FORBIDDEN: '当前账号无权设置该农场的地块顺序',
   RESOURCE_PERSISTENCE_UNAVAILABLE: '资源协同持久化服务暂不可用，当前仅可查看',
   INTERNAL_ERROR: '服务处理异常，请稍后重试',
   VALIDATION_ERROR: '提交内容未通过校验，请检查后重试',
@@ -1497,6 +1513,51 @@ export class ApiService {
       updatedAt: new Date().toISOString()
     };
     browserStorage('localStorage')?.setItem(farmerWorkspacePreferenceStorageKey(this.user), JSON.stringify(saved));
+    return saved;
+  }
+
+  async getFarmAdminWorkspacePreference(farmId = '') {
+    const normalizedFarmId = String(farmId || '').trim();
+    if (!normalizedFarmId) return { scope: 'FARM_ADMIN_WORKSPACE', farmId: '', plotOrder: [], revision: 0, updatedAt: null };
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId: normalizedFarmId });
+      const resp = await this._fetch(`/api/v1/users/me/preferences/farm-admin-workspace?${query}`);
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的管理员地块顺序配置', { code: 'FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const storage = browserStorage('localStorage');
+    try {
+      const raw = storage?.getItem(farmAdminWorkspacePreferenceStorageKey(this.user, normalizedFarmId));
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && Array.isArray(saved.plotOrder)) return { ...saved, scope: 'FARM_ADMIN_WORKSPACE', farmId: normalizedFarmId };
+    } catch { /* malformed demo preference falls back to the deterministic order */ }
+    return { scope: 'FARM_ADMIN_WORKSPACE', farmId: normalizedFarmId, plotOrder: [], revision: 0, updatedAt: null };
+  }
+
+  async saveFarmAdminWorkspacePreference(farmId = '', plotOrder = [], expectedRevision = 0) {
+    const normalizedFarmId = String(farmId || '').trim();
+    const normalizedOrder = Array.from(new Set((Array.isArray(plotOrder) ? plotOrder : [])
+      .map((plotId) => String(plotId ?? '').trim())
+      .filter(Boolean)));
+    const revision = Number.isFinite(Number(expectedRevision)) ? Number(expectedRevision) : 0;
+    if (!normalizedFarmId) throw new ApiError('缺少当前农场', { code: 'FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID', status: 400 });
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId: normalizedFarmId });
+      const resp = await this._fetch(`/api/v1/users/me/preferences/farm-admin-workspace?${query}`, {
+        method: 'PUT',
+        body: JSON.stringify({ plotOrder: normalizedOrder, expectedRevision: revision })
+      });
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的管理员地块顺序保存结果', { code: 'FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const saved = {
+      scope: 'FARM_ADMIN_WORKSPACE',
+      farmId: normalizedFarmId,
+      plotOrder: normalizedOrder,
+      revision: revision + 1,
+      updatedAt: new Date().toISOString()
+    };
+    browserStorage('localStorage')?.setItem(farmAdminWorkspacePreferenceStorageKey(this.user, normalizedFarmId), JSON.stringify(saved));
     return saved;
   }
 

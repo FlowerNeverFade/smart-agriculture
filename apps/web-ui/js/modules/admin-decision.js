@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-ai-direct-v2';
+import { api } from '../api.js?v=20260902-manager-plot-order-v1';
 import { adminMetricLabel } from '../admin-state.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation } from '../roles.js?v=20260902-v5911-zhcn-v1';
 import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260902-ai-direct-v2';
