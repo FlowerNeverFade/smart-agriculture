@@ -1,20 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v2';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v2';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-v1-settings-fix';
+import { MOCK_DATA } from './mock-data.js?v=20260902-v1-settings-fix';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v1-settings-fix';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v2';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v2';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v2';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v2';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v1-settings-fix';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v1-settings-fix';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v1-settings-fix';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v1-settings-fix';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-v1-settings-fix';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v1-settings-fix';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v1-settings-fix';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v2';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v2';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v2';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v2';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v1-settings-fix';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v1-settings-fix';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v1-settings-fix';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v1-settings-fix';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v1-settings-fix';
 import {
   agentResponseSource,
   agentResponseText,
@@ -45,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v5910-main-merge-v2';
+} from './live-data.js?v=20260902-v1-settings-fix';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -481,7 +481,7 @@ function adminServiceCards(systemStatus = {}) {
   }));
 }
 
-function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
+function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
   overview = overview || {};
   systemStatus = systemStatus || {};
   simulator = simulator || {};
@@ -509,7 +509,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     aiMode,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
-    devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
+    devices: { total: devices.length || overview?.devices?.total || 0, online: devices.length ? online : (overview?.devices?.online || 0), offline: devices.length ? Math.max(0, devices.length - online) : (overview?.devices?.offline || 0) },
     simulator: {
       running: simStatus === 'RUNNING',
       scenario,
@@ -3593,8 +3593,9 @@ const app = createApp({
         state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = simulator || state.value.simulatorStatus;
         state.value.adminOverview = adminOverviewFromLive({
-          overview,
-          systemStatus,
+            overview,
+            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
+            systemStatus,
           simulator: simulator || {},
           alerts: alerts || [],
           devices,
@@ -3805,7 +3806,7 @@ const app = createApp({
       state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
-      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
+      state.value.adminOverview = adminOverviewFromLive({ overview, plots: typeof plots !== "undefined" ? plots : state.value.allPlots, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 

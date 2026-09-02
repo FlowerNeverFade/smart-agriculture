@@ -4,12 +4,12 @@ import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v1-settings-fix';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v1-settings-fix';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
@@ -417,7 +417,7 @@ function adminServiceCards(systemStatus = {}) {
   }));
 }
 
-function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
+function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
   overview = overview || {};
   systemStatus = systemStatus || {};
   simulator = simulator || {};
@@ -458,7 +458,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     ai: systemStatus.ai,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
-    devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
+    devices: { total: devices.length || overview?.devices?.total || 0, online: devices.length ? online : (overview?.devices?.online || 0), offline: devices.length ? Math.max(0, devices.length - online) : (overview?.devices?.offline || 0) },
     simulator: {
       running: simStatus === 'RUNNING',
       scenario,
@@ -2297,8 +2297,9 @@ const app = createApp({
         state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = simulator || state.value.simulatorStatus;
         state.value.adminOverview = adminOverviewFromLive({
-          overview,
-          systemStatus,
+            overview,
+            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
+            systemStatus,
           simulator: simulator || {},
           alerts: alerts || [],
           devices,
@@ -2511,7 +2512,7 @@ const app = createApp({
       state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
-      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
+      state.value.adminOverview = adminOverviewFromLive({ overview, plots: typeof plots !== "undefined" ? plots : state.value.allPlots, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 

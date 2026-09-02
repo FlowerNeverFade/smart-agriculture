@@ -1021,8 +1021,8 @@ html[data-surface-style="classic"] :is(#app:not(.role-system-admin), #farmer_app
 }
 /* Role sheets below own the content surfaces so semantic borders (warning,
  * danger and per-entry accents) are not flattened by the global preset. */
-html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-card,
-html[data-surface-style="classic"] #app:not(.role-system-admin) .settings-info {
+html[data-surface-style="classic"] #app .settings-card,
+html[data-surface-style="classic"] #app .settings-info {
   background: var(--agriloop-appearance-surface-strong) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
   box-shadow: var(--agriloop-appearance-shadow-1) !important;
@@ -1290,20 +1290,20 @@ html[data-density="compact"] #app .g-nav-item {
 }
 
 /* The default classic preset keeps the 4e9326a farm-manager glass shell. */
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-sidebar {
+html[data-surface-style="classic"] #app .g-sidebar {
   background: var(--agriloop-appearance-sidebar) !important;
   border-color: var(--agriloop-appearance-border) !important;
   box-shadow: var(--agriloop-appearance-sidebar-shadow) !important;
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item {
+html[data-surface-style="classic"] #app .g-nav-item {
   background: var(--agriloop-appearance-control) !important;
   border-color: var(--agriloop-appearance-border-subtle) !important;
   box-shadow: var(--agriloop-appearance-control-shadow) !important;
   text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
-html[data-surface-style="classic"] #app:not(.role-system-admin) .g-nav-item.active {
+html[data-surface-style="classic"] #app .g-nav-item.active {
   background: var(--agriloop-appearance-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
   border-color: color-mix(in srgb, var(--sidebar-accent) 34%, var(--agriloop-appearance-border)) !important;
   box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
@@ -1342,38 +1342,38 @@ html[data-surface-style="glass-soft"] #app .g-sidebar {
 }
 
 /* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
-html[data-surface-style="classic"] #app.role-system-admin .g-sidebar {
+html[data-surface-style="minimal"] #app.role-system-admin .g-sidebar {
   background: var(--g-bg-surface) !important;
   border-right: 1px solid var(--g-border) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--g-text-secondary) !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item:hover {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item:hover {
   background: var(--g-bg-hover) !important;
   border: 0 !important;
   box-shadow: none !important;
   transform: none !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item.active {
   background: var(--g-primary-bg) !important;
   border: 0 !important;
   box-shadow: none !important;
   color: var(--g-primary) !important;
 }
 
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item {
   border-radius: var(--g-radius-pill) !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item .material-symbols-outlined {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item .material-symbols-outlined {
   color: inherit !important;
 }
-html[data-surface-style="classic"] #app.role-system-admin .g-nav-item.active .material-symbols-outlined {
+html[data-surface-style="minimal"] #app.role-system-admin .g-nav-item.active .material-symbols-outlined {
   color: var(--g-primary) !important;
 }

@@ -34,7 +34,8 @@ export const ACCENT_OPTIONS = Object.freeze([
 // normalized back to classic for existing browser profiles.
 export const SURFACE_STYLE_OPTIONS = Object.freeze([
   Object.freeze({ value: 'classic', label: '经典卡片', hint: '清爽白色卡片，边界明确' }),
-  Object.freeze({ value: 'glass-latest', label: '液态玻璃', hint: '更强的景深与层次效果' })
+  Object.freeze({ value: 'glass-latest', label: '液态玻璃', hint: '更强的景深与层次效果' }),
+  Object.freeze({ value: 'minimal', label: '简约风格', hint: '极简无边框设计' })
 ]);
 
 export const FONT_FAMILY_OPTIONS = Object.freeze([
