@@ -12,7 +12,7 @@ import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260902-v5911-zhcn-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v5911-zhcn-v1';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
 import {
