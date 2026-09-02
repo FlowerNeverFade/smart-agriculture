@@ -4141,6 +4141,31 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
   -webkit-backdrop-filter: blur(30px) saturate(128%);
   backdrop-filter: blur(30px) saturate(128%);
 }
+/* Keep the desktop farmer shell in sync with the global navigation toggle.
+   The compact sidebar rule above has ID-level specificity, so explicitly
+   release its reserved column when the sidebar is collapsed. */
+@media (min-width: 761px) {
+  #farmer_app .farmer-sidebar.collapsed {
+    flex: 0 0 0;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    flex: 1 1 0%;
+    width: 0;
+    max-width: none;
+    min-width: 0;
+  }
+}
 #farmer_app .farmer-nav-main {
   display: flex;
   flex: 1 1 auto;

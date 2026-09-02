@@ -4,6 +4,42 @@
  */
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260902-v5911-zhcn-v1';
 
+function captureWorkspaceScroll() {
+  if (typeof document === 'undefined') return [];
+  const nodes = [];
+  const seen = new Set();
+  const add = (node) => {
+    if (!node || seen.has(node) || typeof node.scrollTop !== 'number') return;
+    seen.add(node);
+    nodes.push({ node, top: node.scrollTop, left: node.scrollLeft });
+  };
+  add(document.scrollingElement);
+  add(document.documentElement);
+  add(document.body);
+  document.querySelectorAll?.('#app, #farmer_app, .g-body, .g-sidebar, .g-main, .settings-page, [data-scroll-container]')?.forEach(add);
+  return nodes;
+}
+
+function restoreWorkspaceScroll(snapshots) {
+  snapshots.forEach(({ node, top, left }) => {
+    try {
+      node.scrollTop = top;
+      node.scrollLeft = left;
+    } catch (_error) {
+      // A role can unmount before a deferred restore runs.
+    }
+  });
+}
+
+function preserveWorkspaceScroll(work) {
+  const snapshots = captureWorkspaceScroll();
+  work();
+  const restore = () => restoreWorkspaceScroll(snapshots);
+  restore();
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(restore);
+  if (typeof setTimeout === 'function') setTimeout(restore, 0);
+}
+
 export function createWorkspaceSettingsController({ props, emit, ref, computed, watch }) {
   const account = computed(() => props.state?.currentUser || null);
   const externalSettings = computed(() => props.userSettings || null);
@@ -22,33 +58,19 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
   const updateSetting = (key, value) => {
     const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
     const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
-    settings.value = next;
-    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
-    applyUserSettings(next);
-    emit?.('settings-changed', next);
-
-    // Fix browser bug: changing global dataset on html can cause a layout recalculation
-    // that forces the browser to scroll the overflow-hidden body or #app to keep the focused
-    // checkbox in view, causing a permanent page shift. Reset it to 0.
-    setTimeout(() => {
-      if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
-      if (document.documentElement && document.documentElement.scrollTop > 0) document.documentElement.scrollTop = 0;
-      const appEl = document.getElementById('app');
-      if (appEl && appEl.scrollTop > 0) appEl.scrollTop = 0;
-    }, 0);
-    requestAnimationFrame(() => {
-      if (document.body && document.body.scrollTop > 0) document.body.scrollTop = 0;
-      if (document.documentElement && document.documentElement.scrollTop > 0) document.documentElement.scrollTop = 0;
-      const appEl = document.getElementById('app');
-      if (appEl && appEl.scrollTop > 0) appEl.scrollTop = 0;
+    preserveWorkspaceScroll(() => {
+      settings.value = next;
+      applyUserSettings(next);
+      emit?.('settings-changed', next);
     });
   };
   const resetSettings = () => {
     const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
-    settings.value = next;
-    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
-    applyUserSettings(next);
-    emit?.('settings-changed', next);
+    preserveWorkspaceScroll(() => {
+      settings.value = next;
+      applyUserSettings(next);
+      emit?.('settings-changed', next);
+    });
   };
   // The shell owns the canonical ref because it also drives its header,
   // polling timer and theme listener. Keep this shared view in sync when a
