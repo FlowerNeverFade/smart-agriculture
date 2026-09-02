@@ -1710,6 +1710,12 @@ class AgriEngine {
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
     private final Object simulationConfigLock = new Object();
+    // Scenario metadata is identical for every plot.  Building it inside
+    // each overview card used to resolve the crop context five times per
+    // card, including repeated crop-batch reads, which made a large farm
+    // overview spend seconds on data that never changes per request.
+    private volatile List<Map<String, Object>> simulationScenarioCatalogCache;
+    private volatile Map<String, Map<String, Object>> simulationParameterLimitsCache;
     private final Object resourcePlanLock = new Object();
     private static final Set<String> RESOURCE_PLAN_STATUSES = Set.of("DRAFT", "CONFIRMED", "RUNNING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "EXPIRED");
     private static final Set<String> RESOURCE_ALLOCATION_TERMINAL = Set.of("COMPLETED", "PARTIAL", "FAILED", "BLOCKED", "FALLBACK_REQUIRED", "CANCELLED");
@@ -1994,12 +2000,24 @@ class AgriEngine {
     }
 
     List<Map<String, Object>> simulationScenarioCatalog() {
-        return List.of(
+        List<Map<String, Object>> cached = simulationScenarioCatalogCache;
+        if (cached == null) {
+            synchronized (this) {
+                cached = simulationScenarioCatalogCache;
+                if (cached == null) {
+                    cached = List.of(
                 simulationScenario("NORMAL", "☀️", "正常运行", "标准环境参数运行", "#1e8e3e"),
                 simulationScenario("DROUGHT", "🏜️", "干旱场景", "持续高温、低湿和土壤失水", "#d97706"),
                 simulationScenario("HEAVY_RAIN", "🌧️", "暴雨场景", "强降雨、低温和土壤快速增湿", "#2563eb"),
                 simulationScenario("SENSOR_DRIFT", "📡", "传感器漂移", "物理环境正常，读数随时间偏移", "#7c3aed"),
                 simulationScenario("DEVICE_OFFLINE", "🔌", "设备离线", "按比例模拟采集设备间歇断连", "#6b7280"));
+                    simulationScenarioCatalogCache = cached;
+                }
+            }
+        }
+        // Return detached maps so a controller or test cannot mutate the
+        // process-wide metadata cache through a response object.
+        return cached.stream().map(item -> Jsons.copy(mapper, item)).toList();
     }
 
     private Map<String, Object> simulationScenario(String code, String emoji, String label, String description, String color) {
@@ -2020,8 +2038,18 @@ class AgriEngine {
         Map<String, Object> record = simulationRecord(plotId);
         Map<String, Object> view = Jsons.copy(mapper, record);
         view.put("scenarioCatalog", simulationScenarioCatalog());
-        Map<String, Object> limits = new LinkedHashMap<>();
-        SIMULATION_PARAMETER_LIMITS.forEach((key, value) -> limits.put(key, Map.of("min", value[0], "max", value[1])));
+        Map<String, Map<String, Object>> limits = simulationParameterLimitsCache;
+        if (limits == null) {
+            synchronized (this) {
+                limits = simulationParameterLimitsCache;
+                if (limits == null) {
+                    Map<String, Map<String, Object>> built = new LinkedHashMap<>();
+                    SIMULATION_PARAMETER_LIMITS.forEach((key, value) -> built.put(key, Map.of("min", value[0], "max", value[1])));
+                    limits = Map.copyOf(built);
+                    simulationParameterLimitsCache = limits;
+                }
+            }
+        }
         view.put("parameterLimits", limits);
         view.put("hardware", hardwareBindingForPlot(plotId));
         view.put("simulatorDevice", simulatorDeviceForPlot(plotId));
