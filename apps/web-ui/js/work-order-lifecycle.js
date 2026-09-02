@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260901-v5910-main-merge-v2';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260901-v5910-main-merge-v2';
-import { roleCan } from './roles.js?v=20260901-v5910-main-merge-v2';
+import { api } from './api.js?v=20260902-v5911-zhcn-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 
@@ -560,7 +560,7 @@ export const WorkOrderLifecycleView = {
           try {
             const response = await api.assignWorkOrder(order.workOrderId, {
               assigneeId: choice.member.userId,
-              note: `AI 智能分配：已按地块权限、在岗状态和当前任务负载排序（当前待办 ${choice.activeLoad} 项）`
+              note: `农智助手分配：已按地块权限、在岗状态和当前任务负载排序（当前待办 ${choice.activeLoad} 项）`
             });
             publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member));
             assignedCount += 1;
@@ -568,7 +568,7 @@ export const WorkOrderLifecycleView = {
             failures.push(`${order.title || order.workOrderId}：${error?.message || '分配失败'}`);
           }
         }
-        if (assignedCount) toast(`AI 已分配 ${assignedCount} 项任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
+        if (assignedCount) toast(`农智助手已分配 ${assignedCount} 项任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
         else toast(failures[0] || '没有可分配的任务', 'error');
       } finally {
         isBusy.value = false;
@@ -931,7 +931,7 @@ export const WorkOrderLifecycleView = {
       </div>
 
       <section v-if="canManage && (scopeFilter === 'unassigned' || (statusFilter === 'OPEN' && !scopeFilter))" class="work-unassigned-disposition" aria-label="待分配任务智能分配">
-        <div><strong>待分配任务</strong><span>AI 将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
+        <div><strong>待分配任务</strong><span>农智助手将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
         <button type="button" class="g-btn primary compact" :disabled="isBusy || !filteredOrders.some(order => workStatus(order.status) === 'OPEN' && !order.assigneeId)" @click="autoAssignUnassigned"><app-icon name="auto_awesome"></app-icon>{{ isBusy ? '分配中…' : 'AI一键分配任务' }}</button>
       </section>
 
@@ -1042,7 +1042,7 @@ export const WorkOrderLifecycleView = {
               <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
               <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
               <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
-              <span>现场照片：{{ (record.photos || []).length }} 张 · USER_PROVIDED</span>
+              <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
             </div>
             <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
           </article>
@@ -1157,7 +1157,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showInspectionModal" class="g-modal-overlay" @click.self="showInspectionModal = false" @keydown.esc="showInspectionModal = false">
         <form class="g-modal work-dialog inspection-dialog" @submit.prevent="submitInspection">
-          <div class="g-modal-header"><div><small>人工核验 · USER_PROVIDED</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>人工核验 · 人工提供</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-grid">
             <p class="inspection-guidance span-2">请只记录现场看到或实际测到的情况。保存后会生成唯一证据编号，不会修改传感器原始数据。</p>
             <label><span>地块</span><select class="g-select" v-model="inspectionForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>

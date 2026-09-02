@@ -1,6 +1,6 @@
-import { api } from '../api.js?v=20260901-v593-market-v3';
-import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260901-v596-official-map-v1';
-import { buildDomesticMarketScenario } from './domestic-market-scenario.js?v=20260901-v598-domestic-data-v1';
+import { api } from '../api.js?v=20260902-v5911-zhcn-v1';
+import { AdminGlobalWholesalePanel } from './admin-global-wholesale.js?v=20260902-v5911-zhcn-v1';
+import { buildDomesticMarketScenario } from './domestic-market-scenario.js?v=20260902-v5911-zhcn-v1';
 
 const { ref, computed, watch, onMounted, onBeforeUnmount, nextTick, inject } = Vue;
 
@@ -26,6 +26,9 @@ function localDateKey(date) {
 }
 function sourceLabel(status) {
   return ({ LIVE: '官方日行情', CACHED: '最近归档行情', DEMO: '演示行情 · 非真实价格', DISABLED: '行情源已停用', UNAVAILABLE: '行情暂不可用' })[String(status || '').toUpperCase()] || '行情状态待确认';
+}
+function historyPersistenceLabel(value) {
+  return ({ H2_STANDALONE: '本地持久化数据库', POSTGRESQL: '生产数据库', DATABASE: '持久化数据库' })[String(value || '').toUpperCase()] || (value ? '持久化数据库' : '—');
 }
 function priceBasisLabel(item) {
   const basis = String(item?.priceBasis || '').toUpperCase();
@@ -112,18 +115,18 @@ export const AdminMarketInsightsView = {
       chart.setOption({
         animation: false,
         backgroundColor: '#ffffff',
-        textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
+        textStyle: { color: '#262626', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif' },
         aria: { enabled: true, description: `${cropName}${chartRangeLabel.value}价格折线，单位${chartUnit.value}。${hasSimulation ? '包含明确标记的模拟趋势，' : ''}真实缺失日期保留为空白。` },
         title: hasObservedPrice || hasSimulation ? undefined : { text: selectedCrop.value?.available ? '国内真实历史正在积累' : '当前没有国内报价', left: 'center', top: 'middle', textStyle: { color: '#777777', fontSize: 14, fontWeight: 'normal' } },
         tooltip: {
           trigger: 'axis', confine: true, backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1,
-          textStyle: { color: '#262626', fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' },
+          textStyle: { color: '#262626', fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif' },
           valueFormatter: value => value == null ? '缺失' : `${Number(value).toFixed(2)} ${chartUnit.value}`
         },
         legend: {
           show: hasObservedPrice || hasSimulation, top: 8, right: 12, data: seriesNames,
           backgroundColor: '#ffffff', borderColor: '#8f8f8f', borderWidth: 1, borderRadius: 4, padding: [5, 8],
-          textStyle: { color: '#303030', fontSize: 11, fontFamily: 'STIX Two Text, STIXGeneral, Times New Roman, DejaVu Serif, serif' }
+          textStyle: { color: '#303030', fontSize: 11, fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif' }
         },
         grid: { left: 62, right: 28, top: 52, bottom: 48, containLabel: false },
         xAxis: {
@@ -200,7 +203,7 @@ export const AdminMarketInsightsView = {
       loading, error, market, workspaceMode, scope, rangeDays, selectedCropCode, chartEl, farmId, crops, selectedCrop, source, status,
       sourceTone, selectedQuotes, selectedHistory, chartHistory, chartUnit, chartRangeLabel,
       availableCount, axisDisclosure, showSimulation, canShowSimulation, scenarioVisible, RANGE_OPTIONS,
-      price, signed, changeTone, sourceLabel, priceBasisLabel, chooseCrop, chooseWorkspace, chooseRange, chooseScope, toggleSimulation, refresh, observationTone, quoteDifference
+      price, signed, changeTone, sourceLabel, historyPersistenceLabel, priceBasisLabel, chooseCrop, chooseWorkspace, chooseRange, chooseScope, toggleSimulation, refresh, observationTone, quoteDifference
     };
   },
   template: `
@@ -224,13 +227,13 @@ export const AdminMarketInsightsView = {
 
       <div class="market-workspace-switch" role="tablist" aria-label="市场工作台模式">
         <button type="button" role="tab" :aria-selected="workspaceMode === 'local'" :class="{active: workspaceMode === 'local'}" @click="chooseWorkspace('local')"><span class="ph ph-chart-line-up" aria-hidden="true"></span>国内行情</button>
-        <button type="button" role="tab" :aria-selected="workspaceMode === 'global'" :class="{active: workspaceMode === 'global'}" @click="chooseWorkspace('global')"><span class="ph ph-globe-hemisphere-west" aria-hidden="true"></span>全球批发 <em>SIMULATED</em></button>
+        <button type="button" role="tab" :aria-selected="workspaceMode === 'global'" :class="{active: workspaceMode === 'global'}" @click="chooseWorkspace('global')"><span class="ph ph-globe-hemisphere-west" aria-hidden="true"></span>全球批发 <em>模拟测算</em></button>
       </div>
 
       <template v-if="workspaceMode === 'local'">
         <div class="market-source-strip" :class="'is-' + sourceTone">
           <div><strong>{{ source.name || '行情来源待确认' }}</strong><span>重庆优先 · 全国市场后备 · {{ source.cadence === 'DAILY' ? '每日更新' : '更新频率待确认' }}</span></div>
-          <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span v-if="market?.nationalFallbackCropCount">全国后备 {{ market.nationalFallbackCropCount }} 个</span><span>历史归档：{{ market?.historyPersistence || '—' }}</span></div>
+          <div class="market-source-strip-meta"><span>{{ availableCount }}/{{ market?.totalCropCount ?? crops.length }} 个品种有报价</span><span v-if="market?.nationalFallbackCropCount">全国后备 {{ market.nationalFallbackCropCount }} 个</span><span>历史归档：{{ historyPersistenceLabel(market?.historyPersistence) }}</span></div>
         </div>
 
         <div class="market-toolbar" aria-label="行情范围">
@@ -241,7 +244,7 @@ export const AdminMarketInsightsView = {
           <span>真实当日价优先重庆、缺失时采用全国市场简单均值；模拟趋势与真实归档严格分离。</span>
         </div>
 
-        <div v-if="error" class="market-error"><strong>{{ error.code || 'MARKET_PRICE_UNAVAILABLE' }}</strong><span>{{ error.message || error }}</span></div>
+        <div v-if="error" class="market-error"><strong>行情读取失败</strong><span>{{ error.message || '市场行情暂不可用，请稍后再试' }}</span></div>
         <div v-else-if="!loading && !crops.length" class="market-empty"><span class="ph ph-plant" aria-hidden="true"></span><strong>当前农场没有已匹配的在种作物</strong><p>可切换“全部监测品种”查看九种作物；未匹配品种不会被猜测为其他商品。</p></div>
 
         <template v-else>
@@ -271,7 +274,7 @@ export const AdminMarketInsightsView = {
                 <button v-if="canShowSimulation" type="button" class="market-scenario-toggle" :class="{active: showSimulation}" :aria-pressed="showSimulation" @click="toggleSimulation"><span class="ph ph-wave-sine" aria-hidden="true"></span>{{ showSimulation ? '隐藏模拟趋势' : '显示模拟趋势' }}</button>
               </div>
             </header>
-            <div v-if="scenarioVisible" class="market-simulation-notice" role="note"><span>SIMULATED</span><p><strong>模拟趋势，不是真实历史</strong>仅以今日{{ selectedCrop.quoteRegionName || '国内' }}官方报价为锚点生成，用于查看曲线界面；不写入数据库、不参与涨跌、均价或销售观察。</p></div>
+            <div v-if="scenarioVisible" class="market-simulation-notice" role="note"><span>模拟趋势</span><p><strong>模拟趋势，不是真实历史</strong>仅以今日{{ selectedCrop.quoteRegionName || '国内' }}官方报价为锚点生成，用于查看曲线界面；不写入数据库、不参与涨跌、均价或销售观察。</p></div>
             <div ref="chartEl" class="market-price-chart" role="img" :aria-label="selectedCrop.cropName + chartRangeLabel + chartUnit + '价格曲线'"></div>
             <p class="market-axis-note"><span class="ph ph-info" aria-hidden="true"></span>{{ axisDisclosure }}</p>
             <details class="market-history-details">

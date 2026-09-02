@@ -28,12 +28,13 @@ body {
   overflow: hidden;
   background: var(--bg);
   color: var(--text);
-  font-family: Inter, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
 button,
-input { font: inherit; }
+input,
+select { font: inherit; }
 
 button { -webkit-tap-highlight-color: transparent; }
 
@@ -107,16 +108,12 @@ button { -webkit-tap-highlight-color: transparent; }
   transform: none;
 }
 
-.brand__name {
-  color: #fff;
-  font-size: clamp(20px, 1.8vw, 27px);
-  font-weight: 700;
-  letter-spacing: -.04em;
-  text-transform: lowercase;
-  text-shadow: 0 2px 22px rgba(0, 0, 0, .78);
+.brand__logo {
+  display: block;
+  width: clamp(112px, 11vw, 154px);
+  height: auto;
+  filter: drop-shadow(0 2px 18px rgba(0, 0, 0, .55));
 }
-
-.brand__name span { color: var(--green); }
 
 .motion-control {
   position: absolute;
@@ -188,7 +185,8 @@ body.is-ready .auth {
   letter-spacing: .08em;
 }
 
-.field input {
+.field input,
+.field select {
   width: 100%;
   height: 44px;
   padding: 0 0 8px;
@@ -198,6 +196,11 @@ body.is-ready .auth {
   color: var(--text);
   font-size: 15px;
   caret-color: var(--green);
+}
+
+.field select {
+  cursor: pointer;
+  color-scheme: dark;
 }
 
 .field input::placeholder { color: rgba(211, 223, 219, .48); }
@@ -403,7 +406,7 @@ body.is-ready .growth-loader { opacity: .54; }
   }
 
   .brand { top: 24px; left: 24px; }
-  .brand__name { font-size: 21px; }
+  .brand__logo { width: 116px; }
 
   .motion-control { top: 20px; right: 18px; }
 

@@ -4,23 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="light dark">
-  <title>AgriLoop · 智慧农业工作台</title>
+  <title>农智闭环 · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260901-v600-motion-fix">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v5910-main-merge-v2">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/admin-market.css?v=20260901-v598-domestic-data-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v5910-main-merge-v2">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v593-market-v3">
-  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-sidebar-unify-v2">
+  <link rel="stylesheet" href="css/style.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin-market.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-v5911-zhcn-v1">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -78,7 +78,7 @@
     <header class="g-header" :class="{ 'farmer-header': isFarmer }">
       <div class="g-header-left">
         <button class="g-btn icon-only" @click="toggleSidebar" aria-label="展开或收起导航"><app-icon name="menu"></app-icon></button>
-        <img src="assets/brand/agriloop-logo.png" height="32" alt="AgriLoop" class="g-brand-logo">
+        <img src="assets/brand/agriloop-logo.png" height="32" alt="农智闭环标志" class="g-brand-logo">
       </div>
 
       <div v-if="state.currentUser.role !== 'FARM_ADMIN'" class="g-header-center">
@@ -709,7 +709,7 @@
             </div>
             <div v-for="(msg, i) in chatHistory" :key="i" class="chat-msg" :class="msg.role">
               <div style="font-size:12px; opacity:0.7; margin-bottom:4px" v-if="msg.role==='agent'">
-                <app-icon name="auto_awesome" style="font-size:12px; vertical-align:middle"></app-icon> {{ msg.sourceLabel || 'AgriLoop 智能助手' }}
+                <app-icon name="auto_awesome" style="font-size:12px; vertical-align:middle"></app-icon> {{ msg.sourceLabel || '农智闭环智能助手' }}
               </div>
               <div class="chat-msg-content">{{ displayText(msg.content) }}</div>
             </div>
@@ -1216,7 +1216,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260901-v600-motion-fix&rev=20260902-mobile-v1"></script>
+  <script type="module" src="js/app.js?v=20260902-v5911-zhcn-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1241,7 +1241,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ {full:'完整模式',['rules-only']:'规则兜底',mock:'模拟模式'}[state.adminOverview.aiMode] || state.adminOverview.aiMode }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ modeLabel(state.adminOverview.aiMode) }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}</div></div>
         </div>
       </div>
 
@@ -1268,7 +1268,7 @@
                 <span v-if="svc.activeSessions">会话 {{ svc.activeSessions }}</span>
                 <span v-if="svc.requestsPerMin">{{ svc.requestsPerMin }} 请求/分钟</span>
                 <span v-if="svc.p99">第 99 百分位延迟 {{ displayText(svc.p99) }}</span>
-                <span v-if="svc.mode">模式：{{ modeLabel(svc.mode, svc.mode) }}</span>
+                <span v-if="svc.mode">模式：{{ modeLabel(svc.mode) }}</span>
               </div>
             </div>
           </div>
@@ -1404,7 +1404,7 @@
               <span v-if="svc.activeSessions">会话 {{ svc.activeSessions }}</span>
                 <span v-if="svc.requestsPerMin">{{ svc.requestsPerMin }} 请求/分钟</span>
               <span v-if="svc.p99">第 99 百分位延迟 {{ displayText(svc.p99) }}</span>
-                <span v-if="svc.mode">模式：{{ modeLabel(svc.mode, svc.mode) }}</span>
+                <span v-if="svc.mode">模式：{{ modeLabel(svc.mode) }}</span>
             </div>
           </div>
         </div>
@@ -1483,7 +1483,7 @@
     <div class="system-resource-page">
       <div class="system-resource-header">
         <div>
-          <span class="resource-eyebrow">SYSTEM_ADMIN / READ ONLY</span>
+          <span class="resource-eyebrow">系统管理员 / 只读审计</span>
           <h2 class="g-page-title"><app-icon name="water_drop"></app-icon> 资源协同审计</h2>
           <p>跨农场查看配额、协同需求、计划版本和农户回执；系统管理员不代替农场管理员调整分配。</p>
         </div>
@@ -1510,7 +1510,7 @@
 
       <section class="resource-panel">
         <div class="panel-heading"><div><span class="resource-eyebrow">计划版本</span><h3>跨农场配水计划</h3></div><small>{{ plans.length }} 个版本</small></div>
-        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>农场 / 日期</th><th>计划编号</th><th>版本</th><th>申请 / 分配 / 缺口</th><th>状态</th><th>来源</th></tr></thead><tbody><tr v-for="plan in plans" :key="plan.resourcePlanId"><td><strong>{{ farmName(plan.farmId) }}</strong><small>{{ plan.businessDate }}</small></td><td class="system-resource-id">{{ plan.resourcePlanId }}</td><td>v{{ plan.revision || 1 }}</td><td>{{ Number(plan.totalRequestedLitres || 0).toFixed(1) }} / {{ Number(plan.totalAllocatedLitres || 0).toFixed(1) }} / {{ Number(plan.totalUnmetLitres || 0).toFixed(1) }} L</td><td><span class="request-status" :class="String(plan.status || '').toLowerCase()">{{ planStatusLabel(plan.status) }}</span></td><td>{{ plan.provenance || 'DERIVED' }} · {{ plan.algorithmVersion || '—' }}</td></tr><tr v-if="!plans.length"><td colspan="6" class="rp-empty">当前范围没有配水计划。</td></tr></tbody></table></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>农场 / 日期</th><th>计划编号</th><th>版本</th><th>申请 / 分配 / 缺口</th><th>状态</th><th>来源</th></tr></thead><tbody><tr v-for="plan in plans" :key="plan.resourcePlanId"><td><strong>{{ farmName(plan.farmId) }}</strong><small>{{ plan.businessDate }}</small></td><td class="system-resource-id">{{ plan.resourcePlanId }}</td><td>v{{ plan.revision || 1 }}</td><td>{{ Number(plan.totalRequestedLitres || 0).toFixed(1) }} / {{ Number(plan.totalAllocatedLitres || 0).toFixed(1) }} / {{ Number(plan.totalUnmetLitres || 0).toFixed(1) }} L</td><td><span class="request-status" :class="String(plan.status || '').toLowerCase()">{{ planStatusLabel(plan.status) }}</span></td><td>{{ localizedSourceLabel(plan.provenance || 'DERIVED') }} · {{ plan.algorithmVersion || '—' }}</td></tr><tr v-if="!plans.length"><td colspan="6" class="rp-empty">当前范围没有配水计划。</td></tr></tbody></table></div>
       </section>
 
       <section class="resource-panel">
@@ -1644,7 +1644,7 @@
 
       <div class="sim-settings-panel">
         <div class="admin-section-title" style="margin-bottom:12px"><app-icon name="tune"></app-icon> 全局采样与时间流速</div>
-        <p class="sim-settings-help">保存即生效，不必重启 API。采样间隔控制墙上时钟多久产生一批遥测；时间流速控制物理日夜与土壤变化快慢。地块详情仍可单独覆盖流速。</p>
+        <p class="sim-settings-help">保存即生效，不必重启接口服务。采样间隔控制墙上时钟多久产生一批遥测；时间流速控制物理日夜与土壤变化快慢。地块详情仍可单独覆盖流速。</p>
         <label class="sim-slider">
           <span class="sim-slider-label">采样间隔 {{ sampleInterval }} 秒</span>
           <input type="range" min="5" max="60" step="1" v-model.number="sampleInterval" :disabled="simBusy" @change="saveSimulatorSettings">
@@ -1671,7 +1671,7 @@
       <div class="admin-table-wrap" style="margin-bottom: 24px">
         <table class="admin-table">
           <thead><tr>
-            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块 ID</th>
+            <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块编号</th>
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">地块名称</th>
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">当前种植</th>
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">异常场景注入</th>
@@ -1916,9 +1916,9 @@
         <section class="admin-appearance-intro">
           <span class="admin-appearance-intro-icon"><app-icon name="tune"></app-icon></span>
           <div>
-            <span class="admin-section-kicker">默认基线 · main@4e9326a</span>
+            <span class="admin-section-kicker">默认基线 · 主线版本 4e9326a</span>
             <h3>农场管理员经典界面</h3>
-            <p>默认使用 main@4e9326a 农场管理员的白色玻璃卡片和紧凑导航。main@c9b6282 之后新增的玻璃材质集中在这里管理，切换后立即作用于当前浏览器。</p>
+            <p>默认使用主线版本 4e9326a 的白色玻璃卡片和紧凑导航。版本 c9b6282 之后新增的玻璃材质集中在这里管理，切换后立即作用于当前浏览器。</p>
           </div>
           <span class="admin-appearance-current"><app-icon name="check_circle"></app-icon>{{ appearanceStyleLabel }}</span>
         </section>
@@ -2070,7 +2070,7 @@
         <div class="admin-table-wrap">
           <table class="admin-table">
             <thead><tr>
-              <th>时间</th><th>操作人</th><th>操作类型</th><th>详情</th><th>IP 地址</th>
+              <th>时间</th><th>操作人</th><th>操作类型</th><th>详情</th><th>网络地址</th>
             </tr></thead>
             <tbody>
               <tr v-for="log in filteredLogs" :key="log.id">

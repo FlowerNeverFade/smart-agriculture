@@ -3,8 +3,9 @@
    ============================================================ */
 
 :root {
-  --g-font-family: 'Google Sans', 'Roboto', 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', -apple-system, sans-serif;
-  --g-mono: 'Roboto Mono', monospace;
+  --g-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --g-mono: var(--g-font-family);
+  --font-mono: var(--g-font-family);
 
   --g-bg-base: #f8f9fa;
   --g-bg-surface: #ffffff;

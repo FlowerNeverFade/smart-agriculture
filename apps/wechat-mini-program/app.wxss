@@ -1,7 +1,7 @@
 page {
   background: #f4f7f2;
   color: #1d2b24;
-  font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  font-family: system-ui;
   font-size: 28rpx;
   line-height: 1.5;
 }
@@ -164,5 +164,5 @@ button {
   border-radius: 6rpx;
   color: #31543d;
   background: #edf4ee;
-  font-family: monospace;
+  font-family: inherit;
 }

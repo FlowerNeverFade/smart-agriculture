@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="color-scheme" content="dark">
   <meta name="theme-color" content="#02070b">
-  <title>AgriLoop · 生长地平线</title>
-  <link rel="stylesheet" href="css/login-concepts.css?v=horizon-b0ed918">
+  <title>农智闭环 · 生长地平线</title>
+  <link rel="stylesheet" href="css/login-concepts.css?v=20260902-v5911-zhcn-v2">
 </head>
 <body>
   <main class="experience" aria-labelledby="loginTitle">
@@ -19,8 +19,8 @@
       <div class="scene__veil"></div>
     </div>
 
-    <header class="brand" aria-label="AgriLoop 农智闭环">
-      <span class="brand__name">agri<span>loop</span></span>
+    <header class="brand" aria-label="农智闭环">
+      <img class="brand__logo" src="assets/brand/agriloop-logo.png" alt="农智闭环标志">
     </header>
 
     <button class="motion-control" id="motionToggle" type="button" aria-label="暂停生长动画">暂停动画</button>
@@ -33,15 +33,25 @@
           <input id="username" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
         </label>
 
+        <label class="field">
+          <span>登录身份</span>
+          <select id="loginRole" name="role" required>
+            <option value="" selected disabled>请选择账户身份</option>
+            <option value="FARMER">种植农户</option>
+            <option value="FARM_ADMIN">农场管理员</option>
+            <option value="SYSTEM_ADMIN">系统管理员</option>
+          </select>
+        </label>
+
         <label class="field field--password">
           <span>密码</span>
           <input id="password" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
-          <button class="field__reveal" id="revealPassword" type="button" aria-label="显示密码">显示</button>
+          <button class="field__reveal" id="revealPassword" type="button" data-reveal="password" aria-label="显示密码">显示</button>
         </label>
 
-        <p class="form-error" id="formError" role="alert"></p>
+        <p class="form-error" id="loginError" role="alert"></p>
 
-        <button class="submit" id="submitButton" type="submit">
+        <button class="submit" id="loginButton" type="submit">
           <span class="submit__label">进入系统</span>
           <span class="submit__loading" aria-hidden="true">验证中</span>
         </button>
@@ -70,7 +80,7 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=20260901-v593-market-v3"></script>
-  <script type="module" src="js/login-concepts.js?v=horizon-b0ed918"></script>
+  <script type="module" src="js/login.js?v=20260902-v5911-login-concepts-v2"></script>
+  <script type="module" src="js/login-concepts.js?v=20260902-v5911-login-concepts-v2"></script>
 </body>
 </html>

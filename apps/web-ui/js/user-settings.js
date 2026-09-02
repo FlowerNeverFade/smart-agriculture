@@ -1,5 +1,5 @@
 /**
- * Browser-scoped AgriLoop workspace presentation preferences.
+ * Browser-scoped workspace presentation preferences.
  * These settings affect presentation and refresh behaviour only.
  */
 export const USER_SETTINGS_KEY = 'agriloop-user-settings-v2';
@@ -14,8 +14,8 @@ export const DEFAULT_USER_SETTINGS = Object.freeze({
 });
 
 export const PRESET_OPTIONS = Object.freeze([
-  Object.freeze({ value: 'codex', label: 'Codex 中性', hint: '冷静、清晰、专注内容', icon: 'head_circuit' }),
-  Object.freeze({ value: 'field', label: '田野绿', hint: '保留 AgriLoop 的自然气息', icon: 'eco' }),
+  Object.freeze({ value: 'codex', label: '简洁中性', hint: '冷静、清晰、专注内容', icon: 'head_circuit' }),
+  Object.freeze({ value: 'field', label: '田野绿', hint: '保留农智闭环的自然气息', icon: 'eco' }),
   Object.freeze({ value: 'sky', label: '晴空蓝', hint: '轻盈明快，适合长时间查看', icon: 'rainy' }),
   Object.freeze({ value: 'harvest', label: '麦穗金', hint: '温暖、醒目但不过度', icon: 'light_mode' }),
   Object.freeze({ value: 'orchard', label: '果实紫', hint: '柔和、有层次的专业界面', icon: 'auto_awesome' })
@@ -38,18 +38,13 @@ export const SURFACE_STYLE_OPTIONS = Object.freeze([
 ]);
 
 export const FONT_FAMILY_OPTIONS = Object.freeze([
-  Object.freeze({ value: 'system', label: '系统默认', hint: '跟随当前设备的界面字体', stack: "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans SC', 'Microsoft YaHei', sans-serif" }),
-  Object.freeze({ value: 'yahei', label: '微软雅黑', hint: 'Windows 中文界面更清晰', stack: "'Microsoft YaHei', 'Noto Sans SC', sans-serif" }),
-  Object.freeze({ value: 'pingfang', label: '苹方 / 思源', hint: '轻盈、现代的中文字体', stack: "'PingFang SC', 'Noto Sans SC', 'Microsoft YaHei', sans-serif" }),
-  Object.freeze({ value: 'sans', label: '现代无衬线', hint: '紧凑的英文与数字排版', stack: "Inter, 'Segoe UI', Roboto, 'Noto Sans SC', sans-serif" }),
-  Object.freeze({ value: 'serif', label: '人文衬线', hint: '更有编辑感的阅读体验', stack: "'Noto Serif SC', 'Songti SC', 'SimSun', serif" })
+  Object.freeze({ value: 'system', label: '系统默认', hint: '跟随当前设备的界面字体', stack: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" })
 ]);
 
 const THEME_VALUES = new Set(['light', 'dark', 'system']);
 const PRESET_VALUES = new Set(PRESET_OPTIONS.map(item => item.value));
 const ACCENT_VALUES = new Set(ACCENT_OPTIONS.map(item => item.value));
 const SURFACE_VALUES = new Set(SURFACE_STYLE_OPTIONS.map(item => item.value));
-const FONT_VALUES = new Set(FONT_FAMILY_OPTIONS.map(item => item.value));
 const DENSITY_VALUES = new Set(['comfortable', 'compact']);
 const LAYOUT_VALUES = new Set(['standard', 'wide']);
 const REFRESH_INTERVALS = new Set([5, 15, 30, 60]);
@@ -107,7 +102,9 @@ export function normalizeUserSettings(input = {}) {
     customAccent: isHexColor(source.customAccent) ? source.customAccent.trim().toLowerCase() : DEFAULT_USER_SETTINGS.customAccent,
     surfaceStyle: SURFACE_VALUES.has(source.surfaceStyle) ? source.surfaceStyle : DEFAULT_USER_SETTINGS.surfaceStyle,
     surfaceStyleVersion: 7,
-    fontFamily: FONT_VALUES.has(source.fontFamily) ? source.fontFamily : DEFAULT_USER_SETTINGS.fontFamily,
+    // V5.9.11 removes the font picker. Older stored values remain readable,
+    // but every profile is deliberately normalised to the device default.
+    fontFamily: DEFAULT_USER_SETTINGS.fontFamily,
     density: DENSITY_VALUES.has(source.density) ? source.density : DEFAULT_USER_SETTINGS.density,
     layout: LAYOUT_VALUES.has(source.layout) ? source.layout : DEFAULT_USER_SETTINGS.layout,
     reducedMotion: booleanValue(source.reducedMotion, DEFAULT_USER_SETTINGS.reducedMotion),
@@ -140,7 +137,14 @@ export function readUserSettings(storage, account) {
       if (!raw && !parsed.theme) { const legacyTheme = store.getItem('agriloop-theme'); if (THEME_VALUES.has(legacyTheme) && legacyTheme !== 'system') parsed.theme = legacyTheme; }
     } catch (error) { parsed = {}; }
   }
-  return normalizeUserSettings(parsed);
+  const normalized = normalizeUserSettings(parsed);
+  if (store && parsed?.fontFamily && parsed.fontFamily !== normalized.fontFamily) {
+    try {
+      store.setItem(userSettingsKey(account), JSON.stringify(normalized));
+      if (!account) store.setItem(LEGACY_USER_SETTINGS_KEY, JSON.stringify(normalized));
+    } catch (_error) { /* private browsing or quota exhaustion */ }
+  }
+  return normalized;
 }
 
 export function saveUserSettings(settings, storage, account) {

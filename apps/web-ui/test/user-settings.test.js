@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-const { DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, getAppearancePalette, getFontFamily, normalizeUserSettings, readUserSettings, saveUserSettings, userSettingsKey } = await import('../js/user-settings.js?settings-test');
+const { DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, getAppearancePalette, getFontFamily, normalizeUserSettings, readUserSettings, saveUserSettings, userSettingsKey } = await import('../js/user-settings.js?settings-test');
 
 test('工作台设置按白名单归一化并保存到浏览器本地', () => {
   const data = new Map();
@@ -27,11 +27,11 @@ test('工作台设置应用主题、布局、密度和纯色地块数据属性',
   assert.equal(Object.hasOwn(normalized, 'language'), false);
   assert.equal(root.dataset.language, undefined);
   assert.equal(root.lang, 'zh-CN');
-  assert.equal(root.dataset.fontFamily, 'yahei');
+  assert.equal(root.dataset.fontFamily, 'system');
   assert.equal(root.dataset.showDataOrigin, 'false');
   assert.equal(normalized.plotBackground, 'none');
   assert.equal(root.dataset.plotBackground, 'none');
-  assert.match(getFontFamily('yahei'), /Microsoft YaHei/);
+  assert.match(getFontFamily('yahei'), /system-ui/);
 });
 
 test('旧柔和玻璃与作物背景设置自动迁移到清晰纯色外观', () => {
@@ -100,7 +100,7 @@ test('工作台设置按账号隔离，并支持主题预设与安全自选色',
   assert.equal(readUserSettings(storage, alice).preset, 'sky');
   assert.equal(readUserSettings(storage, alice).customAccent, '#abcdef');
   assert.equal(Object.hasOwn(readUserSettings(storage, alice), 'language'), false);
-  assert.equal(readUserSettings(storage, alice).fontFamily, 'sans');
+  assert.equal(readUserSettings(storage, alice).fontFamily, 'system');
   assert.equal(readUserSettings(storage, bob).preset, DEFAULT_USER_SETTINGS.preset);
   assert.equal(userSettingsKey(alice), 'agriloop-user-settings-v2:user-a');
   assert.equal(normalizeUserSettings({ preset: 'missing', customAccent: 'red' }).preset, 'codex');
@@ -108,6 +108,18 @@ test('工作台设置按账号隔离，并支持主题预设与安全自选色',
   assert.equal(palette.theme, 'light');
   assert.equal(palette.accent.color, '#7657c4');
   assert.ok(palette.accent.background.startsWith('#'));
+});
+
+test('字体设置固定使用系统默认并迁移旧浏览器偏好', () => {
+  const data = new Map();
+  const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };
+  const account = { userId: 'legacy-font-user' };
+  data.set(userSettingsKey(account), JSON.stringify({ ...DEFAULT_USER_SETTINGS, fontFamily: 'serif' }));
+  assert.deepEqual(FONT_FAMILY_OPTIONS.map(item => item.value), ['system']);
+  assert.equal(readUserSettings(storage, account).fontFamily, 'system');
+  assert.equal(JSON.parse(data.get(userSettingsKey(account))).fontFamily, 'system');
+  const shared = readFileSync(new URL('../js/modules/workspace-settings.js', import.meta.url), 'utf8');
+  assert.doesNotMatch(shared, /界面字体|fontFamilyOptions/);
 });
 
 test('旧版浏览器设置只迁移给首次账号并可在刷新后恢复', () => {

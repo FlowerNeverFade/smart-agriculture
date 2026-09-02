@@ -6,9 +6,9 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v593-market-v3';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
+import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
@@ -590,7 +590,7 @@ function inferDemoPlotInput(message = '', fallbackPlot = {}) {
   const areaMatch = text.match(/(\d+(?:\.\d+)?)\s*(?:㎡|平方米|平米|m2)/i);
   const cycleMatch = text.match(/(\d+)\s*天/);
   const varietyMatch = text.match(/(?:品种|品名)\s*[：:]?\s*([^，。；;]+)/);
-  const name = String(nameMatch?.[1] || '').trim().replace(/^(?:一个|一块|新的?)\s*/, '') || 'AI 新建地块';
+  const name = String(nameMatch?.[1] || '').trim().replace(/^(?:一个|一块|新的?)\s*/, '') || '农智助手新建地块';
   return {
     farmId: fallbackPlot.farmId || 'farm-demo',
     name,
@@ -742,14 +742,46 @@ export function buildDemoMarketOverview(plots = [], { farmId = 'farm-demo', rang
   };
 }
 
+const API_ERROR_MESSAGES = Object.freeze({
+  SYSTEM_ADMIN_CREATION_DISABLED: '系统管理员账号创建功能尚未启用',
+  SYSTEM_ADMIN_AUTHORIZATION_INVALID: '系统管理员授权码无效',
+  SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED: '授权码尝试次数过多，请稍后再试',
+  ACCOUNT_SYSTEM_ADMIN_PROTECTED: '系统管理员账号受永久保护，不能执行此操作',
+  ACCOUNT_PERSISTENCE_UNAVAILABLE: '账号持久化服务暂不可用，请稍后再试',
+  PLOT_PERSISTENCE_UNAVAILABLE: '地块持久化服务暂不可用，请稍后再试',
+  RESOURCE_PERSISTENCE_UNAVAILABLE: '资源协同持久化服务暂不可用，当前仅可查看',
+  INTERNAL_ERROR: '服务处理异常，请稍后重试',
+  VALIDATION_ERROR: '提交内容未通过校验，请检查后重试',
+  UNAUTHORIZED: '登录状态已失效，请重新登录',
+  FORBIDDEN: '当前账号无权执行此操作',
+  NOT_FOUND: '没有找到请求的内容',
+  CONFLICT: '数据已发生变化，请刷新后重试'
+});
+
+function localizedApiErrorMessage(message, { code = 'API_ERROR', status = 0 } = {}) {
+  const raw = String(message || '').trim();
+  if (/[\u3400-\u9fff]/.test(raw)) return raw;
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  if (API_ERROR_MESSAGES[normalizedCode]) return API_ERROR_MESSAGES[normalizedCode];
+  if (status === 400 || status === 422) return '提交内容有误，请检查后重试';
+  if (status === 401) return '登录状态已失效，请重新登录';
+  if (status === 403) return '当前账号无权执行此操作';
+  if (status === 404) return '没有找到请求的内容';
+  if (status === 409) return '数据已发生变化，请刷新后重试';
+  if (status >= 500) return '后端服务处理异常，请稍后重试';
+  return raw ? '操作未完成，请稍后重试' : '请求失败，请稍后重试';
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
-    super(message, cause ? { cause } : undefined);
+    const rawMessage = String(message || '').trim();
+    super(localizedApiErrorMessage(rawMessage, { code, status }), cause ? { cause } : undefined);
     this.name = 'ApiError';
     this.status = status;
     this.code = code;
     this.payload = payload;
     this.details = details;
+    this.rawMessage = rawMessage;
     this.isNetworkError = isNetworkError;
   }
 }
@@ -1136,7 +1168,7 @@ export class ApiService {
         let data = event.data.replace(/\n$/, '');
         try { data = JSON.parse(data); } catch (error) { /* plain-text event */ }
         try { onEvent({ type: event.type, data }); }
-        catch (error) { console.warn('[AgriLoop] event handler failed:', error); }
+        catch (error) { console.warn('[农智闭环] 事件处理失败：', error); }
         event = { type: 'message', data: '' };
       };
       const consumeLine = (line) => {
@@ -1169,7 +1201,7 @@ export class ApiService {
           retryDelay = 1000;
         } catch (error) {
           if (controller.signal.aborted) break;
-          console.warn('[AgriLoop] system event stream read failed:', error);
+          console.warn('[农智闭环] 系统事件流读取失败：', error);
         }
         if (controller.signal.aborted) break;
         // Keep retrying the connection itself until it succeeds.  The
@@ -1183,14 +1215,14 @@ export class ApiService {
             break;
           } catch (error) {
             if (controller.signal.aborted) break;
-            console.warn('[AgriLoop] system event stream reconnect failed:', error);
+            console.warn('[农智闭环] 系统事件流重连失败：', error);
             retryDelay = Math.min(retryDelay * 2, 30000);
           }
         }
       }
     };
     run(response).catch(error => {
-      if (!controller.signal.aborted) console.warn('[AgriLoop] system event stream closed:', error);
+      if (!controller.signal.aborted) console.warn('[农智闭环] 系统事件流已关闭：', error);
     });
     return () => {
       controller.abort();
@@ -1867,7 +1899,7 @@ export class ApiService {
         }
       } catch (error) {
         mixedError = error;
-        if (this.isLive) console.warn('[AgriLoop] mixed telemetry unavailable; falling back to metric windows:', error);
+        if (this.isLive) console.warn('[农智闭环] 混合遥测不可用，改用指标窗口：', error);
       }
     }
     const metrics = ['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'PH', 'WATER_LEVEL', 'RAINFALL'];
@@ -2478,7 +2510,7 @@ export class ApiService {
   }
 
   async getAgentAction(actionId) {
-    if (!actionId) throw new ApiError('缺少 Agent 操作编号', { status: 400, code: 'AGENT_ACTION_REQUIRED' });
+    if (!actionId) throw new ApiError('缺少智能体操作编号', { status: 400, code: 'AGENT_ACTION_REQUIRED' });
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/agent/actions/${encodeURIComponent(actionId)}`);
       return resp?.data || resp;
@@ -2486,7 +2518,7 @@ export class ApiService {
     this._demoHydrateAgentActions();
     const action = this.demoAgentActions.get(actionId);
     if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
-    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权查看该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权查看该智能体操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     return { ...action };
   }
 
@@ -2498,7 +2530,7 @@ export class ApiService {
     this._demoHydrateAgentActions();
     const action = this.demoAgentActions.get(actionId);
     if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
-    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权确认该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权确认该智能体操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     if (action.status !== 'AWAITING_CONFIRMATION') return { ...action };
     if (action.expiresAt && new Date(action.expiresAt).getTime() < Date.now()) {
       const expired = { ...action, status: 'EXPIRED' };
@@ -2521,9 +2553,9 @@ export class ApiService {
       if (!alert) throw new ApiError('当前地块没有待处理告警', { status: 404, code: 'ALERT_NOT_FOUND' });
       result = await this.publishAlertVerificationTask(alert.alertId || alert.id);
     } else if (action.toolName === 'create_and_assign_work_order') {
-      result = await this.createWorkOrder({ farmId: 'farm-demo', plotId: action.plotId, title: message.replace(/^.*?(任务|农务)[：:]?/, '').trim() || 'Agent 创建任务', reason: message, actionType: 'FIELD_OPERATION', priority: 'MEDIUM' });
+      result = await this.createWorkOrder({ farmId: 'farm-demo', plotId: action.plotId, title: message.replace(/^.*?(任务|农务)[：:]?/, '').trim() || '智能体创建任务', reason: message, actionType: 'FIELD_OPERATION', priority: 'MEDIUM' });
       const farmer = [...this.demoFarmMembers.values()].find(member => member.role === 'FARMER' && (member.plotIds.includes(action.plotId) || member.plotIds.includes('*')));
-      if (farmer) result = await this.assignWorkOrder(result.workOrderId, { assigneeId: farmer.userId, note: 'Agent 确认后下发' });
+      if (farmer) result = await this.assignWorkOrder(result.workOrderId, { assigneeId: farmer.userId, note: '智能体确认后下发' });
     } else if (action.toolName === 'transition_assigned_work_order') {
       result = await this.transitionWorkOrder(args.workOrderId, { action: args.action, resultSummary: args.resultSummary, note: args.note, evidenceRefs: args.evidenceRefs || [] });
     } else if (action.toolName === 'create_inspection_record') {
@@ -2533,7 +2565,7 @@ export class ApiService {
     } else if (action.toolName === 'execute_virtual_irrigation') {
       result = await this.executeIrrigation(args.planId, args.plotId || action.plotId, { confirmed: true, emergencyOverride: args.emergencyOverride === true, idempotencyKey: input.idempotencyKey || `agent-confirm:${actionId}`, source: 'farmer-agent' });
     } else {
-      result = { message: '演示 Agent 已完成操作预览确认', plotId: action.plotId };
+      result = { message: '演示智能体已完成操作预览确认', plotId: action.plotId };
     }
     const saved = { ...action, status: 'SUCCEEDED', result, completedAt: new Date().toISOString() };
     this._demoSaveAgentAction(saved);
@@ -2548,7 +2580,7 @@ export class ApiService {
     this._demoHydrateAgentActions();
     const action = this.demoAgentActions.get(actionId);
     if (!action) throw new ApiError('操作预览不存在或已过期', { status: 409, code: 'AGENT_ACTION_EXPIRED' });
-    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权取消该 Agent 操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
+    if (action.userId && action.userId !== this._demoActorId()) throw new ApiError('无权取消该智能体操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     if (action.actorRole && action.actorRole !== this.user?.role) throw new ApiError('当前身份不能取消该操作', { status: 403, code: 'AGENT_ACTION_FORBIDDEN' });
     if (action.expiresAt && new Date(action.expiresAt).getTime() < Date.now()) {
       const expired = { ...action, status: 'EXPIRED' };
@@ -3278,7 +3310,7 @@ export class ApiService {
         timeoutMs: body.images?.length ? 150000 : 65000
       });
       if (resp && resp.data) return resp.data;
-      throw new ApiError('后端返回了无效的 Agent 响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });
+      throw new ApiError('后端返回了无效的智能体响应', { code: 'AGENT_RESPONSE_INVALID', payload: resp });
     }
 
     // High-Fidelity Smart Agent Response Generator
@@ -3717,7 +3749,7 @@ export class ApiService {
       supporting.length ? `依据：${supporting.join('；')}` : '',
       missing ? `还缺：${missing}` : '',
       `下一步：${next}`,
-      '规则引擎负责主因、置信度和安全门；这段 AI 只解释证据，不会生成或执行控制命令。'
+        '规则引擎负责主因、置信度和安全门；智能模型只解释证据，不会生成或执行控制命令。'
     ].filter(Boolean).join('\n');
     const explained = {
       ...diagnosis,
@@ -3960,7 +3992,7 @@ export class ApiService {
   }
 
   async getAgentRun(traceId) {
-    if (!traceId) throw new ApiError('缺少 Agent traceId', { status: 400, code: 'TRACE_ID_REQUIRED' });
+    if (!traceId) throw new ApiError('缺少智能体追踪编号', { status: 400, code: 'TRACE_ID_REQUIRED' });
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/agent/runs/${encodeURIComponent(traceId)}`);
       return resp?.data || resp;
@@ -4750,8 +4782,8 @@ export class ApiService {
       timeToRiskMinutes: source.timeToRiskMinutes == null ? null : toFinite(source.timeToRiskMinutes),
       horizons,
       curve,
-      assumptions: source.assumptions || (live ? [] : ['无降水 / 无外界灌溉', '设备保持在线，遥测质量 GOOD']),
-      uncertaintyNote: source.uncertaintyNote || (live ? '后端未提供不确定性说明' : '置信区间由历史残差 MAD 推导；样本不足时返回 UNAVAILABLE'),
+      assumptions: source.assumptions || (live ? [] : ['无降水或外界灌溉', '设备保持在线，遥测质量良好']),
+      uncertaintyNote: source.uncertaintyNote || (live ? '后端未提供不确定性说明' : '置信区间由历史残差绝对中位差推导；样本不足时标记为不可用'),
       dataOrigin: live ? 'BACKEND' : 'SIMULATED'
     };
   }
@@ -4833,8 +4865,8 @@ export class ApiService {
       forecastRangeMinutes: horizonMinutes, algorithmVersion: cfg.algorithmVersion, algorithmLabel: cfg.algorithmLabel,
       startMoisture: start, startValue: start, stressBoundary: boundary, baselineMoisture: cfg.baselineMoisture, timeToRiskMinutes: timeToRisk,
       horizons: [60, 120, 240].filter(minute => minute <= horizonMinutes).map(minute => { const p = curve.find(x => x.minute === minute); return { minute, expected: p.expected, lower: p.lower, upper: p.upper, band: `${p.lower.toFixed(profile.decimals)}${profile.unit} ~ ${p.upper.toFixed(profile.decimals)}${profile.unit}` }; }),
-      curve, assumptions: ['无外界灌溉', `PLOT_STRATEGY=${scenario}`, `FACILITY_TYPE=${facilityType}`, '设备保持在线，遥测质量 GOOD'],
-      uncertaintyNote: '置信区间随预测时距线性放大；超出 4h 不承诺，样本不足返回 UNAVAILABLE', provenance: 'SIMULATED'
+      curve, assumptions: ['无外界灌溉', `地块策略：${PLOT_SIMULATION_SCENARIOS.find(item => item.code === scenario)?.label || '常规场景'}`, `设施类型：${facilityLabel(facilityType)}`, '设备保持在线，遥测质量良好'],
+      uncertaintyNote: '置信区间随预测时距线性放大；超出 4 小时不作承诺，样本不足时标记为不可用', provenance: 'SIMULATED'
     };
   }
 
@@ -5217,7 +5249,7 @@ export class ApiService {
     if (!batch) throw new ApiError('没有找到种植批次', { status: 404, code: 'CROP_BATCH_NOT_FOUND' });
     const packs = await this.getCropPacks();
     const pack = packs.find(item => item.cropCode === batch.cropCode && (!batch.cropPackVersion || item.version === batch.cropPackVersion));
-    if (!pack) throw new ApiError('没有找到该作物对应的 Crop Pack', { status: 422, code: 'CROP_PACK_NOT_FOUND' });
+    if (!pack) throw new ApiError('没有找到该作物对应的作物模型包', { status: 422, code: 'CROP_PACK_NOT_FOUND' });
     const cycleDays = Number(input.plannedCycleDays || batch.plannedCycleDays || 0);
     if (!cycleDays) throw new ApiError('请填写计划周期', { status: 422, code: 'PLAN_CYCLE_REQUIRED' });
     const start = new Date(`${String(input.startDate || batch.plantedAt || new Date().toISOString()).slice(0, 10)}T00:00:00Z`);
@@ -5696,13 +5728,15 @@ export class ApiService {
       }
       if (!response.ok) {
         if ([502, 503, 504].includes(response.status)) {
-          throw new ApiError(`后端服务未运行: ${response.status}`, {
+          throw new ApiError(`后端服务未运行：${response.status}`, {
+            status: response.status,
             code: 'NETWORK_ERROR',
+            payload,
             isNetworkError: true
           });
         }
         const error = payload?.error || {};
-        throw new ApiError(error.message || `HTTP Error ${response.status}: ${response.statusText}`, {
+        throw new ApiError(error.message || `请求失败：${response.status}`, {
           status: response.status,
           code: error.code || `HTTP_${response.status}`,
           payload,
