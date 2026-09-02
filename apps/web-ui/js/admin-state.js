@@ -463,6 +463,17 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
         dataOrigin: event.dataOrigin || metrics[code]?.dataOrigin || 'BACKEND'
       };
     });
+    const hasMetricData = Object.values(metrics).some(metric => (
+      metric?.available !== false
+      && metric?.value !== undefined
+      && metric?.value !== null
+      && metric?.value !== ''
+    ));
+    const reportedLastSeen = device?.lastSeen || card.lastSeen || fact.lastSeen || null;
+    const pendingTelemetryLabels = new Set(['等待设备接入', '设备已绑定，等待首次数据']);
+    const lastSeen = hasMetricData
+      ? (reportedLastSeen && !pendingTelemetryLabels.has(reportedLastSeen) ? reportedLastSeen : '环境数据已载入')
+      : (device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)));
     return {
       ...fact,
       ...card,
@@ -482,7 +493,7 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
       deviceId: device?.deviceId || card.deviceId || fact.deviceId || null,
       deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
       healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
-      lastSeen: device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)),
+      lastSeen,
       sourceMode: fact.sourceMode || card.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
       dataOrigin: fact.dataOrigin || card.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
     };

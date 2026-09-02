@@ -235,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260902-v5911-zhcn-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260902-v5914-ui-fixes-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -1060,10 +1060,10 @@
 
         <!-- Create User Modal -->
         <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="closeCreateUser">
-          <div class="admin-modal admin-modal-wide admin-account-create-modal">
+          <div ref="createUserDialog" class="admin-modal admin-modal-wide admin-account-create-modal" role="dialog" aria-modal="true" aria-labelledby="createUserDialogTitle" tabindex="-1" @keydown="handleCreateUserDialogKeydown">
             <div class="admin-modal-header">
-              <h3>创建用户</h3>
-              <button class="g-btn icon-only" :disabled="userActionBusy" @click="closeCreateUser"><app-icon name="close"></app-icon></button>
+              <h3 id="createUserDialogTitle">创建用户</h3>
+              <button type="button" class="g-btn icon-only" aria-label="关闭创建用户窗口" title="关闭" :disabled="userActionBusy" @click="closeCreateUser"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body">
               <p class="admin-modal-hint">账号只有在持久化数据库写入成功后才会创建；恢复码只显示一次。</p>

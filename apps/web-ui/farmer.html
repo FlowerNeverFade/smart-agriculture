@@ -141,27 +141,29 @@
       <nav class="g-sidebar farmer-sidebar" :class="{collapsed: !is_sidebar_open}">
         <div class="farmer-nav-main">
           <template v-for="nav in nav_items" :key="nav.id">
-            <div v-if="!nav.is_footer"
+            <button v-if="!nav.is_footer" type="button"
                  class="g-nav-item farmer-nav-item"
                  :data-nav="nav.id"
                  :class="{active: current_view === nav.id}"
+                 :aria-current="current_view === nav.id ? 'page' : null"
                  @click="navigate(nav.id)">
               <app-icon :name="nav.icon"></app-icon>
               <span class="farmer-nav-label">{{ nav.label }}</span>
               <span v-if="nav.badge" class="farmer-nav-badge">{{ nav.badge }}</span>
-            </div>
+            </button>
           </template>
         </div>
         <div class="farmer-nav-footer">
           <template v-for="nav in nav_items" :key="nav.id">
-            <div v-if="nav.is_footer"
+            <button v-if="nav.is_footer" type="button"
                  class="g-nav-item farmer-nav-item"
                   :data-nav="nav.id"
                   :class="{active: current_view === nav.id}"
+                  :aria-current="current_view === nav.id ? 'page' : null"
                   @click="navigate(nav.id)">
                <app-icon :name="nav.icon"></app-icon>
               <span class="farmer-nav-label">{{ nav.label }}</span>
-            </div>
+            </button>
           </template>
         </div>
       </nav>
@@ -541,7 +543,7 @@
                     <span v-for="series in chart.series" :key="'legend-' + series.label"><i :style="{background: series.color}"></i>{{ series.label }}</span>
                   </div>
                   <p class="farmer-chart-target">{{ chart.stageLabel }}目标：{{ chart.targetBand ? chart.targetBand.low + '～' + chart.targetBand.high + ' ' + chart.unit : chart.target }}</p>
-                  <div class="farmer-metric-quality"><span>新鲜度 {{ chart.quality.freshnessLabel }}</span><span>完整率 {{ chart.quality.completenessLabel }}</span><span>可信度 {{ chart.quality.confidenceLabel }}</span><b>{{ chart.quality.status }}</b></div>
+                  <div class="farmer-metric-quality"><span>新鲜度 {{ chart.quality.freshnessLabel }}</span><span>完整率 {{ chart.quality.completenessLabel }}</span><span>可信度 {{ chart.quality.confidenceLabel }}</span><b>{{ chart.quality.statusLabel }}</b></div>
                 </article>
               </div>
             </div>
@@ -1938,6 +1940,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-v5911-zhcn-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260902-v5914-ui-fixes-v1"></script>
 </body>
 </html>

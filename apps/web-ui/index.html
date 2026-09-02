@@ -1216,7 +1216,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260902-v5911-zhcn-v1"></script>
+  <script type="module" src="js/app.js?v=20260902-v5914-ui-fixes-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1955,7 +1955,7 @@
             <option value="FARMER">种植农户</option>
           </select>
           <div style="margin-left:auto">
-            <button class="g-btn primary" @click="showCreateUser = true">
+            <button type="button" class="g-btn primary" @click="openCreateUser">
               <app-icon name="person_add"></app-icon> 创建用户
             </button>
           </div>
@@ -1984,11 +1984,11 @@
         </div>
 
         <!-- Create User Modal -->
-        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="showCreateUser = false">
-          <div class="admin-modal">
+        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="closeCreateUser">
+          <div ref="createUserDialog" class="admin-modal" role="dialog" aria-modal="true" aria-labelledby="legacyCreateUserDialogTitle" tabindex="-1" @keydown="handleCreateUserDialogKeydown">
             <div class="admin-modal-header">
-              <h3>创建用户</h3>
-              <button class="g-btn icon-only" @click="showCreateUser = false"><app-icon name="close"></app-icon></button>
+              <h3 id="legacyCreateUserDialogTitle">创建用户</h3>
+              <button type="button" class="g-btn icon-only" aria-label="关闭创建用户窗口" title="关闭" @click="closeCreateUser"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body">
               <label>用户名</label>
@@ -2007,7 +2007,7 @@
               </select>
             </div>
             <div class="admin-modal-footer">
-              <button class="g-btn" @click="showCreateUser = false">取消</button>
+              <button type="button" class="g-btn" @click="closeCreateUser">取消</button>
               <button class="g-btn primary" @click="createUser">确认创建</button>
             </div>
           </div>

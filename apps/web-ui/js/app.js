@@ -14,7 +14,7 @@ import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5914-ui-fixes-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -940,8 +940,8 @@ const PlotDetailModal = {
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .01, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .01, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
       waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '暴雨时高于此值触发积水风险' },
@@ -2820,6 +2820,8 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
+    const createUserDialog = ref(null);
+    let createUserTrigger = null;
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
     const appearanceStyleOptions = surfaceStyleOptions.filter((item) => item.value !== DEFAULT_USER_SETTINGS.surfaceStyle);
@@ -2897,6 +2899,47 @@ const AdminSettingsView = {
       user.enabled = !user.enabled;
     };
 
+    const createUserFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const openCreateUser = async (event) => {
+      createUserTrigger = event?.currentTarget || document.activeElement;
+      showCreateUser.value = true;
+      await nextTick();
+      createUserDialog.value?.querySelector(createUserFocusableSelector)?.focus();
+    };
+    const closeCreateUser = async () => {
+      const trigger = createUserTrigger;
+      showCreateUser.value = false;
+      createUserTrigger = null;
+      await nextTick();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    const handleCreateUserDialogKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCreateUser();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = createUserDialog.value;
+      const focusable = Array.from(dialog?.querySelectorAll(createUserFocusableSelector) || [])
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     const createUser = async () => {
       const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       if (isLiveSession.value) {
@@ -2959,8 +3002,8 @@ const AdminSettingsView = {
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
+      activeTab, roleFilter, logFilter, showCreateUser, createUserDialog, newUser, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, handleCreateUserDialogKeydown, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
       surfaceStyleOptions, appearanceStyleOptions, appearanceSettings, appearanceStyleLabel,
       selectAppearanceStyle, resetAppearanceStyle
     };
