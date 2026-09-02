@@ -2384,16 +2384,30 @@ const AdminSimulatorView = {
     const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
+    // Keep the active scenario separate from a pending fault injection.  An
+    // empty injection is intentional: it means "leave the current strategy
+    // unchanged" rather than silently switching a plot back to NORMAL.
+    const canonicalScenario = (scenario) => {
+      const value = String(scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+      if (value === 'STORM' || value === 'HEAVYRAIN') return 'HEAVY_RAIN';
+      if (value === 'OFFLINE') return 'DEVICE_OFFLINE';
+      return PLOT_SIMULATION_SCENARIOS.some((item) => item.code === value) ? value : 'NORMAL';
+    };
 
     watch(plots, (newPlots) => {
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
-        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const configuredScenario = canonicalScenario(p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
+        const currentScenario = existing
+          ? canonicalScenario(existing.currentScenario || existing.scenario || configuredScenario)
+          : configuredScenario;
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          currentScenario,
+          originalScenario: existing?.originalScenario || currentScenario,
+          injectionScenario: existing?.injectionScenario || '',
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
@@ -2402,13 +2416,11 @@ const AdminSimulatorView = {
     const globalScenario = computed({
       get: () => {
         if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
-        const first = plotScenarios.value[0].scenario;
-        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+        const first = plotScenarios.value[0].injectionScenario || '';
+        return plotScenarios.value.every(p => (p.injectionScenario || '') === first) ? first : '';
       },
       set: (val) => {
-        if (val) {
-          plotScenarios.value.forEach(p => p.scenario = val);
-        }
+        plotScenarios.value.forEach(p => p.injectionScenario = val || '');
       }
     });
     const adminDualTrackModal = ref(false);
@@ -2462,14 +2474,26 @@ const AdminSimulatorView = {
       if (simBusy.value) return;
       const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
       if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      const pending = targets.filter((plot) => String(plot.injectionScenario || '').trim());
+      pending.filter((plot) => canonicalScenario(plot.injectionScenario) === canonicalScenario(plot.currentScenario))
+        .forEach((plot) => { plot.injectionScenario = ''; });
+      const changed = pending.filter((plot) => String(plot.injectionScenario || '').trim());
+      if (changed.length === 0) {
+        toast('未选择新的异常场景，当前模拟场景保持不变', 'info');
+        return;
+      }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
-        for (const plot of targets) {
-          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+        for (const plot of changed) {
+          const scenario = canonicalScenario(plot.injectionScenario);
           try {
-            await api.updatePlotSimulation(plot.plotId, { scenario });
+            const saved = await api.updatePlotSimulation(plot.plotId, { scenario });
+            const appliedScenario = canonicalScenario(saved?.scenario || scenario);
+            plot.currentScenario = appliedScenario;
+            plot.originalScenario = appliedScenario;
+            plot.injectionScenario = '';
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
@@ -2491,7 +2515,7 @@ const AdminSimulatorView = {
       simBusy.value = true;
       try {
         const nextEnabled = !target.enabled;
-        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        await api.updatePlotSimulation(target.plotId, { scenario: target.currentScenario, enabled: nextEnabled });
         target.enabled = nextEnabled;
         toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
       } catch (error) {
@@ -2590,17 +2614,20 @@ const AdminSimulatorView = {
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
-      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'HEAVY_RAIN', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
+    const scenarioInjectionOptions = scenarios.map((scenario) => scenario.id === 'NORMAL'
+      ? { ...scenario, label: '恢复正常', desc: '解除异常注入，恢复标准环境' }
+      : scenario);
 
     watch(() => props.state.simulatorStatus, (status) => {
       if (status && typeof status === 'object') syncSimulator(status);
     }, { immediate: true });
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioInjectionOptions,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel

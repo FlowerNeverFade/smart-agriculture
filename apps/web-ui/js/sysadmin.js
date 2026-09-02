@@ -876,8 +876,10 @@ const AdminSimulatorView = {
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
     // 场景名规范化：与后端 canonicalSimulationScenario 一致（STORM/HEAVYRAIN → HEAVY_RAIN）
     const canonicalScenario = (scenario) => {
-      const s = String(scenario || 'NORMAL').toUpperCase().replace('-', '_');
-      return s === 'STORM' || s === 'HEAVYRAIN' ? 'HEAVY_RAIN' : s;
+      const s = String(scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+      if (s === 'STORM' || s === 'HEAVYRAIN') return 'HEAVY_RAIN';
+      if (s === 'OFFLINE') return 'DEVICE_OFFLINE';
+      return PLOT_SIMULATION_SCENARIOS.some((item) => item.code === s) ? s : 'NORMAL';
     };
 
     watch(plots, (newPlots) => {
@@ -886,13 +888,18 @@ const AdminSimulatorView = {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
         const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
         const configuredScenario = canonicalScenario(persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
+        const currentScenario = existing
+          ? canonicalScenario(existing.currentScenario || existing.scenario || configuredScenario)
+          : configuredScenario;
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : configuredScenario,
+          currentScenario,
           // 初始场景值：保存时只提交有变更的地块
-          originalScenario: existing ? existing.originalScenario : configuredScenario,
+          originalScenario: existing?.originalScenario || currentScenario,
+          // 空白表示不注入，避免打开页面就把正常场景误认为待应用变更
+          injectionScenario: existing?.injectionScenario || '',
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
@@ -903,19 +910,18 @@ const AdminSimulatorView = {
     const filteredPlotScenarios = computed(() => {
       const list = plotScenarios.value || [];
       if (scenarioFilter.value === 'all') return list;
-      return list.filter(plot => plot.scenario === scenarioFilter.value);
+      return list.filter(plot => plot.currentScenario === scenarioFilter.value);
     });
 
     const globalScenario = computed({
       get: () => {
-        if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
-        const first = plotScenarios.value[0].scenario;
-        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+        const scoped = filteredPlotScenarios.value || [];
+        if (scoped.length === 0) return '';
+        const first = scoped[0].injectionScenario || '';
+        return scoped.every(p => (p.injectionScenario || '') === first) ? first : '';
       },
       set: (val) => {
-        if (val) {
-          plotScenarios.value.forEach(p => p.scenario = val);
-        }
+        filteredPlotScenarios.value.forEach(p => p.injectionScenario = val || '');
       }
     });
     const adminDualTrackModal = ref(false);
@@ -983,18 +989,24 @@ const AdminSimulatorView = {
       if (simBusy.value) return;
       // 批量应用只针对当前筛选显示的地块，且只提交场景有变更的
       const targets = (filteredPlotScenarios.value || []).filter((plot) => plot && plot.plotId);
-      const changed = targets.filter((plot) => canonicalScenario(plot.scenario) !== canonicalScenario(plot.originalScenario));
       if (targets.length === 0) { toast('当前筛选下没有可保存的地块场景配置', 'error'); return; }
+      const pending = targets.filter((plot) => String(plot.injectionScenario || '').trim());
+      pending.filter((plot) => canonicalScenario(plot.injectionScenario) === canonicalScenario(plot.currentScenario))
+        .forEach((plot) => { plot.injectionScenario = ''; });
+      const changed = pending.filter((plot) => String(plot.injectionScenario || '').trim());
       if (changed.length === 0) { toast('当前筛选下的地块场景均无变更', 'info'); return; }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
         for (const plot of changed) {
-          const scenario = canonicalScenario(plot.scenario);
+          const scenario = canonicalScenario(plot.injectionScenario);
           try {
-            await api.updatePlotSimulation(plot.plotId, { scenario });
-            plot.originalScenario = scenario;
+            const saved = await api.updatePlotSimulation(plot.plotId, { scenario });
+            const appliedScenario = canonicalScenario(saved?.scenario || scenario);
+            plot.currentScenario = appliedScenario;
+            plot.originalScenario = appliedScenario;
+            plot.injectionScenario = '';
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
@@ -1016,7 +1028,7 @@ const AdminSimulatorView = {
       simBusy.value = true;
       try {
         const nextEnabled = !target.enabled;
-        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        await api.updatePlotSimulation(target.plotId, { scenario: target.currentScenario, enabled: nextEnabled });
         target.enabled = nextEnabled;
         toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
       } catch (error) {
@@ -1119,6 +1131,9 @@ const AdminSimulatorView = {
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
+    const scenarioInjectionOptions = scenarios.map((scenario) => scenario.id === 'NORMAL'
+      ? { ...scenario, label: '恢复正常', desc: '解除异常注入，恢复标准环境' }
+      : scenario);
 
     watch(() => props.state.simulatorStatus, (status) => {
       if (status && typeof status === 'object') syncSimulator(status);
@@ -1167,7 +1182,7 @@ const AdminSimulatorView = {
     };
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioFilter, filteredPlotScenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioInjectionOptions, scenarioFilter, filteredPlotScenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
