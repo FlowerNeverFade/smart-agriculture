@@ -261,7 +261,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ modeLabel(state.adminOverview.aiMode) }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}<span v-if="state.adminOverview.ai" class="admin-ai-status" :class="state.adminOverview.ai === 'UP' ? 'online' : state.adminOverview.ai === 'DOWN' ? 'offline' : state.adminOverview.ai === 'DEGRADED' ? 'degraded' : ''">{{ {UP:'· 智能模型在线',DOWN:'· 智能模型离线',DEGRADED:'· 智能模型降级'}[state.adminOverview.ai] || '' }}</span></div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">智能模型运行模式</div><div class="admin-metric-value" style="font-size:16px">{{ modeLabel(state.adminOverview.aiMode) }}</div><div class="admin-metric-sub">模型：{{ state.adminOverview.llmModel }}<span v-if="state.adminOverview.ai" class="admin-ai-status" :class="state.adminOverview.ai === 'UP' ? 'online' : state.adminOverview.ai === 'DOWN' ? 'offline' : state.adminOverview.ai === 'DEGRADED' ? 'degraded' : ''">{{ {UP:'智能模型在线',DOWN:'智能模型离线',DEGRADED:'智能模型降级'}[state.adminOverview.ai] || '' }}</span></div></div>
         </div>
       </div>
 

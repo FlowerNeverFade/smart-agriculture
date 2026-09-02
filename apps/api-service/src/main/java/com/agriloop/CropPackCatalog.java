@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -502,6 +504,7 @@ class CropPackCatalog {
         target.put("airTemperatureLow", 18); target.put("airTemperatureHigh", 30 + Math.min(offset, 2));
         target.put("airHumidityLow", 55); target.put("airHumidityHigh", 80);
         target.put("lightLow", 15000 + offset * 5000); target.put("lightHigh", 30000 + offset * 5000);
+        target.put("lightSchedule", new LinkedHashMap<>(Map.of("dayStart", "06:00", "dayEnd", "18:00", "nightLow", 0, "nightHigh", 1000)));
         target.put("co2Low", 400 + offset * 50); target.put("co2High", 800 + offset * 50);
         target.put("phLow", 5.8); target.put("phHigh", 6.8); target.put("waterLevelLow", 30); target.put("waterLevelHigh", 95);
         return target;
@@ -774,7 +777,8 @@ class CropPackCatalog {
                 if ("SUPPORTED".equals(availability)) missing.add(code);
                 continue;
             }
-            double alignment = metricAlignment(code, Jsons.number(sample, "value", Double.NaN), target);
+            Instant sampleTs = parseInstant(Jsons.text(sample, "ts", ""), Instant.now());
+            double alignment = metricAlignment(code, Jsons.number(sample, "value", Double.NaN), target, sampleTs);
             String quality = Jsons.text(Jsons.map(mapper, sample.get("quality")), "status", "GOOD").toUpperCase(Locale.ROOT);
             double qualityFactor = "BAD".equals(quality) ? 0.40 : "DEGRADED".equals(quality) ? 0.70 : 1.0;
             double score = clamp(alignment * qualityFactor);
@@ -1162,9 +1166,9 @@ class CropPackCatalog {
         return profile;
     }
 
-    private double metricAlignment(String code, double value, Map<String, Object> target) {
+    private double metricAlignment(String code, double value, Map<String, Object> target, Instant timestamp) {
         if (Double.isNaN(value)) return 0.38;
-        double[] band = targetBand(code, target);
+        double[] band = "LIGHT".equals(code) ? lightBand(target, timestamp) : targetBand(code, target);
         if (band == null) {
             if ("WATER_LEVEL".equals(code)) band = new double[]{20, 90};
             else return 0.75;
@@ -1176,6 +1180,26 @@ class CropPackCatalog {
         double distance = Math.abs(value - midpoint) / half;
         if (distance <= 1) return 0.72 + (1 - distance) * 0.22;
         return Math.max(0.12, 0.72 - Math.min(1.8, distance - 1) * 0.34);
+    }
+
+    private double[] lightBand(Map<String, Object> target, Instant timestamp) {
+        Map<String, Object> schedule = Jsons.map(mapper, target.get("lightSchedule"));
+        LocalTime start = parseLightTime(Jsons.text(schedule, "dayStart", "06:00"), LocalTime.of(6, 0));
+        LocalTime end = parseLightTime(Jsons.text(schedule, "dayEnd", "18:00"), LocalTime.of(18, 0));
+        LocalTime local = (timestamp == null ? Instant.now() : timestamp).atZone(ZoneId.of("Asia/Shanghai")).toLocalTime();
+        boolean day = !local.isBefore(start) && local.isBefore(end);
+        return day
+                ? new double[]{Jsons.number(target, "lightLow", 15000), Jsons.number(target, "lightHigh", 30000)}
+                : new double[]{Jsons.number(schedule, "nightLow", 0), Jsons.number(schedule, "nightHigh", 1000)};
+    }
+
+    private LocalTime parseLightTime(String value, LocalTime fallback) {
+        try { return LocalTime.parse(value); } catch (Exception ignored) { return fallback; }
+    }
+
+    private Instant parseInstant(String value, Instant fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try { return Instant.parse(value); } catch (Exception ignored) { return fallback; }
     }
 
     private double[] targetBand(String code, Map<String, Object> target) {

@@ -283,6 +283,16 @@ export function simulationScenarioSummary({ plots = [], overviewPlots = [], simu
     .find(Boolean);
   if (globalScenario) return globalScenario;
 
+  // The status endpoint does not always include the active scenario. When
+  // plot snapshots are still loading, use the latest running simulator
+  // record as a traceable fallback instead of showing an empty overview.
+  const historyRuns = Array.isArray(simulator?.history) ? simulator.history : [];
+  const historyScenario = historyRuns
+    .find((run) => code(run?.status) === 'RUNNING' && (run?.scenario || run?.scenarioId))
+    || historyRuns.find((run) => run?.scenario || run?.scenarioId);
+  const historicalScenario = normalizedScenarioCode(historyScenario?.scenario || historyScenario?.scenarioId);
+  if (historicalScenario) return historicalScenario;
+
   const status = code(simulator?.status);
   return simulator?.running === true || status === 'RUNNING' ? 'PLOT_SCOPED' : '';
 }

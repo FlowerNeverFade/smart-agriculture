@@ -927,7 +927,7 @@ html[data-show-data-origin="false"] :is(.source-mode-label, .source-mode-cell, .
 .settings-theme-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .settings-theme-option { display: grid; gap: 5px; min-height: 84px; padding: 10px; border: 1px solid var(--g-border); border-radius: 10px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; transition: border-color .18s, background .18s, transform .18s; }
 .settings-theme-option:hover { border-color: var(--g-primary); transform: translateY(-1px); }
-.settings-theme-option.active { border-color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
+.settings-theme-option.active { border-color: var(--workspace-primary, var(--g-primary)); box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-primary, var(--g-primary)) 18%, transparent); }
 .settings-theme-icon { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 7px; background: var(--g-bg-surface); color: var(--g-primary); }
 .settings-theme-option strong { font-size: 12px; font-weight: 600; }
 .settings-theme-option small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.3; }

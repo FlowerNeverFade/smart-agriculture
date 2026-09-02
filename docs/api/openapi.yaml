@@ -321,7 +321,13 @@ paths:
   /api/v1/diagnoses/{diagnosisId}/explain:
     post: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 基于确定性诊断证据的 AI 解释；不改变主因、置信度或安全门}}}
   /api/v1/decisions/{subjectType}/{subjectId}/readiness:
-    get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
+    get:
+      tags: [decision]
+      parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: 四态决策就绪度；blockingEvidence 决定是否阻断，advisoryEvidence 只提示，executionAllowed 是最终执行判定。missingEvidence 与 conflicts 作为兼容和审计字段保留。
+          content: {application/json: {schema: {$ref: '#/components/schemas/DecisionReadinessEnvelope'}}}
   /api/v1/decision-readiness/{readinessId}/evidence-requests:
     post:
       tags: [decision]
@@ -419,9 +425,27 @@ paths:
   /api/v1/lighting/virtual:
     post:
       tags: [execution]
-      description: 农户操作系统的虚拟补光入口。光照低于当前 Crop Pack 阶段下限时可由本人确认执行；设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
+      description: 农户操作系统的虚拟补光入口。光照低于当前作物模型包阶段下限时可由本人确认执行；补光时长直接按小时选取，设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualLightingRequest'}}}}
       responses: {'200': {description: 带离线演示标记、ACK、光照效果评价和模拟遥测的 LIGHT_BOOST 命令}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键或阶段光照状态冲突}, '422': {description: 光照不可用、未确认或设备不满足离线演示条件}}
+  /api/v1/lighting/estimate:
+    post:
+      tags: [decision]
+      description: 按当前作物模型包和白天/夜间目标生成光照处方；返回光照诊断、证据、决策就绪度、补光增量和 1/2/4/6/8 小时计划。夜间、正常或高光只返回 NO_ACTION，不生成可执行命令。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/requestBodies/JsonObject'}}}}
+      responses: {'200': {description: 结构化光照处方与就绪度}, '403': {$ref: '#/components/responses/Forbidden'}, '422': {description: 地块或光照指标不可用}}
+  /api/v1/plots/{plotId}/lighting-guard:
+    get:
+      tags: [decision]
+      description: 读取当前地块光照状态、动态目标带、设备状态、补光可执行门和最近 LIGHT_BOOST 命令。
+      parameters:
+        - name: plotId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: 光照安全门与动态时段状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -671,6 +695,35 @@ components:
         schemaVersion: {type: string}
         data: {type: object, nullable: true}
         error: {type: object, nullable: true}
+    DecisionReadinessEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/ApiEnvelope'}
+        - type: object
+          properties:
+            data: {$ref: '#/components/schemas/DecisionReadiness'}
+    DecisionReadiness:
+      type: object
+      required: [readinessId, subject, plotId, status, hardGates, missingEvidence, blockingEvidence, advisoryEvidence, executionAllowed, conflicts, requiredActions, policyVersion]
+      properties:
+        readinessId: {type: string}
+        subject:
+          type: object
+          required: [type, id]
+          properties:
+            type: {type: string}
+            id: {type: string}
+        plotId: {type: string}
+        status: {type: string, enum: [READY, NEEDS_EVIDENCE, HUMAN_REVIEW, UNAVAILABLE]}
+        score: {type: number, minimum: 0, maximum: 1}
+        hardGates: {type: object, additionalProperties: {type: string, enum: [PASS, REVIEW, FAIL]}}
+        missingEvidence: {type: array, items: {type: string}, description: 兼容字段；包含阻断和提醒证据，不能单独决定执行}
+        blockingEvidence: {type: array, items: {type: string}, description: 当前必须补齐的硬阻断证据}
+        advisoryEvidence: {type: array, items: {type: string}, description: 当前仅提示但不阻断常规低风险人工确认灌溉的证据}
+        executionAllowed: {type: boolean, description: 前端执行按钮和后端控制接口共同使用的最终允许标记}
+        conflicts: {type: array, items: {type: string}}
+        requiredActions: {type: array, items: {type: object, additionalProperties: true}}
+        policyVersion: {type: string, example: readiness-v2}
+        evaluatedAt: {type: string, format: date-time}
     MarketPriceOverview:
       type: object
       required: [farmId, scope, rangeDays, sourceStatus, historyPersistence, availableCropCount, totalCropCount, source, crops]
@@ -928,8 +981,9 @@ components:
       required: [plotId, idempotencyKey, confirmed]
       properties:
         plotId: {type: string}
+        planId: {type: string, description: 可选的后端光照处方编号；执行时会重新校验处方与当前安全门}
         boostLux: {type: number, minimum: 1000, description: 模拟补光增量，服务端按阶段上限裁剪}
-        durationSeconds: {type: integer, minimum: 1, maximum: 900, default: 60}
+        durationSeconds: {type: integer, minimum: 1, maximum: 28800, default: 7200, description: 补光计划时长（秒），前端直接显示 1/2/4/6/8 小时；虚拟执行不会等待真实时长}
         idempotencyKey: {type: string, minLength: 8}
         confirmed: {type: boolean, description: 当前农户已核对地块并确认虚拟补光}
         allowOfflineDemo: {type: boolean, default: false, description: 仅本地 standalone/simulation 模式允许离线设备虚拟执行}
@@ -1023,6 +1077,7 @@ components:
         soilSurface: {type: string, example: DRY}
         cropCondition: {type: string, example: LEAF_SLIGHT_WILT}
         deviceStatus: {type: string, example: NORMAL}
+        evidenceType: {type: string, enum: [FIELD_INSPECTION, RETEST, DEVICE_CHECK], default: FIELD_INSPECTION, description: RETEST 类型必须同时提供 portableSoilMoisture；普通巡田没有便携仪读数时只能形成现场观察证据}
         portableSoilMoisture: {type: number, minimum: 0, maximum: 100, nullable: true}
         notes: {type: string, description: 现场可复核说明}
     InspectionRecord:
@@ -1039,6 +1094,20 @@ components:
             updatedAt: {type: string, format: date-time}
             revision: {type: integer, minimum: 1}
             evidenceSummary: {type: string}
+            evidenceStatus: {type: string, enum: [OBSERVATION_ONLY, ACTIVE, CLEAR, UNAVAILABLE, RESOLVED, SUPERSEDED], description: 当前人工证据与遥测比对状态；历史冲突只标记状态，不删除原始记录}
+            portableComparison:
+              type: object
+              nullable: true
+              properties:
+                telemetryValue: {type: number}
+                portableValue: {type: number}
+                deviation: {type: number, minimum: 0}
+                status: {type: string, enum: [ACTIVE, CLEAR]}
+                evaluatedAt: {type: string, format: date-time}
+            resolvedByInspectionId: {type: string, nullable: true}
+            resolvedAt: {type: string, format: date-time, nullable: true}
+            supersededByInspectionId: {type: string, nullable: true}
+            supersededAt: {type: string, format: date-time, nullable: true}
             provenance: {type: string, enum: [USER_PROVIDED]}
             sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
             photos:

@@ -420,6 +420,19 @@ html[data-workspace-preset] :is(#app, #farmer_app) .settings-surface-option[data
   backdrop-filter: blur(16px) saturate(135%) !important;
 }
 
+/* A selected surface style must stay visible for every style, not only
+   minimal. The per-style previews above pin border/background/box-shadow with
+   !important, which otherwise flattens the non-!important .active ring. Mirror
+   that specificity (and go later in source) so the active state always wins,
+   keeping classic/glass selection consistent with minimal. The selected look
+   matches the workspace-preset picker (.settings-preset-option.active):
+   workspace-primary border plus a soft 18% ring, no heavy fill. */
+html[data-workspace-preset] :is(#app, #farmer_app) .settings-surface-option.active,
+html[data-workspace-preset] #app.role-farm-admin .settings-surface-option.active {
+  border-color: var(--workspace-primary, var(--g-primary)) !important;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--workspace-primary, var(--g-primary)) 18%, transparent) !important;
+}
+
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::before,
 html[data-workspace-preset][data-reduced-motion="true"] :is(#app, #farmer_app) *::after {
