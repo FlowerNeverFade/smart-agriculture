@@ -352,6 +352,7 @@ class AgriStore {
             "diagnosis", 1_000,
             "readiness", 1_000,
             "irrigation-plan", 1_000,
+            "lighting-plan", 1_000,
             "evaluation", 1_000,
             "scenario-run", 1_000,
             "market-price-snapshot", 5_000
@@ -4243,9 +4244,15 @@ class AgriEngine {
     }
 
     Map<String, Object> readiness(String subjectType, String subjectId, UserPrincipal principal) {
-        Map<String, Object> plan = "IRRIGATION_PLAN".equalsIgnoreCase(subjectType) ? store.find("irrigation-plan", subjectId) : null;
+        String normalizedSubjectType = String.valueOf(subjectType == null ? "" : subjectType).toUpperCase(Locale.ROOT);
+        Map<String, Object> plan = "IRRIGATION_PLAN".equals(normalizedSubjectType) ? store.find("irrigation-plan", subjectId)
+                : "LIGHTING_PLAN".equals(normalizedSubjectType) ? store.find("lighting-plan", subjectId) : null;
         String plotId = plan == null ? subjectId : Jsons.text(plan, "plotId", subjectId);
         if (principal != null) ensurePlotAccess(principal, plotId);
+        if ("LIGHTING_PLAN".equals(normalizedSubjectType)) {
+            if (plan == null) throw new ApiException(HttpStatus.NOT_FOUND, "LIGHTING_PLAN_NOT_FOUND", "补光处方不存在");
+            return lightingReadiness(plan, principal);
+        }
         Map<String, Object> latest = latestMetrics(plotId);
         Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
         Map<String, Object> quality = Jsons.map(mapper, soil.get("quality"));
@@ -4776,6 +4783,237 @@ class AgriEngine {
     }
 
     /**
+     * Return the deterministic light-operation guard used by both the farmer
+     * page and the virtual actuator.  Keeping this calculation server-side
+     * prevents a stale browser target or clock from bypassing the dynamic
+     * Crop Pack day/night band.
+     */
+    Map<String, Object> lightingGuard(String plotId, UserPrincipal principal) {
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        Map<String, Object> quality = Jsons.map(mapper, light.get("quality"));
+        double current = Jsons.number(light, "value", Double.NaN);
+        Instant observedAt = parseInstant(Jsons.text(light, "ts", ""), Instant.now());
+        Map<String, Object> target = lightTarget(context, observedAt);
+        double low = Jsons.number(target, "low", 0);
+        double high = Jsons.number(target, "high", 1000);
+        double span = Math.max(1, high - low);
+        double warningLow = low + span * 0.15;
+        double warningHigh = high - span * 0.15;
+        String qualityStatus = Jsons.text(quality, "status", "BAD").toUpperCase(Locale.ROOT);
+        boolean metricAvailable = Double.isFinite(current);
+        boolean fresh = metricAvailable && Duration.between(observedAt, Instant.now()).getSeconds() <= READINESS_FRESHNESS_SECONDS;
+        Map<String, Object> device = deviceForPlot(plotId);
+        String deviceStatus = Jsons.text(device, "status", "UNKNOWN").toUpperCase(Locale.ROOT);
+        boolean offline = "OFFLINE".equals(deviceStatus);
+        boolean demoMode = Set.of("standalone", "simulation").contains(String.valueOf(properties.getMode()).toLowerCase(Locale.ROOT));
+        boolean offlineDemoAllowed = offline && demoMode;
+        String state;
+        if (!metricAvailable || "BAD".equals(qualityStatus)) state = "UNAVAILABLE";
+        else if (Jsons.bool(target, "isNight", false)) state = "NIGHT_REST";
+        else if (current < low) state = "ALERT_LOW";
+        else if (current < warningLow) state = "WARN_LOW";
+        else if (current > high) state = "ALERT_HIGH";
+        else if (current > warningHigh) state = "WARN_HIGH";
+        else state = "NORMAL";
+        boolean operationAvailable = "ALERT_LOW".equals(state) && fresh && "GOOD".equals(qualityStatus)
+                && ("ONLINE".equals(deviceStatus) || offlineDemoAllowed)
+                && (principal == null || principal.canControl());
+        Map<String, Object> lastCommand = store.list("command").stream()
+                .filter(command -> plotId.equals(Jsons.text(command, "plotId", "")))
+                .filter(command -> "LIGHT_BOOST".equalsIgnoreCase(Jsons.text(command, "type", "")))
+                .filter(command -> !Set.of("CANCELLED").contains(Jsons.text(command, "status", "").toUpperCase(Locale.ROOT)))
+                .max(Comparator.comparing(command -> Jsons.instant(
+                        Jsons.map(mapper, command.get("ack")).get("receivedAt"),
+                        Jsons.instant(command.get("confirmedAt"), Jsons.instant(command.get("requestedAt"), Instant.EPOCH)))))
+                .map(command -> Jsons.copy(mapper, command)).orElse(null);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("plotId", plotId);
+        result.put("farmId", Jsons.text(plot, "farmId", farmIdForPlot(plotId)));
+        result.put("state", state);
+        result.put("status", state);
+        result.put("currentLightLux", metricAvailable ? current : null);
+        result.put("currentLight", metricAvailable ? current : null);
+        result.put("target", Map.of("low", low, "high", high, "warningLow", warningLow, "warningHigh", warningHigh));
+        result.put("lightPhase", target.get("phase"));
+        result.put("lightPhaseLabel", target.get("phaseLabel"));
+        result.put("isNight", Jsons.bool(target, "isNight", false));
+        result.put("dayStart", target.get("dayStart"));
+        result.put("dayEnd", target.get("dayEnd"));
+        result.put("metricAvailable", metricAvailable);
+        result.put("freshnessPass", fresh);
+        result.put("qualityStatus", qualityStatus);
+        result.put("deviceStatus", deviceStatus);
+        result.put("deviceOffline", offline);
+        result.put("offlineDemoAllowed", offlineDemoAllowed);
+        result.put("operationAvailable", operationAvailable);
+        result.put("virtualOnly", true);
+        result.put("executionMode", "SIMULATED");
+        result.put("provenance", "DERIVED");
+        result.put("sourceMode", "SIMULATION");
+        result.put("durationOptionsSeconds", List.of(3600, 7200, 14400, 21600, 28800));
+        result.put("maxDurationSeconds", maxLightingDurationSeconds());
+        result.put("lastCommandId", lastCommand == null ? null : lastCommand.get("commandId"));
+        result.put("lastOutcome", lastCommand == null ? null : lastCommand.get("status"));
+        result.put("evaluatedAt", Instant.now().toString());
+        result.put("cropPackVersion", context.get("cropPackVersion"));
+        result.put("ruleVersion", context.get("ruleVersion"));
+        return result;
+    }
+
+    private long maxLightingDurationSeconds() {
+        return Math.max(1, properties.getMaxLightingSeconds());
+    }
+
+    private String durationLabel(long seconds) {
+        if (seconds % 3600 == 0) return (seconds / 3600) + "h";
+        return Math.round(seconds / 3600.0 * 100.0) / 100.0 + "h";
+    }
+
+    private Map<String, Object> lightingDiagnosis(String plotId, Map<String, Object> request,
+                                                  Map<String, Object> guard) {
+        Map<String, Object> context = plotCropContext(plotId);
+        double current = Jsons.number(guard, "currentLightLux", Double.NaN);
+        Map<String, Object> target = Jsons.map(mapper, guard.get("target"));
+        double low = Jsons.number(target, "low", 0);
+        double high = Jsons.number(target, "high", 1000);
+        String state = Jsons.text(guard, "state", "UNAVAILABLE");
+        String cause = switch (state) {
+            case "NIGHT_REST" -> "NIGHT_REST";
+            case "ALERT_LOW", "WARN_LOW" -> "LIGHT_DEFICIT";
+            case "ALERT_HIGH", "WARN_HIGH" -> "LIGHT_EXCESS";
+            case "NORMAL" -> "LIGHT_NORMAL";
+            default -> "LIGHT_UNAVAILABLE";
+        };
+        double confidence = switch (cause) {
+            case "LIGHT_DEFICIT", "LIGHT_EXCESS" -> Double.isFinite(current)
+                    ? Math.min(.96, Math.max(.55, Math.abs(current - (cause.equals("LIGHT_DEFICIT") ? low : high)) / Math.max(1, high) + .55)) : .1;
+            case "NIGHT_REST", "LIGHT_NORMAL" -> .98;
+            default -> .1;
+        };
+        List<Map<String, Object>> supporting = new ArrayList<>();
+        List<Map<String, Object>> opposing = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+        if (Double.isFinite(current)) supporting.add(Map.of("type", "telemetry", "metric", "LIGHT", "value", current, "unit", "lux", "provenance", "OBSERVED"));
+        else missing.add("LIGHT");
+        if (!Jsons.bool(guard, "freshnessPass", false)) missing.add("FRESH_TELEMETRY");
+        if (!"GOOD".equals(Jsons.text(guard, "qualityStatus", "BAD"))) missing.add("GOOD_DATA_QUALITY");
+        if ("NIGHT_REST".equals(state)) supporting.add(Map.of("type", "schedule", "phase", "NIGHT", "target", low + "~" + high + " lux", "provenance", "DERIVED"));
+        if ("LIGHT_DEFICIT".equals(cause)) supporting.add(Map.of("type", "rule", "reason", "白天光照低于阶段下限", "provenance", "DERIVED"));
+        if ("LIGHT_EXCESS".equals(cause)) supporting.add(Map.of("type", "rule", "reason", "光照高于阶段上限", "provenance", "DERIVED"));
+        if ("LIGHT_NORMAL".equals(cause)) opposing.add(Map.of("type", "rule", "reason", "当前光照处于阶段目标范围", "provenance", "DERIVED"));
+        if (Jsons.bool(guard, "deviceOffline", false)) supporting.add(Map.of("type", "device", "status", "OFFLINE", "provenance", "OBSERVED"));
+        Map<String, Object> diagnosis = new LinkedHashMap<>();
+        diagnosis.put("diagnosisId", Jsons.id("diag")); diagnosis.put("plotId", plotId); diagnosis.put("metric", "LIGHT");
+        diagnosis.put("diagnosisType", "LIGHTING"); diagnosis.put("riskType", cause); diagnosis.put("primaryCause", cause);
+        diagnosis.put("confidence", Math.round(confidence * 100.0) / 100.0); diagnosis.put("supportingEvidence", supporting);
+        diagnosis.put("opposingEvidence", opposing); diagnosis.put("missingInformation", missing);
+        diagnosis.put("scenarioId", Jsons.text(request, "scenarioId", "normal")); diagnosis.put("lightPhase", guard.get("lightPhase"));
+        diagnosis.put("lightPhaseLabel", guard.get("lightPhaseLabel")); diagnosis.put("thresholds", target);
+        diagnosis.put("cropPackVersion", context.get("cropPackVersion")); diagnosis.put("ruleVersion", context.get("ruleVersion"));
+        diagnosis.put("knowledgeVersion", context.get("knowledgeVersion")); diagnosis.put("stageCode", context.get("stageCode"));
+        diagnosis.put("stageLabel", context.get("stageLabel")); diagnosis.put("evaluatedAt", Instant.now().toString());
+        store.save("diagnosis", Jsons.text(diagnosis, "diagnosisId", ""), diagnosis);
+        events.publish("diagnosis.created", diagnosis); store.logEvent("diagnosis.created", diagnosis);
+        return diagnosis;
+    }
+
+    /** Build the same inspect -> preview -> confirm contract used by irrigation. */
+    Map<String, Object> lightingPlan(Map<String, Object> request, UserPrincipal principal) {
+        Map<String, Object> input = request == null ? Map.of() : request;
+        String plotId = Jsons.text(input, "plotId", "plot-a01");
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> guard = lightingGuard(plotId, principal);
+        Map<String, Object> diagnosis = lightingDiagnosis(plotId, input, guard);
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        double current = Jsons.number(guard, "currentLightLux", Double.NaN);
+        double low = Jsons.number(Jsons.map(mapper, guard.get("target")), "low", 0);
+        double high = Jsons.number(Jsons.map(mapper, guard.get("target")), "high", 1000);
+        boolean actionRequired = "ALERT_LOW".equals(Jsons.text(guard, "state", ""));
+        long requestedDuration = Jsons.whole(input, "durationSeconds", 2 * 60 * 60);
+        long duration = Math.max(1, Math.min(maxLightingDurationSeconds(), requestedDuration));
+        double requestedBoost = Jsons.number(input, "boostLux", Double.NaN);
+        if (!Double.isFinite(requestedBoost) || requestedBoost <= 0) requestedBoost = Math.max(1000, (low + high) / 2.0 - (Double.isFinite(current) ? current : low));
+        requestedBoost = Math.min(50_000, requestedBoost);
+        double expectedAfter = Double.isFinite(current) ? Math.min(high, current + requestedBoost) : Double.NaN;
+        boolean metricPass = Boolean.TRUE.equals(guard.get("metricAvailable"));
+        boolean qualityPass = "GOOD".equals(Jsons.text(guard, "qualityStatus", "BAD"));
+        boolean freshnessPass = Boolean.TRUE.equals(guard.get("freshnessPass"));
+        boolean offlineBlocked = Boolean.TRUE.equals(guard.get("deviceOffline")) && !Boolean.TRUE.equals(guard.get("offlineDemoAllowed"));
+        boolean permissionPass = principal == null || principal.canControl();
+        boolean safetyPass = requestedDuration > 0 && requestedDuration <= maxLightingDurationSeconds();
+        boolean hardBlock = !metricPass || !qualityPass || !freshnessPass || offlineBlocked || !permissionPass || !safetyPass;
+        boolean executable = actionRequired && !hardBlock && Boolean.TRUE.equals(guard.get("operationAvailable"));
+        String readinessStatus = !metricPass || !qualityPass || !freshnessPass ? "NEEDS_EVIDENCE" : offlineBlocked ? "UNAVAILABLE" : !permissionPass || !safetyPass ? "HUMAN_REVIEW" : "READY";
+        if (!actionRequired && !hardBlock) readinessStatus = "READY";
+        List<String> missing = new ArrayList<>();
+        if (!metricPass) missing.add("LIGHT"); if (!freshnessPass) missing.add("FRESH_TELEMETRY"); if (!qualityPass) missing.add("GOOD_DATA_QUALITY");
+        if (offlineBlocked) missing.add("DEVICE_HEALTH"); if (!permissionPass) missing.add("CONTROL_PERMISSION"); if (!safetyPass) missing.add("LIGHTING_DURATION_LIMIT");
+        if (Boolean.TRUE.equals(guard.get("deviceOffline")) && Boolean.TRUE.equals(guard.get("offlineDemoAllowed"))) missing.add("DEVICE_OFFLINE_VIRTUAL_ONLY");
+        Map<String, String> gates = new LinkedHashMap<>();
+        gates.put("requiredMetrics", metricPass ? "PASS" : "FAIL"); gates.put("freshness", freshnessPass ? "PASS" : "FAIL");
+        gates.put("dataQuality", qualityPass ? "PASS" : "FAIL"); gates.put("deviceHealth", offlineBlocked ? "FAIL" : Boolean.TRUE.equals(guard.get("deviceOffline")) ? "REVIEW" : "PASS");
+        gates.put("phaseRequirement", !Jsons.bool(guard, "isNight", false) ? "PASS" : "REVIEW"); gates.put("permission", permissionPass ? "PASS" : "REVIEW"); gates.put("safetyLimit", safetyPass ? "PASS" : "FAIL");
+        Map<String, Object> plan = new LinkedHashMap<>();
+        String planId = Jsons.id("light-plan"); plan.put("planId", planId); plan.put("plotId", plotId); plan.put("farmId", Jsons.text(plot, "farmId", farmIdForPlot(plotId)));
+        plan.put("diagnosisId", diagnosis.get("diagnosisId")); plan.put("diagnosis", diagnosis); plan.put("cropPackVersion", context.get("cropPackVersion"));
+        plan.put("ruleVersion", context.get("ruleVersion")); plan.put("knowledgeVersion", context.get("knowledgeVersion")); plan.put("agentVersion", context.get("agentVersion"));
+        plan.put("stageCode", context.get("stageCode")); plan.put("stageLabel", context.get("stageLabel")); plan.put("lightPhase", guard.get("lightPhase")); plan.put("lightPhaseLabel", guard.get("lightPhaseLabel"));
+        plan.put("currentLightLux", metricPass ? current : null); plan.put("targetLightLow", low); plan.put("targetLightHigh", high);
+        plan.put("boostLux", requestedBoost); plan.put("durationSeconds", duration); plan.put("durationHours", Math.round(duration / 3600.0 * 100.0) / 100.0);
+        plan.put("durationLabel", durationLabel(duration));
+        Map<String, Object> expectedResult = new LinkedHashMap<>(); expectedResult.put("metric", "LIGHT"); expectedResult.put("from", metricPass ? current : null); expectedResult.put("to", metricPass ? expectedAfter : null);
+        plan.put("expectedResult", expectedResult);
+        plan.put("what", "LIGHT_BOOST"); plan.put("where", plotId); plan.put("when", Map.of("phase", guard.get("lightPhase"), "dayStart", guard.get("dayStart"), "dayEnd", guard.get("dayEnd")));
+        plan.put("why", !metricPass ? "当前没有可用光照读数，不能猜测补光" : Jsons.bool(guard, "isNight", false) ? "当前为夜间休息时段，无需补光" : "白天光照低于作物阶段目标");
+        plan.put("virtualOnly", true); plan.put("executionMode", "OPERATOR_CONFIRMED"); plan.put("sourceMode", "SIMULATION"); plan.put("provenance", "DERIVED");
+        plan.put("offlineDemoAllowed", guard.get("offlineDemoAllowed")); plan.put("readinessStatus", readinessStatus); plan.put("hardGates", gates);
+        plan.put("missingEvidence", distinctEvidence(missing)); plan.put("blockingEvidence", distinctEvidence(missing.stream().filter(item -> !"DEVICE_OFFLINE_VIRTUAL_ONLY".equals(item)).toList()));
+        plan.put("advisoryEvidence", Boolean.TRUE.equals(guard.get("deviceOffline")) && Boolean.TRUE.equals(guard.get("offlineDemoAllowed")) ? List.of("DEVICE_OFFLINE_VIRTUAL_ONLY") : List.of());
+        plan.put("actionRequired", actionRequired); plan.put("executionAllowed", executable); plan.put("executable", executable); plan.put("advisoryOnly", !executable);
+        plan.put("confirmationRequired", actionRequired); plan.put("requiresApproval", false); plan.put("maxDurationSeconds", maxLightingDurationSeconds());
+        plan.put("status", hardBlock ? "BLOCKED" : actionRequired ? (executable ? "PROPOSED" : "HUMAN_REVIEW") : "NO_ACTION"); plan.put("createdAt", Instant.now().toString());
+        store.save("lighting-plan", planId, plan);
+        Map<String, Object> readiness = lightingReadiness(plan, principal);
+        plan.put("readinessId", readiness.get("readinessId")); plan.put("readiness", readiness);
+        store.save("lighting-plan", planId, plan); events.publish("lighting.plan.created", plan); store.logEvent("lighting.plan.created", plan);
+        return plan;
+    }
+
+    private Map<String, Object> lightingReadiness(Map<String, Object> plan, UserPrincipal principal) {
+        String plotId = Jsons.text(plan, "plotId", "");
+        Map<String, Object> guard = lightingGuard(plotId, principal);
+        boolean metricPass = Boolean.TRUE.equals(guard.get("metricAvailable"));
+        boolean qualityPass = "GOOD".equals(Jsons.text(guard, "qualityStatus", "BAD"));
+        boolean freshnessPass = Boolean.TRUE.equals(guard.get("freshnessPass"));
+        boolean offline = Boolean.TRUE.equals(guard.get("deviceOffline"));
+        boolean offlineDemo = Boolean.TRUE.equals(guard.get("offlineDemoAllowed"));
+        boolean permissionPass = principal == null || principal.canControl();
+        boolean durationPass = Jsons.whole(plan, "durationSeconds", 0) <= maxLightingDurationSeconds();
+        boolean hardBlock = !metricPass || !qualityPass || !freshnessPass || (offline && !offlineDemo) || !permissionPass || !durationPass;
+        boolean actionRequired = Jsons.bool(plan, "actionRequired", false);
+        boolean executionAllowed = actionRequired && !hardBlock && "ALERT_LOW".equals(Jsons.text(guard, "state", ""));
+        String status = !metricPass || !qualityPass || !freshnessPass ? "NEEDS_EVIDENCE" : (offline && !offlineDemo) ? "UNAVAILABLE" : (!permissionPass || !durationPass) ? "HUMAN_REVIEW" : "READY";
+        List<String> blocking = new ArrayList<>(); List<String> advisory = new ArrayList<>();
+        if (!metricPass) blocking.add("LIGHT"); if (!freshnessPass) blocking.add("FRESH_TELEMETRY"); if (!qualityPass) blocking.add("GOOD_DATA_QUALITY");
+        if (offline && !offlineDemo) blocking.add("DEVICE_HEALTH"); else if (offline) advisory.add("DEVICE_OFFLINE_VIRTUAL_ONLY");
+        if (!permissionPass) blocking.add("CONTROL_PERMISSION"); if (!durationPass) blocking.add("LIGHTING_DURATION_LIMIT");
+        if (Jsons.bool(guard, "isNight", false) && actionRequired) blocking.add("NIGHT_REST");
+        Map<String, String> gates = new LinkedHashMap<>(); gates.put("requiredMetrics", metricPass ? "PASS" : "FAIL"); gates.put("freshness", freshnessPass ? "PASS" : "FAIL"); gates.put("dataQuality", qualityPass ? "PASS" : "FAIL");
+        gates.put("deviceHealth", offline ? (offlineDemo ? "REVIEW" : "FAIL") : "PASS"); gates.put("phaseRequirement", Jsons.bool(guard, "isNight", false) ? "FAIL" : "PASS"); gates.put("permission", permissionPass ? "PASS" : "REVIEW"); gates.put("safetyLimit", durationPass ? "PASS" : "FAIL");
+        Map<String, Object> result = new LinkedHashMap<>(); result.put("readinessId", Jsons.id("ready")); result.put("subject", Map.of("type", "LIGHTING_PLAN", "id", plan.get("planId"))); result.put("plotId", plotId);
+        result.put("status", status); result.put("score", Math.round(((metricPass ? .2 : 0) + (freshnessPass ? .15 : 0) + (qualityPass ? .2 : 0) + ((!offline || offlineDemo) ? .15 : 0) + (permissionPass ? .15 : 0) + (durationPass ? .15 : 0)) * 100.0) / 100.0);
+        result.put("hardGates", gates); result.put("missingEvidence", distinctEvidence(Stream.concat(blocking.stream(), advisory.stream()).toList())); result.put("blockingEvidence", distinctEvidence(blocking)); result.put("advisoryEvidence", distinctEvidence(advisory));
+        result.put("executionAllowed", executionAllowed); result.put("requiredActions", requiredActions(status, blocking)); result.put("policyVersion", READINESS_POLICY_VERSION); result.put("evaluatedAt", Instant.now().toString());
+        store.save("readiness", Jsons.text(result, "readinessId", ""), result); events.publish("readiness.evaluated", result); store.logEvent("readiness.evaluated", result);
+        return result;
+    }
+
+    /**
      * Start a bounded virtual fill-light operation.  An offline device is
      * accepted only for the local standalone/simulation demo and is explicitly
      * marked as virtual; no hardware command is implied by this endpoint.
@@ -4803,6 +5041,32 @@ class AgriEngine {
             throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CONFIRMATION_REQUIRED", "执行补光前需要当前操作人明确确认");
         }
 
+        String requestedPlanId = Jsons.text(input, "planId", "").trim();
+        Map<String, Object> plan;
+        if (requestedPlanId.isBlank()) {
+            plan = lightingPlan(input, principal);
+        } else {
+            plan = store.find("lighting-plan", requestedPlanId);
+            if (plan == null) throw new ApiException(HttpStatus.NOT_FOUND, "LIGHTING_PLAN_NOT_FOUND", "补光处方不存在，请刷新当前地块后重试");
+            if (!plotId.equals(Jsons.text(plan, "plotId", ""))) throw new ApiException(HttpStatus.CONFLICT, "LIGHTING_PLAN_PLOT_MISMATCH", "补光处方与当前地块不一致");
+        }
+        boolean force = Jsons.bool(input, "force", false);
+        if (!force && !Jsons.bool(plan, "actionRequired", false)) {
+            String phase = Jsons.text(plan, "lightPhase", "");
+            if ("NIGHT".equalsIgnoreCase(phase)) {
+                throw new ApiException(HttpStatus.CONFLICT, "LIGHT_NOT_REQUIRED_AT_NIGHT", "当前处于夜间休息时段，无需补光");
+            }
+            if ("LIGHT_EXCESS".equalsIgnoreCase(Jsons.text(Jsons.map(mapper, plan.get("diagnosis")), "primaryCause", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "LIGHT_ALREADY_HIGH", "当前光照已高于阶段目标，不应继续补光");
+            }
+            throw new ApiException(HttpStatus.CONFLICT, "LIGHT_NOT_REQUIRED", "当前光照处于阶段目标范围内，无需补光");
+        }
+        if (!force && !Jsons.bool(plan, "executionAllowed", false)) {
+            String reason = Jsons.text(plan, "why", "当前光照处方未通过安全门");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "LIGHTING_NOT_READY", reason)
+                    .withDetails(Map.of("plan", plan, "readiness", plan.getOrDefault("readiness", Map.of())));
+        }
+
         Map<String, Object> latest = latestMetrics(plotId);
         Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
         double current = Jsons.number(light, "value", Double.NaN);
@@ -4818,10 +5082,10 @@ class AgriEngine {
         if (current >= high && !Jsons.bool(input, "force", false)) {
             throw new ApiException(HttpStatus.CONFLICT, "LIGHT_ALREADY_HIGH", "当前光照已高于阶段目标，不应继续补光");
         }
-        double requestedBoost = Jsons.number(input, "boostLux", Double.NaN);
+        double requestedBoost = Jsons.number(input, "boostLux", Jsons.number(plan, "boostLux", Double.NaN));
         if (!Double.isFinite(requestedBoost) || requestedBoost <= 0) requestedBoost = Math.max(1000, (low + high) / 2.0 - current);
         requestedBoost = Math.min(50_000, requestedBoost);
-        long duration = Math.max(1, Math.min(properties.getMaxLightingSeconds(), Jsons.whole(input, "durationSeconds", 2 * 60 * 60)));
+        long duration = Math.max(1, Math.min(maxLightingDurationSeconds(), Jsons.whole(input, "durationSeconds", Jsons.whole(plan, "durationSeconds", 2 * 60 * 60))));
         Map<String, Object> device = deviceForPlot(plotId);
         String deviceStatus = Jsons.text(device, "status", "UNKNOWN").toUpperCase(Locale.ROOT);
         boolean offline = "OFFLINE".equals(deviceStatus);
@@ -4833,9 +5097,12 @@ class AgriEngine {
         Map<String, Object> command = new LinkedHashMap<>();
         command.put("commandId", Jsons.id("cmd")); command.put("farmId", Jsons.text(plot, "farmId", "farm-demo")); command.put("plotId", plotId);
         command.put("deviceId", Jsons.text(device, "deviceId", "mock-" + plotId)); command.put("type", "LIGHT_BOOST");
+        command.put("planId", plan.get("planId")); command.put("diagnosisId", plan.get("diagnosisId")); command.put("readinessId", plan.get("readinessId"));
         command.put("durationSeconds", duration); command.put("lightLux", requestedBoost); command.put("expectedLightBefore", current); command.put("expectedLightAfter", expectedAfter);
         command.put("targetLightLow", low); command.put("targetLightHigh", high); command.put("deviceStatusAtRequest", deviceStatus);
         command.put("lightPhase", lightTarget.get("phase")); command.put("lightPhaseLabel", lightTarget.get("phaseLabel"));
+        command.put("durationHours", Math.round(duration / 3600.0 * 100.0) / 100.0); command.put("durationLabel", durationLabel(duration));
+        command.put("maxDurationSeconds", maxLightingDurationSeconds()); command.put("safetyCheckedAt", Instant.now().toString());
         command.put("offlineDemoOverride", offlineDemo); command.put("virtualOnly", true); command.put("executionMode", "SIMULATED"); command.put("provenance", "SIMULATED");
         command.put("sourceMode", "SIMULATION"); command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
         command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false); command.put("confirmationMode", "OPERATOR_CONFIRMED");
@@ -5237,6 +5504,8 @@ class AgriEngine {
         evaluation.put("expected", expected); evaluation.put("actual", actualView);
         evaluation.put("effectivenessScore", "COMPLETED".equals(status) && "GOOD".equals(result) ? .94 : "PARTIAL".equals(status) ? .45 : 0.0);
         evaluation.put("result", result); evaluation.put("executionMode", "SIMULATED"); evaluation.put("provenance", "SIMULATED"); evaluation.put("offlineDemoOverride", Jsons.bool(command, "offlineDemoOverride", false));
+        evaluation.put("durationSeconds", Jsons.whole(command, "durationSeconds", 0)); evaluation.put("durationHours", Math.round(Jsons.whole(command, "durationSeconds", 0) / 3600.0 * 100.0) / 100.0);
+        evaluation.put("lightPhase", command.get("lightPhase")); evaluation.put("lightPhaseLabel", command.get("lightPhaseLabel")); evaluation.put("sourceMode", "SIMULATION");
         evaluation.put("evidenceWindow", Map.of("beforeMinutes", 10, "afterMinutes", 10)); evaluation.put("createdAt", Instant.now().toString());
         if (success) recordVirtualLightEffect(plotId, commandId, ackStatus, after);
         command.put("evaluation", evaluation); store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command);
@@ -10315,6 +10584,16 @@ class AgriController {
     @PostMapping("/lighting/virtual")
     ResponseEntity<?> virtualLighting(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
         return ok(engine.virtualLighting(body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/lighting/estimate")
+    ResponseEntity<?> lightingEstimate(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(engine.lightingPlan(body == null ? Map.of() : body, principal(a)));
+    }
+
+    @GetMapping("/plots/{plotId}/lighting-guard")
+    ResponseEntity<?> lightingGuard(@PathVariable String plotId, Authentication a) {
+        return ok(engine.lightingGuard(plotId, principal(a)));
     }
 
     @PostMapping("/agent/chat")

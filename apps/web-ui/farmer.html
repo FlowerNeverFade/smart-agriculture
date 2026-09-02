@@ -1002,6 +1002,16 @@
                   <div v-else-if="advice_light_status.status === 'WARN_LOW'" class="farmer-light-system-notice"><app-icon name="light_mode"></app-icon><span>光照略低于目标，建议先核对遮挡；达到告警阈值后才开放补光操作。</span></div>
                   <div v-else-if="advice_light_status.status === 'ALERT_LOW'" class="farmer-light-system-notice is-low"><app-icon name="light_mode"></app-icon><span>{{ advice_light_status.deviceOffline ? '设备离线，仅可在本地演示模式下虚拟补光。' : '光照低于告警阈值，可由当前操作人确认执行虚拟补光。' }}</span></div>
                   <div v-else class="farmer-light-system-notice is-normal"><app-icon name="check_circle"></app-icon><span>{{ advice_light_status.isNight ? '当前为夜间休息时段，作物不需要补光，系统已关闭缺光预警。' : '当前光照处于阶段目标范围内，无需补光。' }}</span></div>
+                  <div v-if="lighting_plan_loading || lighting_plan_error || lighting_readiness_summary" class="farmer-light-readiness-strip">
+                    <span class="farmer-light-readiness-title">后端决策就绪度</span>
+                    <span v-if="lighting_plan_loading" class="farmer-light-readiness-value">读取中…</span>
+                    <span v-else-if="lighting_plan_error" class="farmer-light-readiness-value is-error">{{ lighting_plan_error }}</span>
+                    <template v-else>
+                      <span class="farmer-light-readiness-value" :class="lighting_readiness_summary.status === 'READY' ? 'is-ready' : 'is-review'">{{ lighting_readiness_summary.statusLabel }}<em v-if="lighting_readiness_summary.score !== null"> · {{ lighting_readiness_summary.score }}%</em></span>
+                      <span v-if="lighting_readiness_summary.advisory.length" class="farmer-light-readiness-note">{{ lighting_readiness_summary.advisory[0].label }}</span>
+                      <span v-if="lighting_readiness_summary.blocking.length" class="farmer-light-readiness-note is-error">缺少 {{ lighting_readiness_summary.blocking[0].label }}</span>
+                    </template>
+                  </div>
                   <div class="farmer-light-control-actions"><button v-if="light_operation_available" type="button" class="g-btn primary farmer-btn-analyze" @click="open_virtual_lighting" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>{{ light_operation_label }}</button><button type="button" class="g-btn secondary farmer-btn-light" :class="{ 'is-active': show_lighting_diagnosis }" @click="open_lighting_diagnosis"><app-icon :name="show_lighting_diagnosis ? 'expand_less' : 'psychology'"></app-icon>{{ show_lighting_diagnosis ? '收起诊断' : '查看智能诊断' }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)"><app-icon name="grass"></app-icon>查看地块详情</button></div>
                   <div v-if="show_lighting_diagnosis && lighting_advice_summary" class="farmer-fold-section farmer-advice-diagnosis-panel farmer-light-diagnosis-panel">
                     <div class="farmer-panel-header">
@@ -1946,7 +1956,8 @@
                 <div><span>光照变化</span><b>{{ virtual_lighting_result?.evaluation?.actual?.lightLuxBefore ?? '—' }} → {{ virtual_lighting_result?.evaluation?.actual?.lightLuxAfter ?? '—' }} lux</b><em>效果分 {{ virtual_lighting_result?.evaluation?.effectivenessScore ? Math.round(virtual_lighting_result.evaluation.effectivenessScore * 100) : '—' }}</em></div>
                 <div><span>执行来源</span><b>{{ advice_light_status?.deviceOffline ? '离线演示' : '在线虚拟' }}</b><em>模拟数据</em></div>
               </div>
-              <div class="farmer-form-footer"><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_virtual_lighting">关闭</button></div>
+              <p v-if="virtual_lighting_recovery_status" class="farmer-form-hint">{{ virtual_lighting_recovery_status }}</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="refresh_virtual_lighting_recovery" :disabled="virtual_lighting_recovery_busy"><app-icon name="refresh"></app-icon>{{ virtual_lighting_recovery_busy ? '读取中…' : '刷新回执与效果' }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_light_reinspection">提交巡田复测</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_virtual_lighting">关闭</button></div>
             </section>
           </article>
         </div>

@@ -2018,6 +2018,7 @@ const app = createApp({
         advice_selected_plot.value = plot;
         // 处方随地块切换重新读取，避免确认弹窗沿用上一块地的数据。
         load_irrigation_plan(plot.plotId, { silent: true });
+        load_lighting_plan(plot.plotId, { silent: true });
       }
     };
     const operation_subsystem = ref('irrigation');
@@ -2177,7 +2178,11 @@ const app = createApp({
         needsAttention: status !== 'NORMAL'
       };
     });
-    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && !advice_light_status.value.isNight && Boolean(advice_plot.value?.plotId));
+    const light_operation_available = computed(() => {
+      const backendGuard = lighting_guard.value;
+      if (backendGuard?.plotId && backendGuard.plotId === advice_plot.value?.plotId) return backendGuard.operationAvailable === true;
+      return advice_light_status.value.status === 'ALERT_LOW' && !advice_light_status.value.isNight && Boolean(advice_plot.value?.plotId);
+    });
     const light_operation_label = computed(() => advice_light_status.value.deviceOffline ? '虚拟补光（离线演示）' : '执行补光');
     const show_virtual_lighting = ref(false);
     const show_lighting_diagnosis = ref(false);
@@ -2186,6 +2191,8 @@ const app = createApp({
     const virtual_lighting_result = ref(null);
     const virtual_lighting_error = ref('');
     const virtual_lighting_busy = ref(false);
+    const virtual_lighting_recovery_status = ref('');
+    const virtual_lighting_recovery_busy = ref(false);
     const virtual_lighting_idempotency_key = ref('');
     const virtual_lighting_boost = ref(6000);
     const virtual_lighting_duration_seconds = ref(2 * 60 * 60);
@@ -2244,6 +2251,29 @@ const app = createApp({
         recommendation = '建议刷新数据或检查设备连接后再进行诊断。';
       }
       return { causeLabel, confidenceLabel: hasValue ? '规则判定' : '证据不足', summary, recommendation, supporting, opposing, missing, statusLabel: info.label || '光照正常' };
+    });
+    const lighting_plan = ref(null);
+    const lighting_guard = ref(null);
+    const lighting_readiness_detail = ref(null);
+    const lighting_plan_loading = ref(false);
+    const lighting_plan_error = ref('');
+    let lighting_plan_request_version = 0;
+    const lighting_readiness_summary = computed(() => {
+      const plan = lighting_plan.value;
+      const readiness = lighting_readiness_detail.value || plan?.readiness;
+      if (!plan && !readiness) return null;
+      const status = String(readiness?.status || plan?.readinessStatus || 'UNAVAILABLE').toUpperCase();
+      const blocking = Array.isArray(readiness?.blockingEvidence) ? readiness.blockingEvidence : (plan?.blockingEvidence || []);
+      const advisory = Array.isArray(readiness?.advisoryEvidence) ? readiness.advisoryEvidence : (plan?.advisoryEvidence || []);
+      return {
+        status,
+        statusLabel: READINESS_STATUS_LABELS[status] || (status === 'READY' ? '可执行' : '需补证'),
+        score: Number.isFinite(Number(readiness?.score)) ? Math.round(Number(readiness.score) * 100) : null,
+        executionAllowed: readiness?.executionAllowed !== false && plan?.executionAllowed !== false && blocking.length === 0,
+        blocking: blocking.slice(0, 4).map((item, index) => evidence_view(item, index)),
+        advisory: advisory.slice(0, 4).map((item, index) => evidence_view(item, index)),
+        gates: Object.entries(readiness?.hardGates || plan?.hardGates || {}).map(([key, value]) => ({ key, label: READINESS_GATE_LABELS[key] || key, status: String(value || '').toUpperCase() }))
+      };
     });
     const irrigation_readiness = computed(() => {
       const score = irrigation_readiness_detail.value?.score ?? advice_readiness.value?.score;
@@ -4365,6 +4395,53 @@ const app = createApp({
       }
     };
 
+    const load_lighting_plan = async (plot_id = advice_plot.value?.plotId, { silent = false } = {}) => {
+      const plotId = plot_id || advice_plot.value?.plotId;
+      if (!plotId) {
+        lighting_plan.value = null;
+        lighting_guard.value = null;
+        lighting_readiness_detail.value = null;
+        lighting_plan_error.value = '没有可生成补光建议的地块';
+        return null;
+      }
+      const version = ++lighting_plan_request_version;
+      lighting_plan_loading.value = true;
+      lighting_plan_error.value = '';
+      try {
+        const plan = await api.estimateLighting({
+          farmId: farm.value?.farmId || session_user?.farmIds?.find((id) => id !== '*') || 'farm-demo',
+          plotId,
+          scenarioId: 'NORMAL'
+        });
+        if (version !== lighting_plan_request_version) return plan;
+        lighting_plan.value = plan;
+        lighting_readiness_detail.value = plan?.readiness || null;
+        if (plan?.planId) {
+          try {
+            lighting_readiness_detail.value = await api.getDecisionReadiness('LIGHTING_PLAN', plan.planId, { plan, plotId });
+          } catch (error) {
+            lighting_readiness_detail.value = plan.readiness || { status: plan.readinessStatus || 'UNAVAILABLE', reason: error?.message || '就绪度暂不可用' };
+          }
+        }
+        try {
+          lighting_guard.value = await api.getLightingGuard(plotId);
+        } catch {
+          lighting_guard.value = null;
+        }
+        return plan;
+      } catch (error) {
+        if (version !== lighting_plan_request_version) return null;
+        lighting_plan.value = null;
+        lighting_guard.value = null;
+        lighting_readiness_detail.value = null;
+        lighting_plan_error.value = error?.message || '补光处方读取失败';
+        if (!silent) show_toast(lighting_plan_error.value, 'error');
+        return null;
+      } finally {
+        if (version === lighting_plan_request_version) lighting_plan_loading.value = false;
+      }
+    };
+
     const toggle_automatic_watering = async (plotId = advice_plot.value?.plotId) => {
       if (!plotId || automatic_watering_setting_busy.value) return null;
       const currentEnabled = automatic_watering_setting.value?.enabled
@@ -4595,6 +4672,7 @@ const app = createApp({
       try {
         let result = await api.executeVirtualLighting({
           plotId,
+          planId: lighting_plan.value?.plotId === plotId ? lighting_plan.value.planId : undefined,
           boostLux: preview.boost,
           durationSeconds: preview.durationSeconds,
           confirmed: true,
@@ -4602,9 +4680,20 @@ const app = createApp({
           idempotencyKey: virtual_lighting_idempotency_key.value,
           source: 'farmer-operation-system'
         });
+        if (is_live.value) {
+          result = await wait_for_lighting_completion(result);
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+          if (result?.commandId) {
+            const evaluation = await api.getCommandEvaluation(result.commandId).catch(() => null);
+            if (evaluation) result = { ...result, evaluation };
+          }
+        }
         virtual_lighting_result.value = result;
+        virtual_lighting_recovery_status.value = '补光命令已提交，等待最新遥测和效果评价。';
         virtual_lighting_stage.value = 'RESULT';
-        await load_live_workspace({ announce: false });
+        if (!is_live.value) await load_live_workspace({ announce: false });
+        await load_lighting_plan(plotId, { silent: true });
         show_toast('离线设备已完成虚拟补光，结果已写入模拟遥测');
       } catch (error) {
         virtual_lighting_error.value = error?.message || '虚拟补光失败，请稍后重试';
@@ -4613,6 +4702,41 @@ const app = createApp({
       } finally {
         virtual_lighting_busy.value = false;
       }
+    };
+
+    const refresh_virtual_lighting_recovery = async () => {
+      const commandId = virtual_lighting_result.value?.commandId;
+      if (!commandId || virtual_lighting_recovery_busy.value) return;
+      virtual_lighting_recovery_busy.value = true;
+      try {
+        let command = await api.getCommand(commandId);
+        const evaluation = await api.getCommandEvaluation(commandId).catch(() => null);
+        if (evaluation) command = { ...command, evaluation };
+        virtual_lighting_result.value = command;
+        const plotId = command?.plotId || advice_plot.value?.plotId;
+        if (is_formal_session) {
+          await refresh_plot_telemetry();
+          await load_live_workspace({ announce: false });
+        }
+        if (plotId) await load_lighting_plan(plotId, { silent: true });
+        const status = String(command?.ack?.status || command?.status || '').toUpperCase();
+        const result = String(command?.evaluation?.result || '').toUpperCase();
+        virtual_lighting_recovery_status.value = status === 'SUCCEEDED' && result === 'GOOD'
+          ? '最新遥测已写回，补光效果评价为良好。'
+          : status === 'PARTIAL' ? '命令已部分完成，建议继续观察并进行现场复测。'
+            : ['FAILED', 'TIMEOUT'].includes(status) ? '命令未成功完成，请检查设备状态并重新诊断。'
+              : '等待设备回执和效果评价。';
+      } catch (error) {
+        virtual_lighting_recovery_status.value = `恢复状态暂不可用：${error?.message || '请稍后重试'}`;
+      } finally {
+        virtual_lighting_recovery_busy.value = false;
+      }
+    };
+
+    const open_light_reinspection = () => {
+      const plotId = virtual_lighting_result.value?.plotId || advice_plot.value?.plotId;
+      close_virtual_lighting();
+      open_inspection_form(plotId, '', 'FIELD_INSPECTION');
     };
 
     const open_suggestion = (kind = 'RISK', context = {}) => {
@@ -4683,6 +4807,21 @@ const app = createApp({
         } catch {
           break;
         }
+      }
+      return current;
+    };
+
+    const wait_for_lighting_completion = async (submitted) => {
+      if (!is_live.value || !submitted?.commandId) return submitted;
+      let current = submitted;
+      for (let attempt = 0; attempt < 12; attempt += 1) {
+        const status = String(current?.ack?.status || current?.status || '').toUpperCase();
+        if (['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(status)) {
+          const evaluation = await api.getCommandEvaluation(submitted.commandId).catch(() => null);
+          return evaluation ? { ...current, evaluation } : current;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        try { current = await api.getCommand(submitted.commandId); } catch { break; }
       }
       return current;
     };
@@ -6089,7 +6228,8 @@ const app = createApp({
         const secondaryTasks = [
           () => load_farmer_enhancements(),
           () => load_plot_simulation(selected_plot.value?.plotId),
-          () => load_irrigation_plan(advice_plot.value?.plotId, { silent: true })
+          () => load_irrigation_plan(advice_plot.value?.plotId, { silent: true }),
+          () => load_lighting_plan(advice_plot.value?.plotId, { silent: true })
         ];
         if (current_view.value === 'advice' && advice_plot.value?.plotId) {
           secondaryTasks.push(() => load_advice_decision(advice_plot.value.plotId));
@@ -6157,6 +6297,7 @@ const app = createApp({
       if (!plot?.plotId || plot.plotId === previous?.plotId) return;
       show_advice_diagnosis.value = false;
       load_irrigation_plan(plot.plotId, { silent: true });
+      load_lighting_plan(plot.plotId, { silent: true });
       if (current_view.value === 'advice') void load_advice_decision(plot.plotId);
     });
 
@@ -6164,6 +6305,7 @@ const app = createApp({
       if (view === 'tools' && tools_tab.value === 'risk') void render_plot_simulation_chart();
       if (view === 'advice' && advice_plot.value?.plotId) {
         void load_advice_decision(advice_plot.value.plotId);
+        void load_lighting_plan(advice_plot.value.plotId, { silent: true });
       }
       if (view === 'advice') void load_water_resource_profile();
       if (view === 'assistant') void load_assistant_conversations({ openRecent: true });
@@ -6398,16 +6540,27 @@ const app = createApp({
       light_operation_label,
       show_lighting_diagnosis,
       lighting_advice_summary,
+      lighting_plan,
+      lighting_guard,
+      lighting_readiness_detail,
+      lighting_readiness_summary,
+      lighting_plan_loading,
+      lighting_plan_error,
       show_virtual_lighting,
       virtual_lighting_stage,
       virtual_lighting_confirmed,
       virtual_lighting_result,
       virtual_lighting_error,
       virtual_lighting_busy,
+      virtual_lighting_recovery_status,
+      virtual_lighting_recovery_busy,
       virtual_lighting_boost,
       virtual_lighting_duration_seconds,
       virtual_lighting_duration_options,
       virtual_lighting_preview,
+      load_lighting_plan,
+      refresh_virtual_lighting_recovery,
+      open_light_reinspection,
       irrigation_guard,
       automatic_watering_status,
       automatic_watering_result,

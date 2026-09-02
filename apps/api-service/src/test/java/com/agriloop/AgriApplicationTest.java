@@ -902,6 +902,24 @@ class AgriApplicationTest {
     }
 
     @Test
+    void lightingPlanAndGuardExposeTheSameDecisionContractAsIrrigation() {
+        UserPrincipal farmer = new UserPrincipal("user-farmer-light-plan", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "light-plan-baseline-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
+                Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 1000.0), Map.entry("unit", "lux"),
+                Map.entry("ts", Instant.now().toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
+        Map<String, Object> guard = engine.lightingGuard("plot-a01", farmer);
+        assertThat(guard).containsKeys("target", "operationAvailable", "durationOptionsSeconds", "maxDurationSeconds", "virtualOnly");
+        Map<String, Object> plan = engine.lightingPlan(Map.of("plotId", "plot-a01", "durationSeconds", 4 * 60 * 60), farmer);
+        assertThat(plan).containsKeys("planId", "diagnosisId", "readinessId", "readiness", "hardGates", "expectedResult");
+        assertThat(plan).containsEntry("durationSeconds", 4 * 60 * 60L).containsEntry("durationLabel", "4h").containsEntry("virtualOnly", true);
+        Map<String, Object> readiness = engine.readiness("LIGHTING_PLAN", Jsons.text(plan, "planId", ""), farmer);
+        assertThat(readiness).containsEntry("subject", Map.of("type", "LIGHTING_PLAN", "id", plan.get("planId")))
+                .containsKeys("hardGates", "blockingEvidence", "advisoryEvidence", "executionAllowed");
+    }
+
+    @Test
     void telemetryLimitReturnsTheNewestWindowInChronologicalOrder() {
         Instant base = Instant.parse("2026-08-24T00:00:00Z");
         for (int index = 0; index < 4; index++) {

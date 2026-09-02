@@ -270,6 +270,13 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /open_light_advice/);
   assert.match(source, /open_lighting_diagnosis/);
   assert.match(source, /lighting_advice_summary/);
+  assert.match(source, /estimateLighting/);
+  assert.match(source, /getLightingGuard/);
+  assert.match(source, /lighting_readiness_summary/);
+  assert.match(source, /refresh_virtual_lighting_recovery/);
+  assert.match(source, /open_light_reinspection/);
+  assert.match(farmerSurface, /刷新回执与效果/);
+  assert.match(farmerSurface, /提交巡田复测/);
   assert.match(source, /show_virtual_lighting,/);
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /virtual_lighting_duration_seconds/);

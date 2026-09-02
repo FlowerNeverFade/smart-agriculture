@@ -2018,6 +2018,13 @@
 .farmer-light-system-notice.is-high { background: var(--g-danger-bg); color: var(--g-danger); }
 .farmer-light-system-notice.is-low { background: var(--g-warning-bg); color: var(--g-warning); }
 .farmer-light-system-notice.is-normal { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-light-readiness-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0; padding: 9px 10px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-subtle); font-size: 12px; }
+.farmer-light-readiness-title { color: var(--g-text-secondary); font-weight: 700; }
+.farmer-light-readiness-value { color: var(--g-text-primary); font-weight: 700; }
+.farmer-light-readiness-value.is-ready { color: var(--g-success); }
+.farmer-light-readiness-value.is-review, .farmer-light-readiness-note { color: var(--g-warning); }
+.farmer-light-readiness-note.is-error, .farmer-light-readiness-value.is-error { color: var(--g-danger); }
+.farmer-light-readiness-value em { color: var(--g-text-secondary); font-style: normal; font-weight: 600; }
 .farmer-light-control-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 @media (max-width: 640px) {
   .farmer-light-system-summary { align-items: flex-start; flex-direction: column; gap: 12px; }

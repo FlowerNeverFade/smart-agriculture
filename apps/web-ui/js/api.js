@@ -4189,6 +4189,145 @@ export class ApiService {
     };
   }
 
+  async estimateLighting(input = {}) {
+    if (!input.plotId) throw new ApiError('生成补光建议前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/lighting/estimate', { method: 'POST', body: JSON.stringify(input) });
+      const plan = resp?.data || resp;
+      if (!plan?.planId) throw new ApiError('补光处方响应缺少 planId', { code: 'LIGHTING_PLAN_INVALID', payload: resp });
+      this.decisionCache.plans.set(plan.planId, plan);
+      if (plan.diagnosis?.diagnosisId) this.decisionCache.diagnoses.set(plan.diagnosis.diagnosisId, plan.diagnosis);
+      if (plan.readiness?.readinessId) this.decisionCache.readiness.set(plan.readiness.readinessId, plan.readiness);
+      return plan;
+    }
+
+    this._demoHydrateWorkspaceState();
+    const plot = this.mockPlot(input.plotId);
+    if (!plot) throw new ApiError('没有找到当前地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const pack = (MOCK_DATA.cropPackDetails || []).find((item) => item.cropCode === plot.cropCode);
+    const stage = pack?.stages?.find((item) => item.code === plot.stageCode) || pack?.stages?.[0];
+    const target = stage?.target || {};
+    const schedule = target.lightSchedule || { dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000 };
+    const now = new Date();
+    const hhmm = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const daytime = hhmm >= String(schedule.dayStart || '06:00') && hhmm < String(schedule.dayEnd || '18:00');
+    const low = daytime ? Number(target.lightLow ?? 15000) : Number(schedule.nightLow ?? 0);
+    const high = daytime ? Number(target.lightHigh ?? 30000) : Number(schedule.nightHigh ?? 1000);
+    const metric = plot.metrics?.LIGHT || {};
+    const current = Number(metric.value);
+    const qualityStatus = String(metric.quality?.status || 'GOOD').toUpperCase();
+    const deviceOffline = String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE';
+    const offlineDemoAllowed = deviceOffline;
+    const state = !Number.isFinite(current) || qualityStatus === 'BAD' ? 'UNAVAILABLE' : !daytime ? 'NIGHT_REST' : current < low ? 'ALERT_LOW' : current > high ? 'ALERT_HIGH' : 'NORMAL';
+    const actionRequired = state === 'ALERT_LOW';
+    const durationSeconds = Math.max(1, Math.min(MAX_LIGHTING_DURATION_SECONDS, Number(input.durationSeconds) || 2 * 60 * 60));
+    const boostLux = Math.min(50000, Math.max(1000, Number(input.boostLux) || Math.max(1000, (low + high) / 2 - (Number.isFinite(current) ? current : low))));
+    const diagnosis = {
+      diagnosisId: `diag-light-${Date.now()}`,
+      plotId: plot.plotId,
+      metric: 'LIGHT',
+      diagnosisType: 'LIGHTING',
+      primaryCause: state === 'NIGHT_REST' ? 'NIGHT_REST' : state === 'ALERT_LOW' ? 'LIGHT_DEFICIT' : state === 'ALERT_HIGH' ? 'LIGHT_EXCESS' : state === 'NORMAL' ? 'LIGHT_NORMAL' : 'LIGHT_UNAVAILABLE',
+      confidence: Number.isFinite(current) ? .98 : .1,
+      supportingEvidence: Number.isFinite(current) ? [{ type: 'telemetry', metric: 'LIGHT', value: current, unit: 'lux', provenance: 'OBSERVED' }] : [],
+      opposingEvidence: state === 'NORMAL' ? [{ type: 'rule', reason: '当前光照处于阶段目标范围', provenance: 'DERIVED' }] : [],
+      missingInformation: Number.isFinite(current) ? [] : ['LIGHT'],
+      lightPhase: daytime ? 'DAY' : 'NIGHT',
+      lightPhaseLabel: daytime ? '白天生长' : '夜间休息',
+      thresholds: { low, high },
+      scenarioId: input.scenarioId || 'normal',
+      provenance: 'DERIVED',
+      evaluatedAt: new Date().toISOString()
+    };
+    const qualityPass = qualityStatus === 'GOOD' && Number.isFinite(current);
+    const executionAllowed = actionRequired && qualityPass && daytime && (!deviceOffline || offlineDemoAllowed);
+    const readiness = {
+      readinessId: `ready-light-${Date.now()}`,
+      subject: { type: 'LIGHTING_PLAN', id: `light-plan-${Date.now()}` },
+      plotId: plot.plotId,
+      status: qualityPass ? 'READY' : 'NEEDS_EVIDENCE',
+      score: qualityPass ? 1 : .2,
+      hardGates: { requiredMetrics: Number.isFinite(current) ? 'PASS' : 'FAIL', freshness: 'PASS', dataQuality: qualityPass ? 'PASS' : 'FAIL', deviceHealth: deviceOffline ? 'REVIEW' : 'PASS', phaseRequirement: daytime ? 'PASS' : 'FAIL', permission: 'PASS', safetyLimit: 'PASS' },
+      missingEvidence: qualityPass ? (deviceOffline ? ['DEVICE_OFFLINE_VIRTUAL_ONLY'] : []) : ['LIGHT', 'GOOD_DATA_QUALITY'],
+      blockingEvidence: qualityPass ? [] : ['LIGHT', 'GOOD_DATA_QUALITY'],
+      advisoryEvidence: deviceOffline ? ['DEVICE_OFFLINE_VIRTUAL_ONLY'] : [],
+      executionAllowed,
+      requiredActions: qualityPass ? [] : [{ type: 'CREATE_INSPECTION', action: 'REMEASURE', priority: 'HIGH' }],
+      policyVersion: 'readiness-v2',
+      evaluatedAt: new Date().toISOString()
+    };
+    const planId = readiness.subject.id;
+    readiness.subject.id = planId;
+    const plan = {
+      planId,
+      plotId: plot.plotId,
+      farmId: plot.farmId || 'farm-demo',
+      diagnosisId: diagnosis.diagnosisId,
+      diagnosis,
+      lightPhase: daytime ? 'DAY' : 'NIGHT',
+      lightPhaseLabel: daytime ? '白天生长' : '夜间休息',
+      currentLightLux: Number.isFinite(current) ? current : null,
+      targetLightLow: low,
+      targetLightHigh: high,
+      boostLux,
+      durationSeconds,
+      durationHours: durationSeconds / 3600,
+      durationLabel: `${durationSeconds / 3600}h`,
+      expectedResult: { metric: 'LIGHT', from: Number.isFinite(current) ? current : null, to: Number.isFinite(current) ? Math.min(high, current + boostLux) : null },
+      why: !Number.isFinite(current) ? '当前没有可用光照读数，不能猜测补光' : !daytime ? '当前为夜间休息时段，无需补光' : state === 'ALERT_LOW' ? '白天光照低于作物阶段目标' : '当前光照处于阶段目标范围',
+      virtualOnly: true,
+      executionMode: 'OPERATOR_CONFIRMED',
+      sourceMode: 'SIMULATION',
+      provenance: 'DERIVED',
+      offlineDemoAllowed,
+      readinessId: readiness.readinessId,
+      readiness,
+      actionRequired,
+      executionAllowed,
+      executable: executionAllowed,
+      advisoryOnly: !executionAllowed,
+      confirmationRequired: actionRequired,
+      requiresApproval: false,
+      maxDurationSeconds: MAX_LIGHTING_DURATION_SECONDS,
+      status: !qualityPass ? 'BLOCKED' : actionRequired && executionAllowed ? 'PROPOSED' : 'NO_ACTION',
+      createdAt: new Date().toISOString()
+    };
+    readiness.subject.id = planId;
+    this.decisionCache.plans.set(planId, plan);
+    this.decisionCache.diagnoses.set(diagnosis.diagnosisId, diagnosis);
+    this.decisionCache.readiness.set(readiness.readinessId, readiness);
+    return plan;
+  }
+
+  async getLightingGuard(plotId) {
+    if (!plotId) throw new ApiError('缺少地块上下文', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/lighting-guard`);
+      return resp?.data || resp;
+    }
+    const plan = await this.estimateLighting({ plotId });
+    return {
+      plotId,
+      state: plan.status === 'PROPOSED' ? 'ALERT_LOW' : plan.lightPhase === 'NIGHT' ? 'NIGHT_REST' : 'NORMAL',
+      status: plan.status === 'PROPOSED' ? 'ALERT_LOW' : plan.lightPhase === 'NIGHT' ? 'NIGHT_REST' : 'NORMAL',
+      currentLightLux: plan.currentLightLux,
+      target: { low: plan.targetLightLow, high: plan.targetLightHigh },
+      lightPhase: plan.lightPhase,
+      lightPhaseLabel: plan.lightPhaseLabel,
+      isNight: plan.lightPhase === 'NIGHT',
+      deviceOffline: Boolean(plan.offlineDemoAllowed),
+      offlineDemoAllowed: Boolean(plan.offlineDemoAllowed),
+      operationAvailable: Boolean(plan.executionAllowed),
+      virtualOnly: true,
+      executionMode: 'SIMULATED',
+      provenance: 'DERIVED',
+      sourceMode: 'SIMULATION',
+      durationOptionsSeconds: [3600, 7200, 14400, 21600, 28800],
+      maxDurationSeconds: MAX_LIGHTING_DURATION_SECONDS,
+      evaluatedAt: new Date().toISOString()
+    };
+  }
+
   async getDecisionReadiness(subjectType, subjectId, context = {}) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/decisions/${encodeURIComponent(subjectType)}/${encodeURIComponent(subjectId)}/readiness`);
@@ -4200,7 +4339,7 @@ export class ApiService {
 
     const plan = context.plan || this.decisionCache.plans.get(subjectId) || {};
     const diagnosis = context.diagnosis || this.decisionCache.diagnoses.get(plan.diagnosisId) || {};
-    if (plan.readiness && String(subjectType).toUpperCase() === 'IRRIGATION_PLAN') {
+    if (plan.readiness && ['IRRIGATION_PLAN', 'LIGHTING_PLAN'].includes(String(subjectType).toUpperCase())) {
       const readiness = {
         ...plan.readiness,
         subject: { type: subjectType, id: subjectId },
@@ -4776,13 +4915,13 @@ export class ApiService {
     return command;
   }
 
-  async executeVirtualLighting({ plotId, boostLux, durationSeconds = 2 * 60 * 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
+  async executeVirtualLighting({ plotId, planId = '', boostLux, durationSeconds = 2 * 60 * 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
     if (!plotId) throw new ApiError('执行补光前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有补光执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     if (confirmed !== true) throw new ApiError('执行补光前需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     const key = idempotencyKey || `virtual-lighting-${plotId}-${Date.now()}`;
     if (this.sessionMode === 'live') {
-      const resp = await this._fetch('/api/v1/lighting/virtual', { method: 'POST', body: JSON.stringify({ plotId, boostLux, durationSeconds, confirmed: true, allowOfflineDemo, idempotencyKey: key, source, ...(outcome ? { outcome } : {}) }) });
+      const resp = await this._fetch('/api/v1/lighting/virtual', { method: 'POST', body: JSON.stringify({ plotId, ...(planId ? { planId } : {}), boostLux, durationSeconds, confirmed: true, allowOfflineDemo, idempotencyKey: key, source, ...(outcome ? { outcome } : {}) }) });
       const command = resp?.data || resp;
       if (!command?.commandId) throw new ApiError('后端返回了无效的补光命令', { code: 'LIGHTING_COMMAND_INVALID', payload: resp });
       const normalized = { ...command, executionMode: command.executionMode || 'SIMULATED', provenance: command.provenance || 'SIMULATED' };
@@ -4812,7 +4951,7 @@ export class ApiService {
     }
     const command = {
       commandId: `cmd-light-${Math.random().toString(36).substring(2, 9)}`, plotId, idempotencyKey: key, type: 'LIGHT_BOOST',
-      durationSeconds: Math.max(1, Math.min(MAX_LIGHTING_DURATION_SECONDS, Number(durationSeconds) || 2 * 60 * 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
+      planId: planId || undefined, durationSeconds: Math.max(1, Math.min(MAX_LIGHTING_DURATION_SECONDS, Number(durationSeconds) || 2 * 60 * 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
       targetLightLow: low, targetLightHigh: high, deviceStatusAtRequest: plot.deviceStatus || 'UNKNOWN', offlineDemoOverride: allowOfflineDemo && String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE',
       approvalRequired: false, confirmationMode: 'OPERATOR_CONFIRMED', confirmedBy: this._demoActorId(), confirmedAt: new Date().toISOString(), status: finalOutcome,
       transport: 'MQTT_VIRTUAL_ACTUATOR', executionMode: 'SIMULATED', provenance: 'SIMULATED', sourceMode: 'SIMULATION', virtualOnly: true, riskLevel: 'MEDIUM', source,
