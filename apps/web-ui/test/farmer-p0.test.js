@@ -255,6 +255,47 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(html, /farmer-no-action-modal/);
   assert.match(html, /farmer-manual-irrigation-modal/);
   assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);
+  assert.match(html, /操作系统/);
+  assert.match(html, /farmer-operation-subsystem-tabs/);
+  assert.match(farmerSurface, /灌溉系统/);
+  assert.match(farmerSurface, /光照系统/);
+  assert.match(source, /operation_subsystem/);
+  assert.match(source, /select_operation_subsystem/);
+  assert.match(html + source, /advice_light_chart/);
+  assert.match(farmerSurface, /光照不足|光照过强/);
+  assert.match(farmerSurface, /虚拟补光（离线演示）|light_operation_label/);
+  assert.match(farmerSurface, /查看建议并执行/);
+  assert.match(farmerSurface, /查看智能诊断/);
+  assert.match(source, /open_light_advice/);
+  assert.match(source, /open_lighting_diagnosis/);
+  assert.match(source, /lighting_advice_summary/);
+  assert.match(source, /show_virtual_lighting,/);
+  assert.match(source, /executeVirtualLighting/);
+  assert.match(source, /resolve_light_band_status/);
+  assert.match(farmerSurface, /夜间目标|夜间休息/);
+  assert.match(source, /light_target_context/);
+  assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
+});
+
+test('demo operation system can execute offline virtual lighting and write a light effect', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:execute'] } });
+  const plot = service.demoPlots.get('plot-a01');
+  service.demoPlots.set('plot-a01', {
+    ...plot,
+    deviceStatus: 'OFFLINE',
+    metrics: { ...plot.metrics, LIGHT: { ...plot.metrics.LIGHT, value: 1000 } }
+  });
+  try {
+    const command = await service.executeVirtualLighting({ plotId: 'plot-a01', boostLux: 6000, durationSeconds: 1, confirmed: true, allowOfflineDemo: true, idempotencyKey: `lighting-test-${Date.now()}` });
+    assert.equal(command.type, 'LIGHT_BOOST');
+    assert.equal(command.executionMode, 'SIMULATED');
+    assert.equal(command.offlineDemoOverride, true);
+    assert.equal(service.demoPlots.get('plot-a01').metrics.LIGHT.value, 7000);
+  } finally {
+    service.demoPlots.set('plot-a01', plot);
+    service._demoSaveWorkspaceState();
+  }
 });
 
 test('farmer message center shows unread dots and marks only opened messages as read', async () => {

@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f3f7ef">
   <title>AgriLoop · 智慧农业登录</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
-  <link rel="stylesheet" href="css/login-motion.css?v=5.1-demo-row-2">
+  <link rel="stylesheet" href="css/login-motion.css?v=20260901-v5910-main-merge-v2">
 </head>
 <body>
   <main class="experience" aria-labelledby="pageTitle">
@@ -93,7 +93,7 @@
             返回登录
           </button>
           <h2 id="registerTitle">创建账号</h2>
-          <p class="auth__summary">选择工作身份，开始管理示范农场</p>
+          <p class="auth__summary">选择工作身份，开始管理你的农业空间</p>
           <form id="registerForm" novalidate>
             <label class="field">
               <span>账号</span>
@@ -103,9 +103,26 @@
               <span id="registerRoleLabel">注册身份</span>
               <select id="registerRole" name="role" required aria-labelledby="registerRoleLabel" aria-describedby="registerRoleNote">
                 <option value="FARMER" selected>种植农户</option>
+                <option value="FARM_ADMIN">农场管理员</option>
+                <option value="SYSTEM_ADMIN">系统管理员</option>
               </select>
               <svg class="field__select-arrow" viewBox="0 0 16 16" aria-hidden="true"><path d="m4 6 4 4 4-4"></path></svg>
             </div>
+            <div class="register-farm-profile" id="registerFarmProfileFields" hidden>
+              <label class="field">
+                <span>农场名称</span>
+                <input id="registerFarmName" name="farmName" type="text" autocomplete="organization" placeholder="例如：青禾家庭农场" minlength="2" maxlength="60">
+              </label>
+              <label class="field">
+                <span>所在地区</span>
+                <input id="registerFarmRegion" name="farmRegion" type="text" autocomplete="address-level2" placeholder="例如：重庆市 · 渝北区" minlength="2" maxlength="80">
+              </label>
+            </div>
+            <label class="field field--password" id="systemAdminAuthorizationField" hidden>
+              <span>系统管理员授权码</span>
+              <input id="registerAuthorizationCode" name="authorizationCode" type="password" autocomplete="off" placeholder="由服务维护人员提供" maxlength="128">
+              <button class="field__reveal" type="button" data-reveal="registerAuthorizationCode" aria-label="显示系统管理员授权码">显示</button>
+            </label>
             <label class="field field--password">
               <span>密码</span>
               <input id="registerPassword" name="password" type="password" autocomplete="new-password" placeholder="至少 8 位，包含字母和数字" maxlength="64" required>
@@ -122,7 +139,7 @@
               <svg class="submit__arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
               <span class="submit__loading" aria-hidden="true">创建中</span>
             </button>
-            <p class="auth__note" id="registerRoleNote">新账号默认为种植农户；管理员身份需由系统授权。注册成功后会生成一次性账户恢复码。</p>
+            <p class="auth__note" id="registerRoleNote">种植农户将加入示范农场并获得默认地块；注册成功后会生成一次性账户恢复码。</p>
           </form>
         </div>
 
@@ -181,6 +198,6 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </main>
 
-  <script type="module" src="js/login.js?v=20260901-v593-market-v3"></script>
+  <script type="module" src="js/login.js?v=20260901-v5910-main-merge-v2"></script>
 </body>
 </html>

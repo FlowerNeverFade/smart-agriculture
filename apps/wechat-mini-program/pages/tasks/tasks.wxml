@@ -1,0 +1,95 @@
+<view class="page tasks-page">
+  <view class="page-intro">
+    <view class="section-title">任务与告警</view>
+    <view class="muted">按当前权限查看农务进度，执行中的任务会自动更新</view>
+    <view class="intro-meta" wx:if="{{lastUpdated}}">{{farmLabel}} · 更新于 {{lastUpdated}}</view>
+  </view>
+
+  <view wx:if="{{farms.length > 1}}" class="farm-picker card">
+    <text class="picker-label">当前农场</text>
+    <picker mode="selector" range="{{farms}}" range-key="name" value="{{farmIndex}}" bindchange="onFarmChange">
+      <view class="farm-picker-value">{{farms[farmIndex].name}} <text class="picker-arrow">⌄</text></view>
+    </picker>
+  </view>
+
+  <scroll-view class="filter-scroll" scroll-x="true" show-scrollbar="false">
+    <view class="filter-row">
+      <button wx:for="{{filters}}" wx:key="code" class="filter-button {{item.active ? 'active' : ''}}" data-code="{{item.code}}" bindtap="onFilterChange">{{item.label}}</button>
+    </view>
+  </scroll-view>
+
+  <view wx:if="{{loading && !loaded}}" class="loading">正在读取任务数据…</view>
+  <view wx:if="{{error && !loaded}}" class="error-box">{{error}}<button class="secondary retry-button" bindtap="reload">重新加载</button></view>
+  <view wx:if="{{notice}}" class="notice-box">{{notice}}</view>
+
+  <block wx:if="{{loaded}}">
+    <view wx:if="{{filterCode !== 'ALERTS'}}">
+      <view wx:if="{{filteredTasks.length}}">
+        <view wx:for="{{filteredTasks}}" wx:key="workOrderId" class="task-card card {{item.workOrderId === selectedTaskId ? 'selected' : ''}}" data-id="{{item.workOrderId}}" bindtap="openTask">
+          <view class="task-head">
+            <view class="task-main">
+              <view class="task-title">{{item.title}}</view>
+              <view class="task-sub">{{item.actionLabel}} · {{item.plotName}}</view>
+            </view>
+            <view class="chip chip-{{item.statusTone}}">{{item.statusLabel}}</view>
+          </view>
+          <view class="task-info"><text>{{item.priorityLabel}}优先级</text><text>{{item.sourceLabel}}</text><text wx:if="{{item.dueAt}}">截止 {{item.dueLabel}}</text></view>
+          <view class="task-reason">{{item.reason}}</view>
+          <view class="task-foot"><text class="muted">{{item.assigneeName}}</text><text class="tiny">{{item.updatedLabel}}</text></view>
+
+          <view wx:if="{{item.workOrderId === selectedTaskId}}" class="task-detail" catchtap="noop">
+            <view class="detail-divider"></view>
+            <view class="detail-label">处理记录</view>
+            <view wx:if="{{item.resultSummary}}" class="result-box"><text class="result-label">执行结果</text><text>{{item.resultSummary}}</text><text wx:if="{{item.outcome}}" class="tiny">{{item.outcomeLabel}}</text></view>
+            <view wx:if="{{item.reviewNote}}" class="result-box"><text class="result-label">验收说明</text><text>{{item.reviewNote}}</text></view>
+            <view wx:if="{{item.history.length}}" class="history-list">
+              <view wx:for="{{item.history}}" wx:key="index" class="history-row"><view class="history-dot"></view><view class="history-copy"><view>{{item.toStatusLabel}} · {{item.actorName}}</view><view class="tiny">{{item.atLabel}}<text wx:if="{{item.note}}"> · {{item.note}}</text></view></view></view>
+            </view>
+            <view class="detail-actions" wx:if="{{roleCode === 'FARMER'}}">
+              <button wx:if="{{item.canStart}}" class="primary action-button" data-id="{{item.workOrderId}}" catchtap="startTask" loading="{{actionBusy === item.workOrderId}}">开始任务</button>
+              <button wx:if="{{item.canSubmit}}" class="primary action-button" data-id="{{item.workOrderId}}" catchtap="openSubmit">提交结果</button>
+              <button wx:if="{{item.canReport}}" class="ghost action-button" data-id="{{item.workOrderId}}" catchtap="openIssue">上报问题</button>
+            </view>
+            <view wx:if="{{roleCode !== 'FARMER'}}" class="detail-note">当前身份只读查看任务记录，写入操作请在对应工作台完成。</view>
+            <button wx:if="{{item.plotId}}" class="link-button plot-link" data-plot-id="{{item.plotId}}" catchtap="openPlot">查看地块</button>
+          </view>
+        </view>
+      </view>
+      <view wx:else class="card empty">当前筛选下没有任务</view>
+    </view>
+
+    <view wx:if="{{filterCode === 'ALERTS'}}">
+      <view wx:if="{{alerts.length}}">
+        <view wx:for="{{alerts}}" wx:key="alertId" class="alert-card card">
+          <view class="alert-head"><view class="alert-title"><text class="alert-dot alert-{{item.tone}}"></text>{{item.title}}</view><text class="chip chip-{{item.tone}}">{{item.levelLabel}}</text></view>
+          <view class="alert-plot">{{item.plotName}} · {{item.statusLabel}}</view>
+          <view class="alert-message">{{item.message}}</view>
+          <view class="task-foot"><text class="tiny">{{item.updatedLabel}}</text><button wx:if="{{item.plotId}}" class="link-button" data-plot-id="{{item.plotId}}" catchtap="openPlot">查看地块</button></view>
+        </view>
+      </view>
+      <view wx:else class="card empty">当前没有未关闭告警</view>
+    </view>
+  </block>
+
+  <view wx:if="{{submitVisible}}" class="modal-mask" catchtap="closeSubmit">
+    <view class="modal-card" catchtap="noop">
+      <view class="modal-title">提交任务结果</view>
+      <view class="modal-sub">{{submitTitle}}</view>
+      <textarea class="modal-textarea" value="{{resultSummary}}" maxlength="1000" placeholder="请描述实际完成情况" placeholder-class="placeholder" bindinput="onResultInput"></textarea>
+      <view class="field-label">完成情况</view>
+      <picker mode="selector" range="{{outcomeOptions}}" range-key="label" value="{{outcomeIndex}}" bindchange="onOutcomeChange"><view class="picker-field">{{outcomeOptions[outcomeIndex].label}} <text class="picker-arrow">⌄</text></view></picker>
+      <view class="modal-actions"><button class="ghost modal-button" bindtap="closeSubmit">取消</button><button class="primary modal-button" bindtap="submitResult" loading="{{actionBusy === submitTaskId}}">提交</button></view>
+    </view>
+  </view>
+
+  <view wx:if="{{issueVisible}}" class="modal-mask" catchtap="closeIssue">
+    <view class="modal-card" catchtap="noop">
+      <view class="modal-title">上报任务问题</view>
+      <view class="modal-sub">问题会关联到原任务，方便管理员跟进</view>
+      <textarea class="modal-textarea issue-textarea" value="{{issueDescription}}" maxlength="1000" placeholder="请描述现场遇到的问题" placeholder-class="placeholder" bindinput="onIssueInput"></textarea>
+      <view class="field-label">优先级</view>
+      <picker mode="selector" range="{{issuePriorities}}" range-key="label" value="{{issuePriorityIndex}}" bindchange="onIssuePriorityChange"><view class="picker-field">{{issuePriorities[issuePriorityIndex].label}} <text class="picker-arrow">⌄</text></view></picker>
+      <view class="modal-actions"><button class="ghost modal-button" bindtap="closeIssue">取消</button><button class="primary modal-button" bindtap="submitIssue" loading="{{actionBusy === issueTaskId}}">上报</button></view>
+    </view>
+  </view>
+</view>

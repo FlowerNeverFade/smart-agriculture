@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v599-accounts-v2';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
 import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v593-market-v3';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v593-market-v3';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v599-accounts-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -60,7 +61,7 @@ const { createApp, ref, computed, onMounted, onBeforeUnmount, nextTick, watch, i
 // Apply browser-scoped presentation preferences before the standalone system
 // administrator shell mounts, so its sidebar and cards use the same material,
 // theme and density as the other role workspaces from the first paint.
-const initialUserSettings = readUserSettings();
+const initialUserSettings = readUserSettings(undefined, guardUser);
 applyUserSettings(initialUserSettings);
 
 
@@ -91,6 +92,15 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-agent', label: 'Agent', icon: 'smart_toy', labels: { SYSTEM_ADMIN: 'Agent' } },
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
+
+// 模块顶层 utility：主 view 的实时刷新构造 adminSimHistory 也用到（之前在 AdminSimulatorView setup 内 const 导致 ReferenceError）
+function formatSimTime(t) {
+  if (!t || t === '—') return '—';
+  const d = new Date(t);
+  if (isNaN(d.getTime())) return String(t);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
 
 const PLOT_METRIC_ORDER = Object.freeze(['SOIL_MOISTURE', 'AIR_TEMPERATURE', 'AIR_HUMIDITY', 'LIGHT', 'CO2', 'RAINFALL', 'PH', 'WATER_LEVEL', 'NITROGEN', 'PHOSPHORUS', 'POTASSIUM']);
 const PLOT_METRIC_ICONS = Object.freeze({
@@ -469,11 +479,13 @@ function mapSystemMembers(members, farms) {
   const farmMap = new Map((farms || []).map((farm) => [farm.farmId, farm]));
   return (Array.isArray(members) ? members : []).map((member) => ({
     ...member,
-    farmName: (member.farmIds || []).map((id) => farmMap.get(id)?.name).filter(Boolean).join('、') || '—',
+    farmName: (member.farmIds || []).includes('*')
+      ? '全平台'
+      : (member.farmIds || []).map((id) => farmMap.get(id)?.name || id).filter(Boolean).join('、') || '—',
     plotIds: Array.isArray(member.plotIds) ? member.plotIds : [],
-    enabled: liveStatusValue(member.status, 'ACTIVE') !== 'INACTIVE',
-    createdAt: member.createdAt || '—',
-    dataOrigin: 'BACKEND'
+    enabled: typeof member.enabled === 'boolean' ? member.enabled : liveStatusValue(member.status, 'ACTIVE') !== 'INACTIVE',
+    createdAt: member.createdAt ? String(member.createdAt).slice(0, 10) : '—',
+    dataOrigin: member.sourceMode === 'SIMULATED' ? 'SIMULATED' : 'BACKEND'
   }));
 }
 
@@ -1141,14 +1153,6 @@ const AdminSimulatorView = {
             totalRecords: simTotalRecords, totalPages: simTotalPages, pageRecords: simPageRecords,
             prevPage: simPrevPage, nextPage: simNextPage, changeSize: simChangeSize, jumpTo: simJumpTo } = usePagination(simHistory);
 
-    // ISO 时间戳 → 本地短格式（MM-DD HH:mm:ss）；运行中/未结束返回 '—'
-    const formatSimTime = (t) => {
-      if (!t || t === '—') return '—';
-      const d = new Date(t);
-      if (isNaN(d.getTime())) return String(t);
-      const pad = (n) => String(n).padStart(2, '0');
-      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-    };
     // 场景编号：demo 的 sim-xxx 有意义编号完整保留；live 随机 runId 只显示尾部 8 位（title 可看完整）
     const shortId = (id) => {
       const s = String(id || '');
@@ -1314,10 +1318,34 @@ const AdminRulesView = {
     const transitionCandidate = async (candidate, status) => {
       if (!candidate?.id) return;
       try {
-        const saved = await api.transitionStrategyCandidate(candidate.id, status);
-        candidate.status = String(saved?.status || status).toLowerCase();
-        toast(`策略候选已更新为“${localizedStatusLabel(candidate.status)}”，后端记录已同步`);
+        const options = { expectedRevision: candidate.revision, idempotencyKey: `strategy:${candidate.id}:${status}` };
+        const saved = await api.transitionStrategyCandidate(candidate.id, status, options);
+        Object.assign(candidate, saved);
+        const rawStatus = String(saved?.status || status).toUpperCase();
+        candidate.status = ({ DRAFT: 'pending', OFFLINE_VALIDATED: 'verified', APPROVED: 'approved', ACTIVE: 'active', REJECTED: 'rejected', SUPERSEDED: 'superseded', ROLLED_BACK: 'rolled_back' }[rawStatus] || rawStatus.toLowerCase());
+        candidate.statusLabel = localizedStatusLabel(rawStatus);
+        toast(status === 'ACTIVE' ? '策略候选已启用' : status === 'APPROVED' ? '策略候选已批准，可继续启用' : `策略候选已更新为“${candidate.statusLabel}”`);
       } catch (error) { toast(error.message || '策略候选更新失败', 'error'); }
+    };
+    const candidateStatusCode = (candidate) => {
+      const raw = String(candidate?.status || '').toUpperCase();
+      return ({ pending: 'DRAFT', verified: 'OFFLINE_VALIDATED', approved: 'APPROVED', active: 'ACTIVE', rejected: 'REJECTED', superseded: 'SUPERSEDED', rolled_back: 'ROLLED_BACK' }[String(candidate?.status || '').toLowerCase()] || raw);
+    };
+    const canValidateCandidate = (candidate) => candidateStatusCode(candidate) === 'DRAFT';
+    const canApproveCandidate = (candidate) => candidateStatusCode(candidate) === 'OFFLINE_VALIDATED';
+    const canActivateCandidate = (candidate) => candidateStatusCode(candidate) === 'APPROVED';
+    const canRejectCandidate = (candidate) => ['DRAFT', 'OFFLINE_VALIDATED'].includes(candidateStatusCode(candidate));
+    const canRollbackCandidate = (candidate) => candidateStatusCode(candidate) === 'ACTIVE';
+    const validateCandidate = async (candidate) => {
+      if (!candidate?.id) return;
+      try {
+        const saved = await api.offlineValidateLearningCandidate(candidate.id, { seed: 42, scenarioId: candidate.scenarioId || 'normal' });
+        Object.assign(candidate, saved);
+        const status = String(saved?.status || '').toUpperCase();
+        candidate.status = ({ DRAFT: 'pending', OFFLINE_VALIDATED: 'verified', APPROVED: 'approved', ACTIVE: 'active', REJECTED: 'rejected', SUPERSEDED: 'superseded', ROLLED_BACK: 'rolled_back' }[status] || String(saved?.status || candidate.status || 'pending').toLowerCase());
+        candidate.statusLabel = localizedStatusLabel(status || candidate.status);
+        toast(saved?.offlineValidation?.status === 'PASSED' ? '离线回放通过，可提交人工批准' : '离线回放未通过，候选保持待处理');
+      } catch (error) { toast(error.message || '离线验证失败', 'error'); }
     };
     const addStage = () => packForm.value.stages.push('');
     const removeStage = (index) => packForm.value.stages.splice(index, 1);
@@ -1355,6 +1383,59 @@ const AdminRulesView = {
     // 规则集与策略候选列表分页
     const rulesList = computed(() => props.state.adminRules || []);
     const candidatesList = computed(() => props.state.adminStrategyCandidates || []);
+    const learningCasesList = computed(() => props.state.adminLearningCases || []);
+    const learningFilter = ref('ALL');
+    const learningCounts = computed(() => learningCasesList.value.reduce((counts, item) => {
+      const status = String(item?.qualityStatus || 'PENDING').toUpperCase();
+      if (status === 'QUALIFIED') counts.qualified += 1;
+      else if (status === 'REJECTED') counts.rejected += 1;
+      else counts.pending += 1;
+      return counts;
+    }, { qualified: 0, pending: 0, rejected: 0 }));
+    const filteredLearningCases = computed(() => {
+      const wanted = String(learningFilter.value || 'ALL').toUpperCase();
+      return learningCasesList.value.filter((item) => wanted === 'ALL' || String(item?.qualityStatus || 'PENDING').toUpperCase() === wanted);
+    });
+    const learningReason = (item) => {
+      const values = item?.excludedReason?.length ? item.excludedReason : item?.pendingReason?.length ? item.pendingReason : item?.selectionReason;
+      return Array.isArray(values) ? values.join('；') : String(values || '等待质量评估');
+    };
+    const learningUses = (item) => {
+      const labels = { POSITIVE_RETRIEVAL: '允许检索', STRATEGY_CANDIDATE: '可生成策略', OFFLINE_TRAINING: '可导出训练', NEGATIVE_EVALUATION: '仅反例', NONE: '不参与学习' };
+      return (Array.isArray(item?.learningUses) ? item.learningUses : []).map((value) => labels[String(value).toUpperCase()] || value).join('、') || '不参与学习';
+    };
+    const learningStatus = (value) => ({ QUALIFIED: '合格', PENDING: '待审核', REJECTED: '已排除' }[String(value || 'PENDING').toUpperCase()] || '待审核');
+    const learningTone = (value) => ({ QUALIFIED: 'approved', PENDING: 'pending', REJECTED: 'rejected' }[String(value || 'PENDING').toUpperCase()] || 'pending');
+    const strategySummary = (value) => {
+      if (value === null || value === undefined || value === '') return '未记录';
+      if (typeof value !== 'object') return displayText(value, '未记录');
+      if (Array.isArray(value)) return value.map(item => strategySummary(item)).filter(Boolean).join('、') || '未记录';
+      return Object.entries(value).slice(0, 6).map(([key, item]) => `${displayText(key, key)}：${strategySummary(item)}`).join('；') || '未记录';
+    };
+    const offlineEvidence = (candidate) => {
+      const ids = candidate?.offlineValidation?.evidenceCaseIds || candidate?.evidenceCaseIds;
+      return Array.isArray(ids) && ids.length ? ids.join('、') : '—';
+    };
+    const rollbackSummary = (candidate) => [candidate?.rolledBackBy && `操作人 ${candidate.rolledBackBy}`, candidate?.rolledBackAt && String(candidate.rolledBackAt).slice(0, 16).replace('T', ' '), candidate?.rollbackReason && displayText(candidate.rollbackReason)].filter(Boolean).join(' · ') || '已回滚到上一版本';
+    const reviewLearningCase = async (item, decision) => {
+      if (!item?.caseId) return;
+      const note = typeof window !== 'undefined' && typeof window.prompt === 'function' ? (window.prompt(decision === 'QUALIFIED' ? '审核备注（可选）' : '排除原因（可选）', '') || '') : '';
+      try {
+        const saved = await api.reviewLearningCase(item.caseId, decision, note);
+        const index = learningCasesList.value.findIndex((row) => row.caseId === item.caseId);
+        if (index >= 0) learningCasesList.value.splice(index, 1, { ...learningCasesList.value[index], ...saved });
+        toast(decision === 'QUALIFIED' ? '案例已纳入正向经验' : '案例已保留为反例');
+      } catch (error) { toast(error.message || '案例审核失败', 'error'); }
+    };
+    const reEvaluateLearningCase = async (item) => {
+      if (!item?.caseId) return;
+      try {
+        const saved = await api.reevaluateLearningCase(item.caseId);
+        const index = learningCasesList.value.findIndex((row) => row.caseId === item.caseId);
+        if (index >= 0) learningCasesList.value.splice(index, 1, { ...learningCasesList.value[index], ...saved });
+        toast('案例已重新评估');
+      } catch (error) { toast(error.message || '重新评估失败', 'error'); }
+    };
     const rulePage = usePagination(rulesList);
     const candidatePage = usePagination(candidatesList);
     return {
@@ -1362,6 +1443,8 @@ const AdminRulesView = {
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
       pendingDeletePack, requestDeletePack, confirmDeletePack, togglePackStatus, addStage, removeStage, addKnowledgeDoc, removeKnowledgeDoc,
       toggleKnowledge, transitionCandidate, localizedStatusLabel, localizedSourceLabel, displayText, ruleCropName,
+      learningCasesList, learningFilter, learningCounts, filteredLearningCases, learningReason, learningUses, learningStatus, learningTone, strategySummary, offlineEvidence, rollbackSummary, reviewLearningCase, reEvaluateLearningCase,
+      candidateStatusCode, canValidateCandidate, canApproveCandidate, canActivateCandidate, canRejectCandidate, canRollbackCandidate, validateCandidate,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
       candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
     };
@@ -1373,42 +1456,7 @@ const AdminRulesView = {
  * dedicated system-admin entry as well as the shared role shell so the
  * lower-left settings affordance never disappears after a role redirect.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    const settings = ref(readUserSettings());
-    const accentOptions = ACCENT_OPTIONS;
-    const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
-    const themeOptions = [
-      { value: 'light', label: '白色', hint: '清爽明亮，适合日常工作（默认）' },
-      { value: 'dark', label: '黑色', hint: '深色背景，低光环境更舒适' },
-      { value: 'system', label: '跟随系统', hint: '自动适配设备明暗' }
-    ];
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.find((item) => item.value === settings.value.theme)?.label || '白色');
-    const accentLabel = computed(() => accentOptions.find((item) => item.value === settings.value.accent)?.label || '田野绿');
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.find((item) => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-    const updateSetting = (key, value) => {
-      const next = saveUserSettings({ ...settings.value, [key]: value });
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings, accentOptions, surfaceStyleOptions, themeOptions, refreshOptions,
-      roleLabel, themeLabel, accentLabel, surfaceStyleLabel, updateSetting, resetSettings
-    };
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 
 const AdminSettingsView = {
@@ -1421,8 +1469,37 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
-    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
+    const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo', plotIds: [], authorizationCode: '' });
+    const createdRecovery = ref(null);
+    const userActionBusy = ref(false);
     const pendingUserAction = ref(null);
+    const accountFarms = computed(() => (props.state.farms || []).length
+      ? props.state.farms
+      : [{ farmId: 'farm-demo', name: '农智示范农场' }]);
+    const availableAccountPlots = computed(() => (props.state.allPlots || [])
+      .filter((plot) => plot.farmId === newUser.value.farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+      .map((plot) => ({ plotId: plot.plotId, name: plot.name || plot.plotId })));
+
+    const resetUserDraft = () => {
+      newUser.value = {
+        username: '', password: '', role: 'FARMER',
+        farmId: accountFarms.value[0]?.farmId || 'farm-demo', plotIds: [], authorizationCode: ''
+      };
+    };
+    const openCreateUser = () => {
+      resetUserDraft();
+      showCreateUser.value = true;
+    };
+    const closeCreateUser = () => {
+      if (userActionBusy.value) return;
+      showCreateUser.value = false;
+      resetUserDraft();
+    };
+    watch(() => newUser.value.role, (role) => {
+      newUser.value.plotIds = [];
+      if (role !== 'SYSTEM_ADMIN') newUser.value.authorizationCode = '';
+    });
+    watch(() => newUser.value.farmId, () => { newUser.value.plotIds = []; });
     // 智能模型模式选择是"草稿"：下拉只改本地草稿，点击保存才写回总览/服务健康并（live 下）提交后端
     // live 初始化时 emptyAdminOverview().aiMode 为 '—'（占位符），视为无值，兜底为默认完整模式
     const initialAiMode = props.state.adminOverview && props.state.adminOverview.aiMode;
@@ -1512,107 +1589,88 @@ const AdminSettingsView = {
     // 受保护账号 = 系统管理员角色（唯一的 SYSTEM_ADMIN 不可停用/删除）∪ 当前登录者
     const isProtectedAccount = (user) => !!user && (user.role === 'SYSTEM_ADMIN' || isCurrentUser(user.userId));
 
+    const refreshUserAccounts = async () => {
+      const accounts = await api.getUserAccounts();
+      props.state.adminUsers = mapSystemMembers(accounts, props.state.farms || []);
+      return props.state.adminUsers;
+    };
+
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
       if (!action) return;
       const { type, user } = action;
       const username = user.username || user.userId;
+      userActionBusy.value = true;
       try {
         if (type === 'delete') {
-          if (isLiveSession.value) {
-            await api.deleteUserAccount(user.userId);
-          }
-          const idx = props.state.adminUsers.findIndex(u => u.userId === user.userId);
-          if (idx > -1) {
-            props.state.adminUsers.splice(idx, 1);
-            props.state.adminAuditLogs.unshift({
-              id: 'log-' + Date.now(),
-              time: new Date().toLocaleTimeString().substring(0, 5),
-              operator: 'sysadmin',
-              action: 'CONFIG_CHANGE',
-              actionLabel: '删除用户',
-              detail: '删除用户 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
-              ip: '127.0.0.1'
-            });
-          }
+          await api.deleteUserAccount(user.userId);
+          await refreshUserAccounts();
           toast(`账号 ${username} 已删除`);
         } else {
           const enabled = type === 'enable';
-          if (isLiveSession.value) {
-            const farmId = (user.farmIds && user.farmIds[0]) || 'farm-demo';
-            await api.updateFarmMemberStatus(user.userId, { farmId, enabled });
-          }
-          user.enabled = enabled;
-          if (user.status) user.status = enabled ? 'ACTIVE' : 'INACTIVE';
-          props.state.adminAuditLogs.unshift({
-            id: 'log-' + Date.now(),
-            time: new Date().toLocaleTimeString().substring(0, 5),
-            operator: 'sysadmin',
-            action: 'CONFIG_CHANGE',
-            actionLabel: enabled ? '启用用户' : '停用用户',
-            detail: (enabled ? '启用' : '停用') + '账号 ' + username + ' (' + (user.roleLabel || user.role || '') + ')',
-            ip: '127.0.0.1'
-          });
+          await api.updateUserAccountStatus(user.userId, { enabled });
+          await refreshUserAccounts();
           toast(enabled ? `账号 ${username} 已启用` : `账号 ${username} 已停用`);
         }
       } catch (error) {
         toast(error.message || '操作失败', 'error');
       } finally {
+        userActionBusy.value = false;
         pendingUserAction.value = null;
       }
     };
 
     const createUser = async () => {
-      const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
-      if (isLiveSession.value) {
-        try {
-          const user = await api.createFarmMember({
-            farmId: newUser.value.farmId || 'farm-demo',
-            username: newUser.value.username,
-            password: newUser.value.password,
-            role: newUser.value.role,
-            plotIds: []
-          });
-          props.state.adminUsers.push({
-            userId: user.userId || 'user-' + Date.now(),
-            username: user.username || newUser.value.username,
-            role: user.role || newUser.value.role,
-            roleLabel: roleLabels[user.role || newUser.value.role],
-            farmName: '远程农场',
-            plotIds: user.plotIds || [],
-            enabled: user.enabled !== false,
-            createdAt: new Date().toISOString().split('T')[0]
-          });
-          toast(`账号 ${newUser.value.username} 创建成功`);
-          showCreateUser.value = false;
-          newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
-        } catch (error) {
-          toast(error.message || '账号创建失败', 'error');
-        }
+      const draft = newUser.value;
+      if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(String(draft.username || '').trim())) {
+        toast('账号需为 4～32 位字母、数字、点、下划线或短横线', 'error');
         return;
       }
-      props.state.adminUsers.push({
-        userId: 'user-' + Date.now(),
-        username: newUser.value.username,
-        role: newUser.value.role,
-        roleLabel: roleLabels[newUser.value.role],
-        farmName: '农智示范农场',
-        plotIds: ['plot-a01'],
-        enabled: true,
-        createdAt: new Date().toISOString().split('T')[0]
-      });
-      props.state.adminAuditLogs.unshift({
-        id: 'log-' + Date.now(),
-        time: new Date().toLocaleTimeString().substring(0, 5),
-        operator: 'sysadmin',
-        action: 'USER_CREATE',
-        actionLabel: '创建用户',
-        detail: '创建用户 ' + newUser.value.username + ' (' + roleLabels[newUser.value.role] + ')',
-        ip: '127.0.0.1'
-      });
-      showCreateUser.value = false;
-      newUser.value = { username: '', password: '', role: 'FARMER', farmId: 'farm-demo' };
-      toast('用户创建成功');
+      if (String(draft.password || '').length < 8 || !/[A-Za-z]/.test(draft.password) || !/\d/.test(draft.password)) {
+        toast('初始密码需为 8～64 位并同时包含字母和数字', 'error');
+        return;
+      }
+      if (draft.role !== 'SYSTEM_ADMIN' && !draft.farmId) {
+        toast('请选择账号所属农场', 'error');
+        return;
+      }
+      if (draft.role === 'SYSTEM_ADMIN' && !String(draft.authorizationCode || '').trim()) {
+        toast('创建系统管理员必须再次填写服务端授权码', 'error');
+        return;
+      }
+      userActionBusy.value = true;
+      try {
+        const user = await api.createUserAccount({
+          username: String(draft.username || '').trim().toLowerCase(),
+          password: draft.password,
+          role: draft.role,
+          farmId: draft.role === 'SYSTEM_ADMIN' ? '' : draft.farmId,
+          plotIds: draft.role === 'FARMER' ? draft.plotIds : [],
+          authorizationCode: draft.role === 'SYSTEM_ADMIN' ? draft.authorizationCode : ''
+        });
+        await refreshUserAccounts();
+        createdRecovery.value = {
+          username: user.username,
+          roleLabel: user.roleLabel,
+          recoveryCode: user.recoveryCode
+        };
+        showCreateUser.value = false;
+        resetUserDraft();
+        toast(`账号 ${user.username} 创建成功，请立即保存恢复码`);
+      } catch (error) {
+        toast(error.message || '账号创建失败', 'error');
+      } finally {
+        userActionBusy.value = false;
+      }
+    };
+
+    const copyCreatedRecovery = async () => {
+      try {
+        await navigator.clipboard.writeText(createdRecovery.value?.recoveryCode || '');
+        toast('恢复码已复制');
+      } catch (error) {
+        toast('复制失败，请手动保存恢复码', 'error');
+      }
     };
 
     // 保存成功后把新模式写回总览与服务健康矩阵（总览/服务健康保持一致）
@@ -1673,9 +1731,11 @@ const AdminSettingsView = {
     const userPage = usePagination(filteredUsers);
     const logPage = usePagination(filteredLogs);
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
+      activeTab, roleFilter, logFilter, showCreateUser, newUser, createdRecovery, userActionBusy,
+      accountFarms, availableAccountPlots, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       logFilterOptions, auditActionLabel,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, createUser, copyCreatedRecovery,
+      deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,
       userPageSize: userPage.pageSize, userPageSizeOptions: userPage.pageSizeOptions, userCurrentPage: userPage.currentPage, userJumpInput: userPage.jumpInput, userTotalRecords: userPage.totalRecords, userTotalPages: userPage.totalPages, userPageRecords: userPage.pageRecords, userPrevPage: userPage.prevPage, userNextPage: userPage.nextPage, userChangeSize: userPage.changeSize, userJumpTo: userPage.jumpTo,
@@ -1763,6 +1823,7 @@ const app = createApp({
       adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
       adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
       adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      adminLearningCases: isDemoSession ? (MOCK_DATA.adminLearningCases || []) : [],
       adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
       adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
     });
@@ -1773,6 +1834,8 @@ const app = createApp({
     let farmRefreshTimer = null;
     let systemRefreshInFlight = false;
     let systemRefreshQueued = false;
+    let systemDetailRefreshInFlight = false;
+    let systemDetailRefreshAt = 0;
     let systemLastRefreshAt = 0;
     let farmRefreshInFlight = false;
     let farmRefreshQueued = false;
@@ -1784,9 +1847,58 @@ const app = createApp({
     let liveEventsConnecting = false;
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
-    const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator'
+    // Keep first paint and regular polling focused on actionable cards.  Audit
+    // history, ledgers and configuration catalogs are loaded after the core.
+    const FARM_CORE_DOMAINS = Object.freeze(['overview', 'plots', 'workOrders', 'alerts', 'devices']);
+    const FARM_BACKGROUND_DOMAINS = Object.freeze([
+      'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans',
+      'resourceRequests', 'cropPacks', 'rulesStrategies', 'inspections'
     ]);
+    const LIVE_FARM_REFRESH_DOMAINS = FARM_CORE_DOMAINS;
+    const CORE_REQUEST_BUDGET_MS = 2200;
+    const ADMIN_BOOTSTRAP_BUDGET_MS = 2600;
+    const deferNonCritical = (task) => {
+      const run = () => {
+        try { task(); } catch (error) { console.warn('[AgriLoop] deferred refresh failed:', error); }
+      };
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 1200 });
+      } else {
+        window.setTimeout(run, 80);
+      }
+    };
+    const waitForBootstrapBudget = (promise, timeoutMs = ADMIN_BOOTSTRAP_BUDGET_MS) => {
+      let timer = null;
+      const timeout = new Promise((resolve) => {
+        timer = window.setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      });
+      return Promise.race([promise, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+    const settleWithinBudget = (promise, timeoutMs = CORE_REQUEST_BUDGET_MS) => {
+      const operation = Promise.resolve(promise).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason })
+      );
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+      let timer = null;
+      const timeout = new Promise(resolve => {
+        timer = window.setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+      });
+      return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+    const scheduleSystemDetailRefresh = () => {
+      if (systemDetailRefreshInFlight || state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') return;
+      systemDetailRefreshInFlight = true;
+      deferNonCritical(() => {
+        Promise.resolve(refreshSystemAdminData({ announceErrors: false }))
+          .catch(() => {})
+          .finally(() => { systemDetailRefreshInFlight = false; });
+      });
+    };
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
       if (systemRefreshInFlight) {
@@ -1807,7 +1919,16 @@ const app = createApp({
         }
         systemRefreshInFlight = true;
         try {
-          await refreshSystemAdminData({ announceErrors: false });
+          const core = refreshSystemAdminCore({ announceErrors: false });
+          await core.visible;
+          if (Date.now() - systemDetailRefreshAt >= 15000) {
+            systemDetailRefreshAt = Date.now();
+            void core.settled.then(() => {
+              if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && state.value.sessionMode === 'live') {
+                scheduleSystemDetailRefresh();
+              }
+            }).catch(() => {});
+          }
         } finally {
           isLive.value = api.isLive;
           systemLastRefreshAt = Date.now();
@@ -1920,6 +2041,19 @@ const app = createApp({
       isSidebarOpen.value = !isSidebarOpen.value;
     };
 
+    const closeSidebarOnMobile = () => {
+      if (typeof window === 'undefined') return;
+      const isMobile = window.innerWidth <= 760
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
+      if (isMobile) isSidebarOpen.value = false;
+    };
+
+    const handleSidebarKeydown = (event) => {
+      if (event.key === 'Escape' && isSidebarOpen.value) closeSidebarOnMobile();
+    };
+    onMounted(() => window.addEventListener('keydown', handleSidebarKeydown));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handleSidebarKeydown));
+
     const toggleProfileMenu = () => {
       showProfileMenu.value = !showProfileMenu.value;
     };
@@ -2005,26 +2139,43 @@ const app = createApp({
       window.location.assign(page);
     };
 
-    const refreshFarmData = async (farmId, domains = ['all'], { announceErrors = true } = {}) => {
+    const refreshFarmData = async (farmId, domains = ['all'], { announceErrors = true, budgetMs = 0 } = {}) => {
       if (!farmId || state.value.currentUser?.role !== 'FARM_ADMIN') return;
-      const version = ++contextRequestVersion;
       const requested = new Set(domains || []);
       const all = requested.has('all');
+      if (all) {
+        const corePromise = refreshFarmData(farmId, FARM_CORE_DOMAINS, {
+          announceErrors,
+          budgetMs: budgetMs || ADMIN_BOOTSTRAP_BUDGET_MS
+        });
+        corePromise.then((result) => {
+          if (state.value.currentUser?.role !== 'FARM_ADMIN' || state.value.adminContext.farmId !== farmId) return;
+          const backgroundDomains = result?.timedOut
+            ? [...FARM_CORE_DOMAINS, ...FARM_BACKGROUND_DOMAINS]
+            : FARM_BACKGROUND_DOMAINS;
+          deferNonCritical(() => {
+            void refreshFarmData(farmId, backgroundDomains, { announceErrors: false });
+          });
+        }).catch(() => {});
+        return corePromise;
+      }
+      const version = ++contextRequestVersion;
       const wants = domain => all || requested.has(domain);
       const jobs = {};
       if (wants('overview') || wants('plots')) {
         jobs.overview = api.getOverview({ farmId });
         jobs.plots = api.getPlots({ farmId, includeInactive: true });
       }
-      if (wants('workOrders') || wants('overview')) jobs.workOrders = api.getWorkOrders({ farmId });
-      if (wants('alerts') || wants('overview')) jobs.alerts = api.getAlerts({ farmId });
+      if (wants('workOrders')) jobs.workOrders = api.getWorkOrders({ farmId });
+      if (wants('alerts')) jobs.alerts = api.getAlerts({ farmId });
       if (wants('devices')) jobs.devices = api.getDevices({ farmId });
       if (wants('members')) jobs.members = api.getFarmMembers({ farmId });
       if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
       if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks();
+      if (wants('rulesStrategies') || wants('cropPacks')) jobs.adminLearningCases = api.getLearningCases({ farmId });
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
-      if (wants('inspections') || wants('overview')) {
+      if (wants('inspections')) {
         jobs.inspections = api.getPlots({ farmId, includeInactive: false })
           .then((plots) => Promise.allSettled((plots || []).map((plot) => api.getInspections(plot.plotId))))
           .then((results) => results
@@ -2032,15 +2183,17 @@ const app = createApp({
             .flatMap((result) => result.value || []));
       }
       const entries = Object.entries(jobs);
-      const settled = await Promise.all(entries.map(async ([key, promise]) => {
-        try { return [key, { status: 'fulfilled', value: await promise }]; }
-        catch (reason) { return [key, { status: 'rejected', reason }]; }
-      }));
+      const settled = await Promise.all(entries.map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, budgetMs)
+      ]));
       if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
       const results = Object.fromEntries(settled);
       const failed = [];
+      const timedOut = [];
       Object.entries(results).forEach(([key, result]) => {
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
+        if (result.status === 'timeout') timedOut.push(key);
       });
       const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
       const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
@@ -2061,6 +2214,7 @@ const app = createApp({
         state.value.cropPacks = results.cropPacks.value || [];
         state.value.cropPackDetails = state.value.cropPacks;
       }
+      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
@@ -2073,6 +2227,95 @@ const app = createApp({
       });
       if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
+      return { timedOut: timedOut.length > 0, failed: failed.length > 0 };
+    };
+
+    const refreshFarmDataStaged = (farmId, options = {}) =>
+      refreshFarmData(farmId, ['all'], options);
+
+    // Render the platform shell from the small, high-value response set first.
+    // The previous implementation waited for every farm member, ledger and
+    // plot timeline before assigning state, so one slow history query made the
+    // system-admin page appear empty.
+    const refreshSystemAdminCore = ({ announceErrors = true } = {}) => {
+      if (state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') {
+        const skipped = Promise.resolve();
+        return { visible: skipped, settled: skipped };
+      }
+      const version = ++systemRequestVersion;
+      const jobs = {
+        farms: api.getFarms(),
+        overview: api.getOverview(),
+        plots: api.getPlots({ includeInactive: true }),
+        workOrders: api.getWorkOrders(),
+        alerts: api.getAlerts(),
+        simulator: api.getSimulatorStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })()
+      };
+      const settled = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
+      ])).then(Object.fromEntries);
+      const applied = settled.then((results) => {
+        if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
+        const failures = Object.entries(results)
+          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
+          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
+        const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
+        const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : (state.value.overview || {});
+        const cards = Array.isArray(overview.plots) ? overview.plots : [];
+        const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
+        const rawPlots = results.plots?.status === 'fulfilled'
+          ? (results.plots.value || [])
+          : (state.value.allPlots || state.value.plots || []);
+        const plots = (rawPlots.length ? rawPlots : cards).map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+        const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
+        const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
+        const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : state.value.workOrders;
+        const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : state.value.alerts;
+        const simulator = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
+        const systemStatus = results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {};
+        const cardDevices = cards.map((card) => card?.device && ({
+          ...card.device,
+          farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
+          plotId: card.device.plotId || card.plotId
+        })).filter(Boolean);
+        const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
+        state.value.farms = farms;
+        state.value.overview = overview;
+        state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        state.value.allPlots = plots;
+        state.value.workOrders = workOrders || [];
+        state.value.alerts = alerts || [];
+        state.value.devices = devices;
+        state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
+        state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
+        state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
+        state.value.simulatorStatus = simulator || state.value.simulatorStatus;
+        state.value.adminOverview = adminOverviewFromLive({
+          overview,
+          systemStatus,
+          simulator: simulator || {},
+          alerts: alerts || [],
+          devices,
+          recentEvents: (alerts || []).slice(0, 8).map((alert, index) => ({
+            id: `alert:${alert.alertId || alert.id || index}`,
+            category: 'alert', icon: 'warning',
+            title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+            time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+            traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
+          }))
+        });
+        state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.allPlots });
+        if (failures.length && announceErrors && failures.length === Object.keys(jobs).length) {
+          showToast(`平台核心数据暂不可用：${failures.join('；')}`, 'error');
+        }
+      });
+      return { visible: waitForBootstrapBudget(applied), settled: applied };
     };
 
     const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {
@@ -2087,6 +2330,7 @@ const app = createApp({
         cropPacks: api.getCropPacks(),
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
+        learningCases: api.getLearningCases(),
         simulator: api.getSimulatorStatus(),
         resourcePlans: api.listResourcePlans({}),
         resourceRequests: api.listResourceRequests({}),
@@ -2095,7 +2339,8 @@ const app = createApp({
           const status = await api.getSystemStatus();
           return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
         })(),
-        scenarios: api.getScenarioRuns()
+        scenarios: api.getScenarioRuns(),
+        users: api.getUserAccounts()
       };
       const settled = await Promise.all(Object.entries(jobs).map(async ([key, promise]) => {
         try { return [key, { status: 'fulfilled', value: await promise }]; }
@@ -2204,24 +2449,10 @@ const app = createApp({
       const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
       const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
       const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
-      const currentUser = state.value.currentUser;
-      const adminUsers = mapSystemMembers(members, farms);
-      if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
-        adminUsers.unshift({
-          userId: currentUser.userId,
-          username: currentUser.username,
-          displayName: currentUser.displayName || currentUser.username,
-          role: currentUser.role,
-          roleLabel: currentUser.roleLabel,
-          farmIds: currentUser.farmIds || ['*'],
-          plotIds: currentUser.plotIds || ['*'],
-          farmName: '全平台',
-          enabled: true,
-          status: 'ACTIVE',
-          createdAt: '—',
-          dataOrigin: 'BACKEND'
-        });
-      }
+      const adminLearningCases = results.learningCases?.status === 'fulfilled' ? (results.learningCases.value || []) : [];
+      const adminUsers = results.users?.status === 'fulfilled'
+        ? mapSystemMembers(results.users.value || [], farms)
+        : state.value.adminUsers;
       const adminAuditLogs = auditRecords.map((record) => ({
         id: `log:${record.traceId}`,
         time: record.time,
@@ -2277,10 +2508,20 @@ const app = createApp({
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;
+      state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
       state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
+    };
+
+    const refreshSystemAdminDataStaged = async ({ announceErrors = true } = {}) => {
+      const core = refreshSystemAdminCore({ announceErrors });
+      void core.settled.then(() => {
+        if (state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') return;
+        scheduleSystemDetailRefresh();
+      }).catch(() => {});
+      await core.visible;
     };
 
     const runLivePoll = () => {
@@ -2315,6 +2556,8 @@ const app = createApp({
       systemRefreshTimer = null;
       farmRefreshTimer = null;
       systemRefreshQueued = false;
+      systemDetailRefreshInFlight = false;
+      systemDetailRefreshAt = 0;
       farmRefreshQueued = false;
       pendingFarmDomains.clear();
     };
@@ -2393,7 +2636,7 @@ const app = createApp({
         state.value.cropBatches = [];
         state.value.valueLedgers = [];
       }
-      await refreshFarmData(selected, ['all']);
+      await refreshFarmDataStaged(selected);
       if (options.updateRoute === false) return;
       const params = { ...routeParams.value, farmId: selected };
       delete params.view;
@@ -2482,6 +2725,7 @@ const app = createApp({
       selectedPlotId.value = '';
       currentView.value = viewId;
       routeParams.value = nextParams;
+      closeSidebarOnMobile();
       const targetHash = routeHash(viewId, nextParams);
       if (window.location.hash === targetHash) return;
       window.location.hash = targetHash.slice(1);
@@ -2581,30 +2825,63 @@ const app = createApp({
       }
       // Preferences were applied before mount; re-read once in case another
       // role tab changed them while this page was loading.
-      userSettings.value = readUserSettings();
+      userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
       isDark.value = resolveTheme(userSettings.value.theme) === 'dark';
-      isLive.value = await api.checkHealth();
-      if (isLive.value && session.mode === 'live') {
-        const restoredUser = await api.restoreSession();
-        if (!restoredUser) {
+      if (session.mode === 'live') {
+        const cachedUser = presentRoleUser(session.user);
+        if (!cachedUser) {
           window.location.replace('login.html');
           return;
         }
-        state.value.currentUser = presentRoleUser(restoredUser);
-        state.value.allowedViews = roleViews(state.value.currentUser);
+        state.value.currentUser = cachedUser;
+        state.value.allowedViews = roleViews(cachedUser);
         state.value.sessionMode = 'live';
         state.value.farmMembers = [];
+        isLive.value = true;
+        void api.restoreSession().then((restoredUser) => {
+          if (restoredUser) {
+            state.value.currentUser = presentRoleUser(restoredUser);
+            state.value.allowedViews = roleViews(state.value.currentUser);
+            state.value.farmMembers = [];
+          } else if (!api.token) {
+            window.location.replace('login.html');
+          }
+        }).catch(() => {});
+      } else {
+        isLive.value = false;
       }
       state.value.adminContext.sessionMode = state.value.sessionMode;
       if (state.value.currentUser?.role === 'FARM_ADMIN') {
         try {
-          state.value.farms = await api.getFarms();
           const requestedFarm = initialRoute.params?.farmId || '';
-          const farmId = selectAuthorizedFarm(state.value.farms, requestedFarm);
+          const scopedFarmIds = Array.isArray(state.value.currentUser?.farmIds)
+            ? state.value.currentUser.farmIds.filter((id) => id && id !== '*') : [];
+          const hintedFarm = scopedFarmIds.includes(requestedFarm) ? requestedFarm : scopedFarmIds[0] || '';
+          if (hintedFarm) {
+            state.value.adminContext = { farmId: hintedFarm, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+          }
+          const farmsPromise = api.getFarms();
+          const corePromise = hintedFarm ? refreshFarmDataStaged(hintedFarm) : Promise.resolve();
+          const [farmsResult] = await Promise.all([
+            settleWithinBudget(farmsPromise, ADMIN_BOOTSTRAP_BUDGET_MS),
+            corePromise
+          ]);
+          if (farmsResult.status === 'fulfilled') state.value.farms = farmsResult.value || [];
+          let farmId = selectAuthorizedFarm(state.value.farms, requestedFarm || hintedFarm);
+          if (!farmId && farmsResult.status === 'timeout' && hintedFarm) {
+            farmId = hintedFarm;
+            farmsPromise.then((farms) => {
+              if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+              const authorized = selectAuthorizedFarm(farms, requestedFarm || hintedFarm);
+              if (authorized) state.value.farms = farms || [];
+            }).catch(() => {});
+          }
           if (!farmId) throw new Error('当前账户没有授权农场');
-           state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
-           await refreshFarmData(farmId, ['all']);
+           if (state.value.adminContext.farmId !== farmId) {
+             state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+             await refreshFarmDataStaged(farmId);
+           }
            farmLastRefreshAt = Date.now();
         } catch (error) {
           state.value.farms = [];
@@ -2614,7 +2891,7 @@ const app = createApp({
         }
       } else if (session.mode === 'live') {
         if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
-          await refreshSystemAdminData();
+          await refreshSystemAdminDataStaged();
           systemLastRefreshAt = Date.now();
         } else {
           const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
@@ -2660,7 +2937,9 @@ const app = createApp({
       // failure. Use the service transport flag here so formal sessions can
       // start SSE after their REST refresh has proved the backend works.
       isLive.value = api.isLive;
-      if (api.isLive && session.mode === 'live') await connectLiveEvents();
+      // SSE is long-lived; let it connect in the background so a slow proxy
+      // cannot delay route rendering after the REST core has painted.
+      if (api.isLive && session.mode === 'live') void connectLiveEvents({ announce: false });
       await applyHashRoute();
       if (state.value.currentUser?.role === 'FARM_ADMIN' && state.value.adminContext.farmId && !parseHashRoute().params?.farmId) {
         const params = { ...routeParams.value, farmId: state.value.adminContext.farmId };
@@ -2711,6 +2990,7 @@ const app = createApp({
       toggleTheme,
       handleSettingsChanged,
       toggleSidebar,
+      closeSidebarOnMobile,
       toggleProfileMenu,
       closeProfileMenu,
       openAccountModal,

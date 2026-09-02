@@ -1,13 +1,13 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260901-v600-main-merge-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v600-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v600-main-merge-v1';
-import { presentRoleUser } from './roles.js?v=20260901-v600-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-merge-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { presentRoleUser } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v600-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v600-main-merge-v1';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v600-main-merge-v1';
-import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from './message-read-state.js?v=20260902-message-read-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -30,12 +30,12 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v600-main-merge-v1';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
 // Keep the standalone farmer shell in lock-step with the shared role pages.
-const initial_user_settings = readUserSettings();
+const initial_user_settings = readUserSettings(undefined, api.readSession()?.user);
 applyUserSettings(initial_user_settings);
 
 // Keep farmer.html independent from the remote Google icon font.  The same
@@ -261,7 +261,9 @@ function crop_manual_metrics(pack, stage) {
     items.push({
       code: item.code,
       label: profile.label || labels[item.code] || item.code,
-      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      range: item.code === 'LIGHT' && target.lightSchedule
+        ? `${item.low ?? '—'}~${item.high ?? '—'}（白天）/ ${target.lightSchedule.nightLow ?? 0}~${target.lightSchedule.nightHigh ?? 1000}（夜间）`
+        : `${item.low ?? '—'}~${item.high ?? '—'}`,
       unit: profile.unit || item.unit,
       availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
       note: item.note
@@ -293,7 +295,12 @@ function crop_manual_guide(pack, stage) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
   }
   if (target.lightLow != null || target.lightHigh != null) {
-    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
+    const schedule = target.lightSchedule || {};
+    const dayStart = schedule.dayStart || '06:00';
+    const dayEnd = schedule.dayEnd || '18:00';
+    const nightLow = schedule.nightLow ?? 0;
+    const nightHigh = schedule.nightHigh ?? 1000;
+    lines.push(`白天（${dayStart}—${dayEnd}）光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux；夜间目标 ${nightLow}~${nightHigh} lux，处于休息时段时不触发缺光预警、不执行补光。CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage?.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || code).join('、')}。`);
@@ -808,6 +815,33 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   ];
   const targetBand = stage_target_band(plot, code, stage_override);
   const span = Math.max(1, spec.max - spec.min);
+  const primarySamples = series[0]?.samples || [];
+  const targetSegments = code === 'LIGHT' && targetBand && primarySamples.length
+    ? (() => {
+      const segments = [];
+      let start = 0;
+      let previousPhase = light_target_context(plot, stage_override, primarySamples[0]?.ts).phase;
+      for (let index = 1; index <= primarySamples.length; index += 1) {
+        const phaseName = index < primarySamples.length
+          ? light_target_context(plot, stage_override, primarySamples[index]?.ts).phase
+          : previousPhase;
+        if (phaseName !== previousPhase || index === primarySamples.length) {
+          const left = primarySamples[start]?.ratio ?? 0;
+          const right = primarySamples[Math.max(start, index - 1)]?.ratio ?? 1;
+          const context = light_target_context(plot, stage_override, primarySamples[start]?.ts);
+          segments.push({
+            x1: chart_x_at_ratio(left), x2: chart_x_at_ratio(right),
+            yLow: 10 + (1 - ((context.low - spec.min) / span)) * 104,
+            yHigh: 10 + (1 - ((context.high - spec.min) / span)) * 104,
+            phase: context.phase, phaseLabel: context.phaseLabel,
+            low: context.low, high: context.high
+          });
+          start = index;
+          previousPhase = phaseName;
+        }
+      }
+      return segments;
+    })() : [];
   const quality = metric.quality || {};
   const isDemoMetric = plot?.dataOrigin !== 'BACKEND';
   const expectedSamples = Number(quality.expectedSamples ?? 90);
@@ -821,7 +855,6 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   ));
   const confidence = Number(quality.confidence ?? (isDemoMetric ? (metric.status === 'ALERT' ? 0.91 : 0.97) : NaN));
   const axisLabels = range.labels || simulation_axis_labels(range.simHours);
-  const primarySamples = series[0]?.samples || [];
   const sampleLabels = primarySamples.map((sample) => format_sim_clock_label(sample.ratio * (range.simHours || 24), range.simHours));
 
   return {
@@ -833,6 +866,7 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
       yLow: 10 + (1 - ((targetBand[0] - spec.min) / span)) * 104,
       yHigh: 10 + (1 - ((targetBand[1] - spec.min) / span)) * 104
     } : null,
+    targetSegments,
     stageLabel: stage_override?.label || plot?.stageLabel || crop_stage_for(plot)?.label || '当前阶段',
     quality: {
       status: String(quality.status || metric.status || 'UNKNOWN').toUpperCase(),
@@ -953,6 +987,33 @@ function resolve_moisture_band_status(plot) {
   return 'NORMAL';
 }
 
+/** 光照相对 Crop Pack 阶段目标的状态：NORMAL | WARN_LOW | ALERT_LOW | WARN_HIGH | ALERT_HIGH */
+function resolve_light_band_status(plot) {
+  const value = Number(plot?.metrics?.LIGHT?.value);
+  if (!Number.isFinite(value)) return 'NORMAL';
+  const context = light_target_context(plot);
+  const [low, high] = [context.low, context.high];
+  const margin = Math.max(500, (high - low) * 0.08);
+  if (context.isNight) {
+    if (value > high + margin) return 'ALERT_HIGH';
+    if (value > high) return 'WARN_HIGH';
+    return 'NORMAL';
+  }
+  if (value < low - margin) return 'ALERT_LOW';
+  if (value < low) return 'WARN_LOW';
+  if (value > high + margin) return 'ALERT_HIGH';
+  if (value > high) return 'WARN_HIGH';
+  return 'NORMAL';
+}
+
+const LIGHT_STATUS_LABELS = Object.freeze({
+  NORMAL: '光照正常',
+  WARN_LOW: '光照偏低',
+  ALERT_LOW: '光照不足',
+  WARN_HIGH: '光照偏高',
+  ALERT_HIGH: '光照过强'
+});
+
 const BAND_STATUS_LABELS = {
   NORMAL: '正常',
   WARN: '偏离目标',
@@ -1005,6 +1066,37 @@ function parse_target_range(target) {
   return values.length >= 2 ? [values[0], values[1]] : null;
 }
 
+function parse_light_clock(value, fallback) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  return Math.max(0, Math.min(23, Number(match[1]))) * 60 + Math.max(0, Math.min(59, Number(match[2])));
+}
+
+function light_target_context(plot, stage_override = null, at_ms = null) {
+  const target = (stage_override || crop_stage_for(plot))?.target || {};
+  const schedule = target.lightSchedule || {};
+  const start = parse_light_clock(schedule.dayStart, 6 * 60);
+  const end = parse_light_clock(schedule.dayEnd, 18 * 60);
+  const timestamp = Number.isFinite(Number(at_ms)) ? Number(at_ms) : (Date.parse(plot?.metrics?.LIGHT?.ts || '') || Date.now());
+  const date = new Date(timestamp);
+  const minute = date.getHours() * 60 + date.getMinutes();
+  const daytime = start < end ? minute >= start && minute < end : minute >= start || minute < end;
+  const dayLow = Number(target.lightLow);
+  const dayHigh = Number(target.lightHigh);
+  const nightLow = Number.isFinite(Number(schedule.nightLow)) ? Number(schedule.nightLow) : 0;
+  const nightHigh = Number.isFinite(Number(schedule.nightHigh)) ? Number(schedule.nightHigh) : 1000;
+  return {
+    low: daytime && Number.isFinite(dayLow) ? dayLow : nightLow,
+    high: daytime && Number.isFinite(dayHigh) ? dayHigh : nightHigh,
+    dayLow: Number.isFinite(dayLow) ? dayLow : null,
+    dayHigh: Number.isFinite(dayHigh) ? dayHigh : null,
+    nightLow, nightHigh, isNight: !daytime, phase: daytime ? 'DAY' : 'NIGHT',
+    phaseLabel: daytime ? '白天生长' : '夜间休息',
+    dayStart: `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`,
+    dayEnd: `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`
+  };
+}
+
 function stage_target_band(plot, code, stage_override = null) {
   const target = (stage_override || crop_stage_for(plot))?.target || {};
   if (code === 'SOIL_MOISTURE' && Number.isFinite(Number(target.soilMoistureLow)) && Number.isFinite(Number(target.soilMoistureHigh))) {
@@ -1016,8 +1108,9 @@ function stage_target_band(plot, code, stage_override = null) {
   if (code === 'AIR_HUMIDITY' && Number.isFinite(Number(target.airHumidityLow)) && Number.isFinite(Number(target.airHumidityHigh))) {
     return [Number(target.airHumidityLow), Number(target.airHumidityHigh)];
   }
-  if (code === 'LIGHT' && Number.isFinite(Number(target.lightLow)) && Number.isFinite(Number(target.lightHigh))) {
-    return [Number(target.lightLow), Number(target.lightHigh)];
+  if (code === 'LIGHT' && (Number.isFinite(Number(target.lightLow)) || target.lightSchedule)) {
+    const context = light_target_context(plot, stage_override);
+    return [context.low, context.high];
   }
   if (code === 'CO2' && Number.isFinite(Number(target.co2Low)) && Number.isFinite(Number(target.co2High))) {
     return [Number(target.co2Low), Number(target.co2High)];
@@ -1119,10 +1212,12 @@ function compute_plot_health_score(plot) {
 const app = createApp({
   setup() {
     const is_live = ref(false);
-    const user_settings = ref(readUserSettings());
+    const user_settings = ref(readUserSettings(undefined, api.readSession()?.user));
     const is_dark = ref(resolveTheme(user_settings.value.theme) === 'dark');
     const current_accent_label = computed(() => ACCENT_OPTIONS.find((item) => item.value === user_settings.value.accent)?.label || '田野绿');
     const current_surface_style_label = computed(() => SURFACE_STYLE_OPTIONS.find((item) => item.value === user_settings.value.surfaceStyle)?.label || '经典卡片');
+    const current_preset_label = computed(() => PRESET_OPTIONS.find((item) => item.value === user_settings.value.preset)?.label || 'Codex 中性');
+    const current_font_label = computed(() => FONT_FAMILY_OPTIONS.find((item) => item.value === user_settings.value.fontFamily)?.label || '系统默认');
     const is_sidebar_open = ref(typeof window === 'undefined' || window.innerWidth > 760);
     const toasts = ref([]);
     const data_updated_label = ref('刚刚');
@@ -1181,6 +1276,17 @@ const app = createApp({
       contact: fallback_user.contact,
       plot_names: fallback_user.plot_names
     });
+    const workspace_settings_state = computed(() => ({
+      currentUser: {
+        ...user.value,
+        roleLabel: user.value?.roleLabel || user.value?.role_label || '种植农户'
+      }
+    }));
+    const handle_workspace_settings_changed = (next) => {
+      user_settings.value = next;
+      is_dark.value = resolveTheme(next.theme) === 'dark';
+      if (typeof start_live_polling === 'function') start_live_polling();
+    };
     const current_role = computed(() => user.value?.role || 'FARMER');
     const role_presentation = computed(() => agentRolePresentation(current_role.value));
 
@@ -1914,11 +2020,38 @@ const app = createApp({
         load_irrigation_plan(plot.plotId, { silent: true });
       }
     };
+    const operation_subsystem = ref('irrigation');
+    const operation_subsystem_options = Object.freeze([
+      { id: 'irrigation', label: '灌溉系统', icon: 'water_drop', description: '土壤湿度、灌水预警与补水执行' },
+      { id: 'lighting', label: '光照系统', icon: 'light_mode', description: '光照强度、光照预警与补光执行' }
+    ]);
+    const select_operation_subsystem = (id) => {
+      const next = operation_subsystem_options.find((item) => item.id === id);
+      if (next) operation_subsystem.value = next.id;
+    };
     const advice_soil_chart = computed(() => metric_chart(advice_plot.value, 'SOIL_MOISTURE', '1d'));
+    const lighting_range = ref('1d');
+    const lighting_range_options = CHART_RANGE_OPTIONS;
+    const advice_light_chart = computed(() => {
+      const plot = advice_plot.value;
+      const chart = metric_chart(plot, 'LIGHT', lighting_range.value);
+      if (!chart || !plot) return null;
+      const band = selected_crop_band.value;
+      return {
+        ...chart,
+        plotName: plot.name || plot.plotId,
+        cropLabel: band?.cropLabel || plot.cropName,
+        stageLabel: band?.stageLabel || chart.stageLabel,
+        currentLight: plot.metrics?.LIGHT?.value,
+        currentTarget: `${chart.targetBand ? `${Math.round(chart.targetBand.low).toLocaleString()}~${Math.round(chart.targetBand.high).toLocaleString()} lux` : (plot.metrics?.LIGHT?.target || '—')}（${light_target_context(plot).phaseLabel}）`
+      };
+    });
 
-    // 灌溉系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
+    // 操作系统页：按地块的风险小卡片（黄=偏离目标，红=低于告警阈值）
     const risk_plot_cards = computed(() => plots.value.map((plot) => {
       const bandStatus = resolve_moisture_band_status(plot);
+      const lightStatus = resolve_light_band_status(plot);
+      const lightRange = stage_target_band(plot, 'LIGHT');
       return {
         plotId: plot.plotId,
         name: plot.name,
@@ -1933,11 +2066,15 @@ const app = createApp({
         moistureTarget: plot.metrics?.SOIL_MOISTURE?.target,
         moistureStatus: bandStatus,
         healthScore: health_score(plot),
+        lightStatus,
+        lightLabel: LIGHT_STATUS_LABELS[lightStatus] || '光照正常',
+        lightValue: plot.metrics?.LIGHT?.value,
+        lightTarget: lightRange ? `${Math.round(lightRange[0]).toLocaleString()}~${Math.round(lightRange[1]).toLocaleString()} lux` : (plot.metrics?.LIGHT?.target || '—'),
         selected: advice_selected_plot.value?.plotId === plot.plotId
       };
     }));
 
-    // 灌溉系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
+    // 操作系统页：选中地块的目标值带（Crop Pack 阶段）与告警阈值（规则）
     const moisture_range = ref('1d');
     const moisture_range_options = CHART_RANGE_OPTIONS;
     const irrigation_plan = ref(null);
@@ -1981,6 +2118,9 @@ const app = createApp({
       let cropLabel = plot.cropName;
       let stageLabel = plot.stageLabel;
       let alertThreshold = null;
+      let lightLow = null;
+      let lightHigh = null;
+      let lightSchedule = null;
       if (pack) {
         const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
         low = Number(stage?.target?.soilMoistureLow ?? 0);
@@ -1988,6 +2128,9 @@ const app = createApp({
         cropLabel = pack.identity?.name || plot.cropName;
         stageLabel = stage?.label || plot.stageLabel;
         alertThreshold = resolve_water_deficit_threshold(pack, stage);
+        lightLow = Number(stage?.target?.lightLow);
+        lightHigh = Number(stage?.target?.lightHigh);
+        lightSchedule = stage?.target?.lightSchedule || null;
       } else {
         const targetText = plot.metrics?.SOIL_MOISTURE?.target || '';
         const nums = String(targetText).match(/(\d+(?:\.\d+)?)/g);
@@ -2005,8 +2148,91 @@ const app = createApp({
         low,
         high,
         targetText: `${low}~${high}%`,
-        alertThreshold
+        alertThreshold,
+        lightLow: Number.isFinite(lightLow) ? lightLow : null,
+        lightHigh: Number.isFinite(lightHigh) ? lightHigh : null,
+        lightSchedule
       };
+    });
+    const advice_light_status = computed(() => {
+      const plot = advice_plot.value;
+      const status = resolve_light_band_status(plot);
+      const metric = plot?.metrics?.LIGHT;
+      const context = light_target_context(plot);
+      return {
+        status,
+        label: context.isNight && status === 'NORMAL' ? '夜间休息（无需补光）' : (LIGHT_STATUS_LABELS[status] || '光照正常'),
+        value: Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null,
+        low: context.low,
+        high: context.high,
+        dayLow: context.dayLow,
+        dayHigh: context.dayHigh,
+        nightLow: context.nightLow,
+        nightHigh: context.nightHigh,
+        phase: context.phase,
+        phaseLabel: context.phaseLabel,
+        scheduleLabel: `${context.dayStart}—${context.dayEnd}`,
+        isNight: context.isNight,
+        deviceOffline: String(plot?.deviceStatus || '').toUpperCase() === 'OFFLINE',
+        needsAttention: status !== 'NORMAL'
+      };
+    });
+    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && !advice_light_status.value.isNight && Boolean(advice_plot.value?.plotId));
+    const light_operation_label = computed(() => advice_light_status.value.deviceOffline ? '虚拟补光（离线演示）' : '执行补光');
+    const show_virtual_lighting = ref(false);
+    const show_lighting_diagnosis = ref(false);
+    const virtual_lighting_stage = ref('FORM');
+    const virtual_lighting_confirmed = ref(false);
+    const virtual_lighting_result = ref(null);
+    const virtual_lighting_error = ref('');
+    const virtual_lighting_busy = ref(false);
+    const virtual_lighting_idempotency_key = ref('');
+    const virtual_lighting_boost = ref(6000);
+    const virtual_lighting_preview = computed(() => {
+      const info = advice_light_status.value;
+      const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
+      const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
+      return { ...info, boost, after };
+    });
+    const lighting_advice_summary = computed(() => {
+      const info = advice_light_status.value || {};
+      const value = Number(info.value);
+      const hasValue = Number.isFinite(value);
+      const target = `${Number.isFinite(Number(info.low)) ? Number(info.low).toLocaleString() : '—'}~${Number.isFinite(Number(info.high)) ? Number(info.high).toLocaleString() : '—'} lux`;
+      const current = hasValue ? `${value.toLocaleString()} lux` : '当前暂无光照读数';
+      const evidence = {
+        current: { id: 'light-current', label: '当前光照读数', meta: current },
+        target: { id: 'light-target', label: `${info.phaseLabel || '当前时段'}目标`, meta: target },
+        schedule: { id: 'light-schedule', label: 'Crop Pack 光照时段', meta: info.isNight ? `夜间休息 · 白天 ${info.scheduleLabel || '06:00—18:00'}` : `白天生长 · ${info.scheduleLabel || '06:00—18:00'}` },
+        device: { id: 'light-device', label: '补光设备状态', meta: info.deviceOffline ? '离线（仅允许虚拟演示）' : '在线（仍只走虚拟执行器）' }
+      };
+      let causeLabel = '光照正常';
+      let summary = `${current}，处于 ${info.phaseLabel || '当前时段'}目标 ${target} 内。`;
+      let recommendation = '当前无需补光，继续观察趋势即可。';
+      const supporting = hasValue ? [evidence.current, evidence.target] : [evidence.target];
+      const opposing = [];
+      const missing = hasValue ? [] : [{ id: 'light-missing', label: '光照遥测', meta: '需要设备上报或刷新数据' }];
+      if (info.isNight && info.status === 'NORMAL') {
+        causeLabel = '夜间休息';
+        summary = `当前处于夜间休息时段（白天 ${info.scheduleLabel || '06:00—18:00'} 之外），目标 ${target}，系统关闭缺光预警。`;
+        recommendation = '不需要补光；如需查看白天策略，请切换到白天时段或查看曲线。';
+        supporting.push(evidence.schedule);
+      } else if (info.status === 'ALERT_LOW' || info.status === 'WARN_LOW') {
+        causeLabel = info.status === 'ALERT_LOW' ? '白天光照不足' : '白天光照偏低';
+        summary = `${current}，低于白天阶段目标 ${target}；请结合曲线和设备状态判断是否需要补光。`;
+        recommendation = info.status === 'ALERT_LOW' ? '建议查看处方并确认虚拟补光；设备离线时仅用于本地演示。' : '建议先检查遮挡和补光设备，达到告警阈值后再执行。';
+        if (info.deviceOffline) supporting.push(evidence.device);
+      } else if (info.status === 'ALERT_HIGH' || info.status === 'WARN_HIGH') {
+        causeLabel = info.status === 'ALERT_HIGH' ? '光照过强' : '光照偏高';
+        summary = `${current}，高于 ${info.phaseLabel || '当前时段'}目标 ${target}；系统不会在高光状态下继续补光。`;
+        recommendation = '建议检查遮阳、通风和传感器安装位置，暂不执行补光。';
+        opposing.push({ id: 'light-no-boost', label: '补光安全门', meta: '高光状态下禁止补光' });
+      } else if (!hasValue) {
+        causeLabel = '光照数据不可用';
+        summary = '当前没有可用光照读数，系统不会猜测风险或生成补光命令。';
+        recommendation = '建议刷新数据或检查设备连接后再进行诊断。';
+      }
+      return { causeLabel, confidenceLabel: hasValue ? '规则判定' : '证据不足', summary, recommendation, supporting, opposing, missing, statusLabel: info.label || '光照正常' };
     });
     const irrigation_readiness = computed(() => {
       const score = irrigation_readiness_detail.value?.score ?? advice_readiness.value?.score;
@@ -2385,7 +2611,7 @@ const app = createApp({
         { id: 'plots', label: '我的地块', icon: 'grass' },
         { id: 'tasks', label: '今日农务', icon: 'task', badge: pending || undefined },
         { id: 'inspections', label: '巡田记录', icon: 'fact_check', badge: inspection_records.value.length || undefined },
-        { id: 'advice', label: '灌溉系统', icon: 'water_drop', badge: risks || undefined },
+        { id: 'advice', label: '操作系统', icon: 'water_drop', badge: risks || undefined },
         { id: 'messages', label: '消息中心', icon: 'forum', badge: unread || undefined },
         { id: 'assistant', label: '农智助手', icon: 'smart_toy' },
         { id: 'tools', label: '更多工具', icon: 'apps', is_footer: true },
@@ -2967,9 +3193,23 @@ const app = createApp({
       return { ...base, items, sourceLabel: sourceLabel(base.source), generatedAt: data_updated_label.value };
     });
 
+    const close_sidebar_on_mobile = () => {
+      if (typeof window === 'undefined') return;
+      const is_mobile = window.innerWidth <= 760
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
+      if (is_mobile) is_sidebar_open.value = false;
+    };
+
+    const handle_sidebar_keydown = (event) => {
+      if (event.key === 'Escape' && is_sidebar_open.value) close_sidebar_on_mobile();
+    };
+    onMounted(() => window.addEventListener('keydown', handle_sidebar_keydown));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handle_sidebar_keydown));
+
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       current_view.value = next_view;
+      close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
         const target = farmer_hash_for(next_view, tools_tab.value);
@@ -3022,7 +3262,8 @@ const app = createApp({
     };
 
     const update_user_setting = (key, value) => {
-      const next = saveUserSettings({ ...user_settings.value, [key]: value });
+      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
+      const next = saveUserSettings({ ...user_settings.value, ...patch }, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -3032,7 +3273,7 @@ const app = createApp({
     };
 
     const reset_user_settings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS);
+      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, user.value);
       user_settings.value = next;
       applyUserSettings(next);
       is_dark.value = resolveTheme(next.theme) === 'dark';
@@ -3472,6 +3713,22 @@ const app = createApp({
       return matches.length ? matches : source.slice(0, 1);
     };
 
+    const CORE_REQUEST_BUDGET_MS = 2200;
+    const settleCoreRequest = (promise, timeoutMs = CORE_REQUEST_BUDGET_MS) => {
+      const operation = Promise.resolve(promise).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason })
+      );
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+      let timer = null;
+      const timeout = new Promise(resolve => {
+        timer = window.setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+      });
+      return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+
     const refresh_plot_telemetry = async () => {
       if (!is_formal_session || !plots.value.length) return false;
       const snapshot = plots.value.slice();
@@ -3493,6 +3750,107 @@ const app = createApp({
         qa_plot_id.value = nextPlots[0]?.plotId || '';
       }
       data_updated_label.value = '刚刚';
+      return true;
+    };
+
+    // The farmer page needs only the current farm, plot cards, tasks and
+    // alerts to become useful.  Keep this pass independent from crop manuals,
+    // resource plans and inspection history; those endpoints are reconciled by
+    // the existing full loader after the first paint.
+    const load_live_workspace_core = async ({ announce = false, trackProgress = false } = {}) => {
+      if (!is_formal_session) return false;
+      const version = ++workspace_request_version;
+      const showProgress = Boolean(trackProgress || announce || bootstrap_loading.value);
+      if (showProgress) begin_workspace_progress('正在读取农场与地块…');
+      const jobs = [
+        api.getFarms(),
+        api.getPlots({ includeInactive: true }),
+        api.getOverview(),
+        api.getWorkOrders(),
+        api.getTodayWorkItems(),
+        api.getAlerts()
+      ];
+      const results = await Promise.all(jobs.map((promise) => settleCoreRequest(promise)));
+      if (version !== workspace_request_version) return false;
+      const authFailure = results.find((result) => result.status === 'rejected'
+        && (result.reason?.status === 401 || result.reason?.code === 'AUTH_REQUIRED' || result.reason?.code === 'AUTH_INVALID'));
+      if (authFailure) {
+        const error = authFailure.reason;
+        if (error?.status === 401 || error?.code === 'AUTH_REQUIRED' || error?.code === 'AUTH_INVALID') {
+          api.clearSession();
+          window.location.replace('login.html?reason=session_expired');
+          return false;
+        }
+      }
+      const coreIndexes = [0, 1, 2, 3, 5];
+      const hasCoreData = coreIndexes.some((index) => results[index]?.status === 'fulfilled');
+      if (!hasCoreData) {
+        const error = results.find((result) => result.status === 'rejected')?.reason;
+        load_error.value = error?.message || '正式数据读取失败';
+        if (announce) show_toast(`正式农户数据读取失败：${load_error.value}`, 'error');
+        return false;
+      }
+      const farms = results[0].status === 'fulfilled' ? results[0].value || [] : [];
+      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || plots.value || [] : plots.value || [];
+      const overview = results[2].status === 'fulfilled' ? results[2].value || {} : {};
+      const rawWorkOrders = mergeFarmerWorkOrders(
+        results[3].status === 'fulfilled' ? results[3].value || [] : tasks.value || [],
+        results[4].status === 'fulfilled' ? results[4].value || [] : []
+      );
+      const rawAlerts = results[5].status === 'fulfilled' ? results[5].value || [] : [];
+      const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
+      const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
+      const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
+      let normalizedPlots = rawPlots
+        .map((plot) => {
+          const normalized = normalizePlot(plot, cards.get(String(plot.plotId)) || {});
+          return { ...normalized, healthScore: compute_plot_health_score(normalized) };
+        })
+        .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      normalizedPlots = replace_plots_in_order(normalizedPlots, { commitOrder: !plot_drag_state.value.active });
+      const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
+      const normalizedTasks = rawWorkOrders.map((work) => normalizeFarmerTask(work, plotMap));
+      const records = (inspection_records.value || []).map((record) => ({
+        ...record,
+        plotName: plotMap.get(String(record.plotId))?.name || record.plotId
+      }));
+      const nextMessages = buildFarmerMessages({ alerts: rawAlerts, tasks: normalizedTasks, inspections: records, plots: normalizedPlots });
+      const profile = buildFarmerProfile({ user: user.value, farm: selectedFarm, plots: normalizedPlots, tasks: normalizedTasks, inspections: records, messages: nextMessages });
+      farm.value = selectedFarm;
+      replace_ref_array(plots, normalizedPlots);
+      replace_ref_array(tasks, normalizedTasks);
+      sync_task_references(normalizedTasks);
+      apply_messages(nextMessages);
+      replace_ref_array(inspection_records, records);
+      evidence_requests.value = normalizedTasks
+        .filter((task) => String(task.sourceType || '').toUpperCase() === 'READINESS')
+        .map((task) => ({
+          id: task.workOrderId || task.id,
+          plotId: task.plot_id,
+          type: task.evidenceType || 'FIELD_INSPECTION',
+          reason: task.reason,
+          status: task.status,
+          createdAt: task.created_iso,
+          requesterId: task.requesterId || task.createdBy,
+          requesterName: task.requesterName || task.createdBy,
+          dataOrigin: 'BACKEND'
+        }));
+      user.value = {
+        ...user.value,
+        displayName: profile.displayName,
+        role_label: user.value.roleLabel || profile.role_label,
+        plot_names: profile.plot_names,
+        total_done: profile.total_done,
+        month_done: profile.month_done,
+        completion_rate: profile.completion_rate
+      };
+      selected_plot.value = normalizedPlots.find((plot) => plot.plotId === selected_plot.value?.plotId) || normalizedPlots[0] || null;
+      advice_selected_plot.value = normalizedPlots.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || normalizedPlots[0] || null;
+      if (!qa_plot_id.value || !normalizedPlots.some((plot) => plot.plotId === qa_plot_id.value)) qa_plot_id.value = normalizedPlots[0]?.plotId || '';
+      if (!inspection_form.value.plot_id || !plotMap.has(inspection_form.value.plot_id)) inspection_form.value.plot_id = normalizedPlots[0]?.plotId || '';
+      if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
+      data_updated_label.value = '刚刚';
+      if (showProgress) set_workspace_progress(86, '正在完成首屏…');
       return true;
     };
 
@@ -4153,6 +4511,96 @@ const app = createApp({
         show_toast(manual_irrigation_error.value, 'error');
       } finally {
         manual_irrigation_busy.value = false;
+      }
+    };
+
+    const open_virtual_lighting = () => {
+      if (advice_light_status.value.isNight) {
+        show_toast('当前处于夜间休息时段，无需补光', 'warning');
+        return;
+      }
+      if (!light_operation_available.value) {
+        show_toast('只有光照不足时才可执行补光，请先确认当前光照状态', 'error');
+        return;
+      }
+      virtual_lighting_stage.value = 'FORM';
+      virtual_lighting_confirmed.value = false;
+      virtual_lighting_result.value = null;
+      virtual_lighting_error.value = '';
+      virtual_lighting_busy.value = false;
+      virtual_lighting_boost.value = Math.max(1000, Math.round((Number(advice_light_status.value.high || 30000) - Number(advice_light_status.value.value || 0)) * .65));
+      virtual_lighting_idempotency_key.value = `virtual-lighting-${advice_plot.value.plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      show_virtual_lighting.value = true;
+    };
+
+    // 光照子系统与灌溉保持同一入口语义：先查看规则建议，只有白天缺光告警才进入确认执行。
+    const open_light_advice = () => {
+      const info = advice_light_status.value || {};
+      if (info.status === 'ALERT_LOW' && !info.isNight) {
+        open_virtual_lighting();
+        return;
+      }
+      show_lighting_diagnosis.value = true;
+      if (info.isNight) {
+        show_toast('当前为夜间休息时段，已展开光照建议：无需补光', 'warning');
+      } else if (String(info.status || '').includes('HIGH')) {
+        show_toast('当前光照偏高，已展开智能诊断：暂不执行补光', 'warning');
+      } else {
+        show_toast('当前暂无可执行补光动作，已展开光照建议', 'success');
+      }
+    };
+
+    const open_lighting_diagnosis = () => {
+      if (!advice_plot.value?.plotId) {
+        show_toast('请先选择地块', 'error');
+        return;
+      }
+      show_lighting_diagnosis.value = !show_lighting_diagnosis.value;
+    };
+
+    const close_virtual_lighting = () => {
+      if (virtual_lighting_busy.value) return;
+      show_virtual_lighting.value = false;
+    };
+
+    const submit_virtual_lighting = async () => {
+      if (virtual_lighting_busy.value) return;
+      const plotId = advice_plot.value?.plotId;
+      const preview = virtual_lighting_preview.value;
+      virtual_lighting_error.value = '';
+      if (preview.isNight) {
+        virtual_lighting_error.value = '当前处于夜间休息时段，无需补光';
+        return;
+      }
+      if (!light_operation_available.value || !plotId) {
+        virtual_lighting_error.value = '当前地块不满足离线演示补光条件，请刷新后重试';
+        return;
+      }
+      if (!virtual_lighting_confirmed.value) {
+        virtual_lighting_error.value = '请先确认这是离线虚拟演示，不会控制真实补光灯';
+        return;
+      }
+      virtual_lighting_busy.value = true;
+      try {
+        let result = await api.executeVirtualLighting({
+          plotId,
+          boostLux: preview.boost,
+          durationSeconds: 60,
+          confirmed: true,
+          allowOfflineDemo: true,
+          idempotencyKey: virtual_lighting_idempotency_key.value,
+          source: 'farmer-operation-system'
+        });
+        virtual_lighting_result.value = result;
+        virtual_lighting_stage.value = 'RESULT';
+        await load_live_workspace({ announce: false });
+        show_toast('离线设备已完成虚拟补光，结果已写入模拟遥测');
+      } catch (error) {
+        virtual_lighting_error.value = error?.message || '虚拟补光失败，请稍后重试';
+        virtual_lighting_confirmed.value = false;
+        show_toast(virtual_lighting_error.value, 'error');
+      } finally {
+        virtual_lighting_busy.value = false;
       }
     };
 
@@ -5567,12 +6015,21 @@ const app = createApp({
         if (timer !== null) window.clearTimeout(timer);
       });
     };
+    const defer_workspace_refresh = (task) => {
+      const run = () => {
+        Promise.resolve().then(task).catch((error) => {
+          console.warn('[AgriLoop] deferred farmer refresh failed:', error);
+        });
+      };
+      if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(run, { timeout: 1400 });
+      else window.setTimeout(run, 900);
+    };
 
     onMounted(async () => {
       bootstrap_loading.value = true;
       begin_workspace_progress('正在准备农户工作台…');
       try {
-        user_settings.value = readUserSettings();
+        user_settings.value = readUserSettings(undefined, user.value);
         applyUserSettings(user_settings.value);
         is_dark.value = resolveTheme(user_settings.value.theme) === 'dark';
         // Keep the current farmer page across refresh / back-forward.
@@ -5587,15 +6044,29 @@ const app = createApp({
           // A separate public health round trip added several seconds through
           // the remote tunnel before useful data loading could even begin.
           set_workspace_progress(12, '正在读取正式数据…');
-          await load_plot_order_preference();
-          await load_live_workspace({ announce: true, trackProgress: true });
+          // Preference ordering is cosmetic; resolve it alongside the core
+          // requests instead of making it another serial gate.
+          void load_plot_order_preference({ announce: false });
+          const corePromise = load_live_workspace_core({ announce: true, trackProgress: true });
+          // Never keep the full-screen bootstrap overlay behind a slow proxy;
+          // the core pass continues in the background and applies its result
+          // when it eventually arrives.
+          await with_bootstrap_timeout(() => corePromise, 2600);
+          void corePromise.then(() => {
+            defer_workspace_refresh(() => load_live_workspace({ announce: false, trackProgress: false }));
+          }).then(() => {
+            // A successful core request is also the first reliable transport
+            // signal. Update the badge and start SSE without blocking paint.
+            is_live.value = api.isLive;
+            if (api.isLive) void connect_live_events({ announce: false });
+          }).catch(() => {});
           is_live.value = api.isLive;
           // SSE is an enhancement backed by polling. Never keep the full-page
           // bootstrap overlay visible while a proxy holds the stream open.
           void connect_live_events({ announce: false });
         } else {
           set_workspace_progress(12, '正在检查服务状态…');
-          await load_plot_order_preference();
+          void load_plot_order_preference({ announce: false });
           is_live.value = await api.checkHealth();
           set_workspace_progress(55, '正在载入演示数据…');
           await load_demo_operation_records();
@@ -5712,9 +6183,13 @@ const app = createApp({
       is_dark,
       user_settings,
       accent_options: ACCENT_OPTIONS,
+      preset_options: PRESET_OPTIONS,
       surface_style_options: SURFACE_STYLE_OPTIONS,
+      font_options: FONT_FAMILY_OPTIONS,
       current_accent_label,
       current_surface_style_label,
+      current_preset_label,
+      current_font_label,
       update_user_setting,
       reset_user_settings,
       is_sidebar_open,
@@ -5780,7 +6255,13 @@ const app = createApp({
       advice_plot,
       advice_selected_plot,
       select_advice_plot,
+      operation_subsystem,
+      operation_subsystem_options,
+      select_operation_subsystem,
       advice_soil_chart,
+      lighting_range,
+      lighting_range_options,
+      advice_light_chart,
       risk_plot_cards,
       moisture_range,
       moisture_range_options,
@@ -5903,6 +6384,19 @@ const app = createApp({
       advice_is_no_action,
       advice_readiness_summary,
       advice_execution_summary,
+      advice_light_status,
+      light_operation_available,
+      light_operation_label,
+      show_lighting_diagnosis,
+      lighting_advice_summary,
+      show_virtual_lighting,
+      virtual_lighting_stage,
+      virtual_lighting_confirmed,
+      virtual_lighting_result,
+      virtual_lighting_error,
+      virtual_lighting_busy,
+      virtual_lighting_boost,
+      virtual_lighting_preview,
       irrigation_guard,
       automatic_watering_status,
       automatic_watering_result,
@@ -5929,6 +6423,8 @@ const app = createApp({
       assistant_view_state,
       current_role,
       role_presentation,
+      workspace_settings_state,
+      handle_workspace_settings_changed,
       assistant_plot_id,
       assistant_message_list,
       assistant_shortcuts,
@@ -5988,6 +6484,7 @@ const app = createApp({
       account_profile,
       navigate,
       toggle_sidebar,
+      close_sidebar_on_mobile,
       toggle_profile_menu,
       close_profile_menu,
       open_report,
@@ -6054,6 +6551,11 @@ const app = createApp({
       open_manual_irrigation,
       close_manual_irrigation,
       submit_manual_irrigation,
+      open_virtual_lighting,
+      open_light_advice,
+      open_lighting_diagnosis,
+      close_virtual_lighting,
+      submit_virtual_lighting,
       prepare_suggestion_confirmation,
       confirm_suggestion_action,
       open_suggestion_inspection,
@@ -6086,6 +6588,7 @@ const _session = api.readSession();
 const _session_user = presentRoleUser(_session?.user);
 app.component('app-icon', FarmerAppIcon);
 app.component('admin-ai-chat-view', AdminAiChatView);
+app.component('workspace-settings-view', createWorkspaceSettingsView({ ref, computed, watch }));
 if (!_session || !_session_user) {
   window.location.replace('login.html');
 } else if (_session_user.role !== 'FARMER') {

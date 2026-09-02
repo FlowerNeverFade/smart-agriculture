@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -51,6 +53,8 @@ class CropPackCatalog {
             "WATER_DEFICIT", "缺水风险",
             "HEAT_STRESS", "高温胁迫",
             "COLD_STRESS", "低温冷害",
+            "LIGHT_DEFICIT", "光照不足",
+            "LIGHT_EXCESS", "光照过强",
             "SENSOR_DRIFT", "传感器漂移",
             "DEVICE_FAULT", "设备异常");
     private static final Map<String, String> TASK_LABELS = Map.of(
@@ -362,7 +366,13 @@ class CropPackCatalog {
         pack.put("metrics", metrics);
 
         List<Map<String, Object>> rules = Jsons.maps(mapper, pack.get("rules"));
-        if (rules.isEmpty()) rules = defaultRules();
+        // Built-in packs may intentionally override only the rules they need.
+        // Always retain the kernel defaults so stage light bounds are enforced
+        // consistently without duplicating crop branches in Java/frontend.
+        Map<String, Map<String, Object>> mergedRules = new LinkedHashMap<>();
+        for (Map<String, Object> rule : defaultRules()) mergedRules.put(Jsons.text(rule, "code", ""), rule);
+        for (Map<String, Object> rule : rules) mergedRules.put(Jsons.text(rule, "code", ""), rule);
+        rules = new ArrayList<>(mergedRules.values());
         pack.put("rules", rules);
         if (!(pack.get("healthProfile") instanceof Map<?, ?>)) pack.put("healthProfile", defaultHealthProfile());
         if (!(pack.get("prescriptionConstraints") instanceof Map<?, ?>)) pack.put("prescriptionConstraints", defaultPrescriptionConstraints());
@@ -494,6 +504,7 @@ class CropPackCatalog {
         target.put("airTemperatureLow", 18); target.put("airTemperatureHigh", 30 + Math.min(offset, 2));
         target.put("airHumidityLow", 55); target.put("airHumidityHigh", 80);
         target.put("lightLow", 15000 + offset * 5000); target.put("lightHigh", 30000 + offset * 5000);
+        target.put("lightSchedule", new LinkedHashMap<>(Map.of("dayStart", "06:00", "dayEnd", "18:00", "nightLow", 0, "nightHigh", 1000)));
         target.put("co2Low", 400 + offset * 50); target.put("co2High", 800 + offset * 50);
         target.put("phLow", 5.8); target.put("phHigh", 6.8); target.put("waterLevelLow", 30); target.put("waterLevelHigh", 95);
         return target;
@@ -521,7 +532,9 @@ class CropPackCatalog {
         return List.of(
                 new LinkedHashMap<>(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 25, "durationMinutes", 5, "hysteresis", 2, "cooldownMinutes", 0, "alertCooldownMinutes", 120, "automaticWateringThreshold", 10)),
                 new LinkedHashMap<>(Map.of("code", "HEAT_STRESS", "metric", "AIR_TEMPERATURE", "operator", "GT", "threshold", 35, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
-                new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)));
+                new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
+                new LinkedHashMap<>(Map.of("code", "LIGHT_DEFICIT", "metric", "LIGHT", "operator", "LT", "threshold", 15000, "durationMinutes", 5, "hysteresis", 500, "cooldownMinutes", 30, "alertCooldownMinutes", 120)),
+                new LinkedHashMap<>(Map.of("code", "LIGHT_EXCESS", "metric", "LIGHT", "operator", "GT", "threshold", 30000, "durationMinutes", 5, "hysteresis", 500, "cooldownMinutes", 30, "alertCooldownMinutes", 120)));
     }
 
     private Map<String, Object> defaultPrescriptionConstraints() { return new LinkedHashMap<>(Map.of("maxDurationSeconds", 900, "cooldownMinutes", 0, "automaticWateringThreshold", 10, "maxDailyWaterLitres", 5000)); }
@@ -764,7 +777,8 @@ class CropPackCatalog {
                 if ("SUPPORTED".equals(availability)) missing.add(code);
                 continue;
             }
-            double alignment = metricAlignment(code, Jsons.number(sample, "value", Double.NaN), target);
+            Instant sampleTs = parseInstant(Jsons.text(sample, "ts", ""), Instant.now());
+            double alignment = metricAlignment(code, Jsons.number(sample, "value", Double.NaN), target, sampleTs);
             String quality = Jsons.text(Jsons.map(mapper, sample.get("quality")), "status", "GOOD").toUpperCase(Locale.ROOT);
             double qualityFactor = "BAD".equals(quality) ? 0.40 : "DEGRADED".equals(quality) ? 0.70 : 1.0;
             double score = clamp(alignment * qualityFactor);
@@ -993,6 +1007,10 @@ class CropPackCatalog {
                 rule.put("threshold", Jsons.number(target, "airTemperatureHigh", 35));
             } else if ("COLD_STRESS".equals(code) && target.containsKey("airTemperatureLow")) {
                 rule.put("threshold", Jsons.number(target, "airTemperatureLow", 18));
+            } else if ("LIGHT_DEFICIT".equals(code) && target.containsKey("lightLow")) {
+                rule.put("threshold", Jsons.number(target, "lightLow", 15000));
+            } else if ("LIGHT_EXCESS".equals(code) && target.containsKey("lightHigh")) {
+                rule.put("threshold", Jsons.number(target, "lightHigh", 30000));
             } else if ("OVER_WET".equals(code) && target.containsKey("soilMoistureHigh")) {
                 rule.put("threshold", Jsons.number(target, "soilMoistureHigh", 50));
             }
@@ -1148,9 +1166,9 @@ class CropPackCatalog {
         return profile;
     }
 
-    private double metricAlignment(String code, double value, Map<String, Object> target) {
+    private double metricAlignment(String code, double value, Map<String, Object> target, Instant timestamp) {
         if (Double.isNaN(value)) return 0.38;
-        double[] band = targetBand(code, target);
+        double[] band = "LIGHT".equals(code) ? lightBand(target, timestamp) : targetBand(code, target);
         if (band == null) {
             if ("WATER_LEVEL".equals(code)) band = new double[]{20, 90};
             else return 0.75;
@@ -1162,6 +1180,26 @@ class CropPackCatalog {
         double distance = Math.abs(value - midpoint) / half;
         if (distance <= 1) return 0.72 + (1 - distance) * 0.22;
         return Math.max(0.12, 0.72 - Math.min(1.8, distance - 1) * 0.34);
+    }
+
+    private double[] lightBand(Map<String, Object> target, Instant timestamp) {
+        Map<String, Object> schedule = Jsons.map(mapper, target.get("lightSchedule"));
+        LocalTime start = parseLightTime(Jsons.text(schedule, "dayStart", "06:00"), LocalTime.of(6, 0));
+        LocalTime end = parseLightTime(Jsons.text(schedule, "dayEnd", "18:00"), LocalTime.of(18, 0));
+        LocalTime local = (timestamp == null ? Instant.now() : timestamp).atZone(ZoneId.of("Asia/Shanghai")).toLocalTime();
+        boolean day = !local.isBefore(start) && local.isBefore(end);
+        return day
+                ? new double[]{Jsons.number(target, "lightLow", 15000), Jsons.number(target, "lightHigh", 30000)}
+                : new double[]{Jsons.number(schedule, "nightLow", 0), Jsons.number(schedule, "nightHigh", 1000)};
+    }
+
+    private LocalTime parseLightTime(String value, LocalTime fallback) {
+        try { return LocalTime.parse(value); } catch (Exception ignored) { return fallback; }
+    }
+
+    private Instant parseInstant(String value, Instant fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try { return Instant.parse(value); } catch (Exception ignored) { return fallback; }
     }
 
     private double[] targetBand(String code, Map<String, Object> target) {

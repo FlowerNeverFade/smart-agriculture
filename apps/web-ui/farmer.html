@@ -9,11 +9,12 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
-  <link rel="stylesheet" href="css/style.css?v=20260901-v600-main-merge-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260902-message-read-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v600-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v600-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v600-main-merge-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v600-motion-fix">
+  <link rel="stylesheet" href="css/farmer.css?v=20260902-card-fix-v1">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v5910-main-merge-v2">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-sidebar-unify-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -137,6 +138,7 @@
     </header>
 
     <div class="g-body">
+      <button v-if="is_sidebar_open" type="button" class="g-sidebar-backdrop" aria-label="关闭导航" @click="close_sidebar_on_mobile"></button>
       <nav class="g-sidebar farmer-sidebar" :class="{collapsed: !is_sidebar_open}">
         <div class="farmer-nav-main">
           <template v-for="nav in nav_items" :key="nav.id">
@@ -523,9 +525,15 @@
                          @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                      <rect v-if="chart.targetBand" class="farmer-target-band-area" x="28" :y="Math.min(chart.targetBand.yLow, chart.targetBand.yHigh)" width="324" :height="Math.abs(chart.targetBand.yLow - chart.targetBand.yHigh)"></rect>
-                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yLow" x2="352" :y2="chart.targetBand.yLow"></line>
-                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yHigh" x2="352" :y2="chart.targetBand.yHigh"></line>
+                      <g v-if="chart.targetSegments && chart.targetSegments.length">
+                        <g v-for="(segment, index) in chart.targetSegments" :key="'plot-light-target-' + index">
+                          <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yLow" :x2="segment.x2" :y2="segment.yLow"></line>
+                          <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yHigh" :x2="segment.x2" :y2="segment.yHigh"></line>
+                        </g>
+                      </g>
+                      <rect v-else-if="chart.targetBand" class="farmer-target-band-area" x="28" :y="Math.min(chart.targetBand.yLow, chart.targetBand.yHigh)" width="324" :height="Math.abs(chart.targetBand.yLow - chart.targetBand.yHigh)"></rect>
+                      <line v-if="!chart.targetSegments?.length && chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yLow" x2="352" :y2="chart.targetBand.yLow"></line>
+                      <line v-if="!chart.targetSegments?.length && chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yHigh" x2="352" :y2="chart.targetBand.yHigh"></line>
                       <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
                     </svg>
                     <div v-if="chart_tooltip && chart_tooltip.key === chart.code" class="farmer-chart-tooltip"
@@ -550,8 +558,8 @@
           <section v-else-if="current_view === 'advice'" class="farmer-workspace" key="advice">
             <div class="farmer-page-header">
               <div>
-                <h2>灌溉系统</h2>
-                <p class="role-summary">按地块查看风险提醒与土壤湿度趋势，结合灌溉建议和反馈决定操作。</p>
+                <h2>操作系统</h2>
+                <p class="role-summary">按地块选择灌溉或光照子系统，查看对应指标与风险，确认后执行虚拟补水或补光操作。</p>
               </div>
               <div class="farmer-page-actions">
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)">
@@ -561,6 +569,23 @@
               </div>
             </div>
 
+            <div class="farmer-operation-subsystem-tabs" role="tablist" aria-label="操作系统子系统">
+              <button
+                v-for="item in operation_subsystem_options"
+                :key="item.id"
+                type="button"
+                role="tab"
+                class="farmer-operation-subsystem-tab"
+                :class="{ active: operation_subsystem === item.id }"
+                :aria-selected="operation_subsystem === item.id ? 'true' : 'false'"
+                @click="select_operation_subsystem(item.id)"
+              >
+                <app-icon :name="item.icon"></app-icon>
+                <span><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span>
+              </button>
+            </div>
+
+            <div v-if="operation_subsystem === 'irrigation'" class="farmer-operation-subsystem-panel">
             <div class="farmer-water-resource-readonly" aria-label="水库水量查看">
               <div class="farmer-water-resource-head">
                 <div>
@@ -590,6 +615,7 @@
                 v-for="card in risk_plot_cards"
                 :key="card.plotId"
                 class="farmer-risk-mini-card"
+                :aria-pressed="card.selected ? 'true' : 'false'"
                 :class="{
                   'is-warn': card.isWarn,
                   'is-alert': card.isAlert,
@@ -672,8 +698,8 @@
               <article class="g-card farmer-advice-card farmer-irrigation-card">
                 <div class="farmer-panel-header">
                   <div>
-                    <span class="farmer-section-kicker">灌溉建议</span>
-                    <h3>{{ advice_plot ? advice_plot.name : '选择地块' }}补水建议</h3>
+                    <span class="farmer-section-kicker">操作系统 · 灌溉</span>
+                    <h3>{{ advice_plot ? advice_plot.name : '选择地块' }}操作建议</h3>
                   </div>
                   <span class="g-badge success">就绪度 {{ irrigation_readiness }}%</span>
                 </div>
@@ -889,6 +915,107 @@
                 <small class="farmer-case-note">反馈只形成待复核记录，不会静默修改阈值、处方或生产策略。</small>
               </div>
             </article>
+            </div>
+
+            <div v-else class="farmer-operation-subsystem-panel farmer-lighting-subsystem-panel">
+              <div class="farmer-light-system-summary">
+                <div>
+                  <span class="farmer-section-kicker">光照系统</span>
+                  <h3>按地块查看光照强度与补光状态</h3>
+                  <p>光照属于 <b>SIMULATION_ONLY</b> 指标；系统按白天/夜间时段与 Crop Pack 阶段目标生成风险提醒，补光仍需当前操作人确认。</p>
+                </div>
+                <div class="farmer-light-system-fact"><span>当前地块</span><strong>{{ advice_plot?.name || '—' }}</strong><small>{{ advice_plot?.deviceStatus === 'OFFLINE' ? '设备离线 · 可演示补光' : '设备在线 · 虚拟执行' }}</small></div>
+              </div>
+
+              <div class="farmer-risk-cards farmer-light-risk-cards" aria-label="各地块光照风险提醒">
+                <button
+                  type="button"
+                  v-for="card in risk_plot_cards"
+                  :key="'light-' + card.plotId"
+                  class="farmer-risk-mini-card"
+                  :aria-pressed="card.selected ? 'true' : 'false'"
+                  :class="{
+                    'is-warn': card.lightStatus === 'WARN_LOW' || card.lightStatus === 'WARN_HIGH',
+                    'is-alert': card.lightStatus === 'ALERT_LOW' || card.lightStatus === 'ALERT_HIGH',
+                    'is-selected': card.selected
+                  }"
+                  @click="select_advice_plot(card.plotId)"
+                >
+                  <div class="farmer-risk-mini-head">
+                    <span class="farmer-risk-mini-name">{{ card.name }}</span>
+                    <span class="farmer-risk-mini-tag" :class="{
+                      normal: card.lightStatus === 'NORMAL',
+                      warn: card.lightStatus === 'WARN_LOW' || card.lightStatus === 'WARN_HIGH',
+                      risk: card.lightStatus === 'ALERT_LOW' || card.lightStatus === 'ALERT_HIGH'
+                  }">{{ card.lightLabel }}</span>
+                </div>
+                  <div class="farmer-risk-mini-body farmer-light-risk-body">
+                    <span class="farmer-risk-mini-moist" :class="card.lightStatus.includes('LOW') ? 'metric-ALERT' : card.lightStatus.includes('HIGH') ? 'metric-WARN' : 'metric-NORMAL'">{{ card.lightValue ?? '—' }}<small> lux</small></span>
+                    <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.lightTarget }}</span>
+                  </div>
+                </button>
+              </div>
+
+              <div class="farmer-advice-grid farmer-light-advice-grid">
+                <article class="g-card farmer-advice-card farmer-moisture-chart-card farmer-light-chart-card" :class="{ 'is-warn': advice_light_chart?.status === 'WARN', 'is-alert': advice_light_chart?.status === 'ALERT' }">
+                  <div class="farmer-panel-header">
+                    <div>
+                      <span class="farmer-section-kicker">光照强度趋势</span>
+                      <h3>{{ advice_light_chart ? advice_light_chart.plotName : '' }} · 光照-时间曲线</h3>
+                    </div>
+                    <div class="farmer-chart-range" role="group" aria-label="光照曲线时间范围">
+                      <button type="button" v-for="option in lighting_range_options" :key="'light-range-' + option.id" class="farmer-chart-range-btn" :class="{active: lighting_range === option.id}" @click="lighting_range = option.id">{{ option.label }}</button>
+                    </div>
+                  </div>
+                  <div v-if="advice_light_chart" class="farmer-moisture-chart-wrap">
+                    <div class="farmer-chart-interactive">
+                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
+                        <line v-for="line in advice_light_chart.grid" :key="'lg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
+                        <text v-for="line in advice_light_chart.grid" :key="'lt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
+                        <g v-if="advice_light_chart.targetSegments && advice_light_chart.targetSegments.length">
+                          <g v-for="(segment, index) in advice_light_chart.targetSegments" :key="'light-target-' + index">
+                            <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yLow" :x2="segment.x2" :y2="segment.yLow"></line>
+                            <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yHigh" :x2="segment.x2" :y2="segment.yHigh"></line>
+                          </g>
+                        </g>
+                        <g v-else-if="advice_light_chart.targetBand">
+                          <line class="farmer-target-band-line" x1="32" :y1="advice_light_chart.targetBand.yLow" x2="350" :y2="advice_light_chart.targetBand.yLow"></line>
+                          <line class="farmer-target-band-line" x1="32" :y1="advice_light_chart.targetBand.yHigh" x2="350" :y2="advice_light_chart.targetBand.yHigh"></line>
+                        </g>
+                        <polyline v-for="series in advice_light_chart.series" :key="'ls-' + series.label" class="farmer-chart-line is-light" :class="{'is-warn-line': advice_light_chart.status === 'WARN', 'is-alert-line': advice_light_chart.status === 'ALERT'}" :points="series.points" :stroke="series.color"></polyline>
+                      </svg>
+                      <div v-if="chart_tooltip && chart_tooltip.key === 'advice-light'" class="farmer-chart-tooltip" :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}"><strong>{{ chart_tooltip.label }}</strong><span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} lux</span></div>
+                    </div>
+                    <div class="farmer-chart-x-labels"><span>{{ advice_light_chart.labels[0] }}</span><span>{{ advice_light_chart.labels[3] }}</span><span>{{ advice_light_chart.labels[6] }}</span></div>
+                    <div class="farmer-threshold-legend"><span v-if="advice_light_chart.targetBand"><i class="legend-target"></i>{{ advice_light_chart.stageLabel }}{{ advice_light_status.isNight ? '夜间目标' : '白天目标' }} {{ advice_light_chart.targetBand.low.toLocaleString() }}~{{ advice_light_chart.targetBand.high.toLocaleString() }} lux · {{ advice_light_status.phaseLabel }}</span></div>
+                    <p class="farmer-chart-target">当前 {{ advice_light_chart.current_label }} · 时间范围：{{ advice_light_chart.range_title }} <span class="farmer-band-status-hint" :class="'status-' + (advice_light_status.status.includes('HIGH') ? 'ALERT' : advice_light_status.status.includes('LOW') ? 'ALERT' : 'NORMAL')">{{ advice_light_status.label }}</span></p>
+                  </div>
+                  <p v-else class="farmer-chart-unavailable">当前 Crop Pack 或遥测未提供光照指标，系统不会补造曲线。</p>
+                </article>
+
+                <article class="g-card farmer-advice-card farmer-light-control-card">
+                  <div class="farmer-panel-header">
+                    <div><span class="farmer-section-kicker">操作系统 · 光照系统</span><h3>{{ advice_plot?.name || '当前地块' }}补光控制</h3></div>
+                    <span class="g-badge" :class="advice_light_status.needsAttention ? 'warning' : 'success'">{{ advice_light_status.label }}</span>
+                  </div>
+                  <div class="farmer-light-control-metrics"><div><small>当前光照</small><strong>{{ advice_light_status.value === null ? '—' : advice_light_status.value.toLocaleString() }} lux</strong></div><div><small>{{ advice_light_status.phaseLabel }}目标</small><strong>{{ advice_light_status.low === null ? '—' : advice_light_status.low.toLocaleString() }}~{{ advice_light_status.high === null ? '—' : advice_light_status.high.toLocaleString() }} lux</strong><em>白天 {{ advice_light_status.scheduleLabel }}</em></div><div><small>设备状态</small><strong>{{ advice_light_status.deviceOffline ? '离线' : '在线' }}</strong></div></div>
+                  <div v-if="advice_light_status.status === 'ALERT_HIGH' || advice_light_status.status === 'WARN_HIGH'" class="farmer-light-system-notice is-high"><app-icon name="wb_sunny"></app-icon><span>光照过强，请检查遮阳和通风；系统不会在高光状态下继续补光。</span></div>
+                  <div v-else-if="advice_light_status.status === 'WARN_LOW'" class="farmer-light-system-notice"><app-icon name="light_mode"></app-icon><span>光照略低于目标，建议先核对遮挡；达到告警阈值后才开放补光操作。</span></div>
+                  <div v-else-if="advice_light_status.status === 'ALERT_LOW'" class="farmer-light-system-notice is-low"><app-icon name="light_mode"></app-icon><span>{{ advice_light_status.deviceOffline ? '设备离线，仅可在本地演示模式下虚拟补光。' : '光照低于告警阈值，可由当前操作人确认执行虚拟补光。' }}</span></div>
+                  <div v-else class="farmer-light-system-notice is-normal"><app-icon name="check_circle"></app-icon><span>{{ advice_light_status.isNight ? '当前为夜间休息时段，作物不需要补光，系统已关闭缺光预警。' : '当前光照处于阶段目标范围内，无需补光。' }}</span></div>
+                  <div class="farmer-light-control-actions"><button type="button" class="g-btn primary farmer-btn-analyze" @click="open_light_advice" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>查看建议并执行</button><button type="button" class="g-btn secondary farmer-btn-light" :class="{ 'is-active': show_lighting_diagnosis }" @click="open_lighting_diagnosis"><app-icon :name="show_lighting_diagnosis ? 'expand_less' : 'psychology'"></app-icon>{{ show_lighting_diagnosis ? '收起诊断' : '查看智能诊断' }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)"><app-icon name="grass"></app-icon>查看地块详情</button></div>
+                  <div v-if="show_lighting_diagnosis && lighting_advice_summary" class="farmer-fold-section farmer-advice-diagnosis-panel farmer-light-diagnosis-panel">
+                    <div class="farmer-panel-header">
+                      <div><span class="farmer-section-kicker">光照智能诊断</span><h3>{{ advice_plot ? advice_plot.name : '当前地块' }} · 建议与证据</h3></div>
+                      <span class="g-badge" :class="lighting_advice_summary.missing.length ? 'warning' : 'primary'">{{ lighting_advice_summary.confidenceLabel }}</span>
+                    </div>
+                    <div class="farmer-diagnosis-primary"><strong>{{ lighting_advice_summary.causeLabel }}</strong><p>{{ lighting_advice_summary.summary }}</p><p class="farmer-operation-status is-success"><span class="farmer-freshness-dot"></span>{{ lighting_advice_summary.recommendation }}</p></div>
+                    <div class="farmer-evidence-grid"><section><strong>支持证据</strong><span v-for="item in lighting_advice_summary.supporting" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.supporting.length">暂无支持证据</em></section><section><strong>反对证据</strong><span v-for="item in lighting_advice_summary.opposing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.opposing.length">暂无反对证据</em></section><section><strong>缺失证据</strong><span v-for="item in lighting_advice_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.missing.length">当前无缺失项</em></section></div>
+                  </div>
+                  <small class="farmer-case-note">补光动作仅走虚拟执行器；命令、ACK、效果评价和光照模拟遥测均保留来源标识。</small>
+                </article>
+              </div>
+            </div>
           </section>
 
           <section v-else-if="current_view === 'messages'" class="farmer-workspace" key="messages">
@@ -1567,60 +1694,12 @@
             </div>
           </section>
 
-          <section v-else-if="current_view === 'settings'" class="farmer-workspace farmer-settings-page" key="settings">
-            <div class="farmer-page-header">
-              <div>
-                <span class="farmer-section-kicker">个人偏好</span>
-                <h2>工作台设置</h2>
-                <p class="role-summary">为当前浏览器调整外观、信息密度和数据刷新方式，不会修改地块、设备或灌溉数据。</p>
-              </div>
-              <span class="g-badge primary">仅本机保存</span>
-            </div>
-
-            <div class="farmer-settings-grid">
-              <article class="g-card farmer-settings-card">
-                <div class="farmer-panel-header">
-                  <div><span class="farmer-section-kicker">显示外观</span><h3>主题与颜色</h3></div>
-                  <app-icon name="settings"></app-icon>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">主题</span>
-                  <div class="farmer-settings-choice-row">
-                    <button v-for="theme in [{value:'light',label:'白色'},{value:'dark',label:'黑色'},{value:'system',label:'跟随系统'}]" :key="theme.value" type="button" class="farmer-settings-choice" :class="{active: user_settings.theme === theme.value}" @click="update_user_setting('theme', theme.value)">{{ theme.label }}</button>
-                  </div>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">卡片风格</span>
-                  <div class="farmer-settings-choice-row farmer-settings-surface-row">
-                    <button v-for="surface in surface_style_options" :key="surface.value" type="button" class="farmer-settings-choice farmer-settings-surface-choice" :data-surface-style="surface.value" :class="{active: user_settings.surfaceStyle === surface.value}" @click="update_user_setting('surfaceStyle', surface.value)" :title="surface.hint"><span>{{ surface.label }}</span><small>{{ surface.hint }}</small></button>
-                  </div>
-                </div>
-                <div class="farmer-settings-field">
-                  <span class="farmer-settings-label">强调色</span>
-                  <div class="farmer-settings-accent-row">
-                    <button v-for="accent in accent_options" :key="accent.value" type="button" class="farmer-settings-accent" :class="{active: user_settings.accent === accent.value}" :style="{ '--swatch': accent.color }" :title="accent.label" @click="update_user_setting('accent', accent.value)"><i></i><span>{{ accent.label }}</span></button>
-                  </div>
-                </div>
-                <div class="farmer-settings-inline-fields">
-                  <label class="farmer-settings-select">显示密度<select :value="user_settings.density" @change="update_user_setting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
-                  <label class="farmer-settings-select">内容宽度<select :value="user_settings.layout" @change="update_user_setting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
-                </div>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.reducedMotion" @change="update_user_setting('reducedMotion', $event.target.checked)"><span><strong>减少动效</strong><small>降低过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
-              </article>
-
-              <article class="g-card farmer-settings-card">
-                <div class="farmer-panel-header">
-                  <div><span class="farmer-section-kicker">数据体验</span><h3>刷新与提示</h3></div>
-                  <app-icon name="sync"></app-icon>
-                </div>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.autoRefresh" @change="update_user_setting('autoRefresh', $event.target.checked)"><span><strong>自动刷新工作台</strong><small>页面保持打开时按间隔拉取最新任务、遥测和建议。</small></span></label>
-                <label class="farmer-settings-select">刷新间隔<select :value="user_settings.refreshInterval" :disabled="!user_settings.autoRefresh" @change="update_user_setting('refreshInterval', Number($event.target.value))"><option v-for="seconds in [5,15,30,60]" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select></label>
-                <label class="farmer-settings-check"><input type="checkbox" :checked="user_settings.showDataOrigin" @change="update_user_setting('showDataOrigin', $event.target.checked)"><span><strong>显示数据来源</strong><small>在卡片和详情中保留模拟、后端或人工记录标识，便于核对。</small></span></label>
-                <div class="farmer-settings-note"><app-icon name="info"></app-icon><span>这些偏好保存在当前浏览器。清除站点数据后会恢复默认值；服务器上的三角色数据仍由后端统一管理。</span></div>
-              </article>
-            </div>
-            <div class="farmer-settings-actions"><button type="button" class="g-btn secondary farmer-btn-light" @click="reset_user_settings">恢复默认设置</button><span>当前主题：{{ user_settings.theme === 'system' ? '跟随系统' : user_settings.theme === 'dark' ? '黑色' : '白色' }} · 卡片：{{ current_surface_style_label }} · 强调色：{{ current_accent_label }}</span></div>
-          </section>
+          <workspace-settings-view
+            v-else-if="current_view === 'settings'"
+            :state="workspace_settings_state"
+            :user-settings="user_settings"
+            @settings-changed="handle_workspace_settings_changed"
+          ></workspace-settings-view>
 
         </transition>
 
@@ -1831,6 +1910,45 @@
           </article>
         </div>
 
+        <div v-if="show_virtual_lighting" class="farmer-form-overlay" @click.self="close_virtual_lighting">
+          <article class="farmer-form-card farmer-manual-irrigation-modal" role="dialog" aria-modal="true" aria-labelledby="virtual-lighting-title">
+            <div class="farmer-detail-header">
+              <div>
+                <span class="farmer-section-kicker">操作系统 · 虚拟执行</span>
+                <h3 id="virtual-lighting-title">虚拟补光</h3>
+                <p class="farmer-detail-meta">{{ advice_plot ? advice_plot.name + ' · ' + advice_plot.cropName : '当前地块' }}</p>
+              </div>
+              <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_virtual_lighting" :disabled="virtual_lighting_busy" title="关闭"><app-icon name="close"></app-icon></button>
+            </div>
+            <section v-if="virtual_lighting_stage === 'FORM'" class="farmer-suggestion-stage">
+              <div class="farmer-manual-warning">
+                <span class="material-symbols-outlined">light_mode</span>
+                <div><strong>{{ advice_light_status?.deviceOffline ? '补光设备当前离线' : '补光设备在线（虚拟执行）' }}</strong><p>{{ advice_light_status?.deviceOffline ? '本次只在本地演示环境创建虚拟命令，模拟光照恢复到 Crop Pack 阶段目标，不会连接或控制真实灯具。' : '本次通过虚拟执行器模拟光照恢复到 Crop Pack 阶段目标，不会连接或控制真实灯具。' }}</p></div>
+              </div>
+              <div class="farmer-suggestion-facts farmer-manual-facts">
+                <div><small>当前光照</small><strong>{{ virtual_lighting_preview.value === null ? '—' : virtual_lighting_preview.value.toLocaleString() }} lux</strong></div>
+                <div><small>目标范围</small><strong>{{ virtual_lighting_preview.low === null ? '—' : virtual_lighting_preview.low.toLocaleString() }}~{{ virtual_lighting_preview.high === null ? '—' : virtual_lighting_preview.high.toLocaleString() }} lux</strong></div>
+                <div><small>预计补光后</small><strong>{{ virtual_lighting_preview.after === null ? '—' : virtual_lighting_preview.after.toLocaleString() }} lux</strong></div>
+              </div>
+              <label class="farmer-manual-water-input">模拟补光增量（lux）<input v-model.number="virtual_lighting_boost" type="number" min="1000" step="500" inputmode="numeric" required></label>
+              <p class="farmer-form-hint">光照指标当前属于 <b>SIMULATION_ONLY</b>，结果会以带有事件、命令 ACK 和效果评价的模拟遥测写回页面。</p>
+              <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="virtual_lighting_confirmed" type="checkbox"><span>我已确认地块和补光增量，并理解这是虚拟演示，不会控制真实补光灯。</span></label>
+              <p v-if="virtual_lighting_error" class="farmer-form-error">{{ virtual_lighting_error }}</p>
+              <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_virtual_lighting" :disabled="virtual_lighting_busy">取消</button><button type="button" class="g-btn primary farmer-btn-analyze" @click="submit_virtual_lighting" :disabled="virtual_lighting_busy || !virtual_lighting_confirmed">{{ virtual_lighting_busy ? '执行中…' : '确认并虚拟补光' }}<span class="material-symbols-outlined">verified_user</span></button></div>
+            </section>
+            <section v-else class="farmer-suggestion-stage">
+                <div class="farmer-suggestion-explanation"><span class="material-symbols-outlined">verified_user</span><div><strong>虚拟补光命令已完成</strong><p>系统已写入模拟光照遥测并生成效果评价；{{ advice_light_status?.deviceOffline ? '设备离线状态保持不变。' : '不连接真实补光灯。' }}</p></div></div>
+              <div class="farmer-execution-evidence is-modal">
+                <div><span>命令状态</span><b>{{ virtual_lighting_result?.commandId || '—' }}</b><em>{{ virtual_lighting_result?.ack?.status || virtual_lighting_result?.status || '—' }}</em></div>
+                <div><span>ACK 实际增量</span><b>{{ virtual_lighting_result?.ack?.actualLightLux ?? virtual_lighting_result?.evaluation?.actual?.lightLux ?? '—' }} lux</b><em>{{ virtual_lighting_result?.ack?.receivedAt ? format_suggestion_time(virtual_lighting_result.ack.receivedAt) : '已回执' }}</em></div>
+                <div><span>光照变化</span><b>{{ virtual_lighting_result?.evaluation?.actual?.lightLuxBefore ?? '—' }} → {{ virtual_lighting_result?.evaluation?.actual?.lightLuxAfter ?? '—' }} lux</b><em>效果分 {{ virtual_lighting_result?.evaluation?.effectivenessScore ? Math.round(virtual_lighting_result.evaluation.effectivenessScore * 100) : '—' }}</em></div>
+                <div><span>执行来源</span><b>{{ advice_light_status?.deviceOffline ? '离线演示' : '在线虚拟' }}</b><em>SIMULATED</em></div>
+              </div>
+              <div class="farmer-form-footer"><button type="button" class="g-btn primary farmer-btn-analyze" @click="close_virtual_lighting">关闭</button></div>
+            </section>
+          </article>
+        </div>
+
         <div class="g-toast-container">
           <transition-group name="toast">
             <div v-for="toast in toasts" :key="toast.id" class="g-toast">
@@ -1843,6 +1961,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-message-read-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260902-dynamic-light-v1"></script>
 </body>
 </html>

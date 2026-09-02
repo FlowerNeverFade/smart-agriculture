@@ -646,6 +646,27 @@ function normalizeFarmMember(item, sourceMode) {
   };
 }
 
+function normalizeUserAccount(item, sourceMode = 'ACCOUNT') {
+  const role = String(item?.role || '').trim().toUpperCase();
+  const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+  const enabled = typeof item?.enabled === 'boolean'
+    ? item.enabled
+    : String(item?.status || 'ACTIVE').trim().toUpperCase() !== 'INACTIVE';
+  return {
+    userId: String(item?.userId || '').trim(),
+    username: String(item?.username || '').trim(),
+    role,
+    roleLabel: String(item?.roleLabel || roleLabels[role] || role).trim(),
+    farmIds: Array.isArray(item?.farmIds) ? [...item.farmIds] : [],
+    plotIds: Array.isArray(item?.plotIds) ? [...item.plotIds] : [],
+    enabled,
+    status: enabled ? 'ACTIVE' : 'INACTIVE',
+    createdAt: String(item?.createdAt || '').trim(),
+    updatedAt: String(item?.updatedAt || '').trim(),
+    sourceMode
+  };
+}
+
 function farmerWorkspacePreferenceStorageKey(user) {
   const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
   return `agriloop_demo_farmer_workspace_preference:${identity}`;
@@ -857,6 +878,10 @@ export class ApiService {
       ...member,
       farmIds: member.farmIds || ['farm-demo']
     }, 'SIMULATED')]));
+    this.demoUserAccounts = new Map((MOCK_DATA.adminUsers || []).map(account => [account.userId, normalizeUserAccount({
+      ...account,
+      farmIds: account.farmIds || (account.role === 'SYSTEM_ADMIN' ? ['*'] : ['farm-demo'])
+    }, 'SIMULATED')]));
   }
 
   readStoredUser() {
@@ -924,10 +949,17 @@ export class ApiService {
     }
   }
 
-  async register({ username, password, role }) {
+  async register({ username, password, role, authorizationCode = '', farmProfile }) {
+    const payload = { username, password, role, authorizationCode };
+    if (role === 'FARM_ADMIN') {
+      payload.farmProfile = {
+        name: String(farmProfile?.name || '').trim(),
+        region: String(farmProfile?.region || '').trim()
+      };
+    }
     const resp = await this._fetch('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, role })
+      body: JSON.stringify(payload)
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {
@@ -2170,13 +2202,13 @@ export class ApiService {
       const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
       if (Array.isArray(response?.data)) {
         const members = response.data.map((member) => normalizeFarmMember(member, 'ACCOUNT'));
-        const invalid = members.find((member) => !member.userId || !member.username || !['FARMER', 'FARM_ADMIN'].includes(member.role));
+        const invalid = members.find((member) => !member.userId || !member.username || member.role !== 'FARMER');
         if (!invalid) return members;
       }
       throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
     }
     return Array.from(this.demoFarmMembers.values())
-      .filter(member => !farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId))
+      .filter(member => member.role === 'FARMER' && (!farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId)))
       .map(member => ({ ...member, plotIds: [...member.plotIds], farmIds: [...member.farmIds] }));
   }
 
@@ -2196,6 +2228,8 @@ export class ApiService {
     const preserved = current.plotIds.filter(plotId => !farmPlotIds.has(plotId));
     const updated = { ...current, plotIds: [...new Set([...preserved, ...plotIds])], sourceMode: 'SIMULATED' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, plotIds: updated.plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
@@ -2211,14 +2245,15 @@ export class ApiService {
       throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
+    if (String(role || 'FARMER').toUpperCase() !== 'FARMER') throw new ApiError('农场成员接口只能创建种植农户账号', { status: 403, code: 'MEMBER_ROLE_FORBIDDEN' });
     if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'MEMBER_USERNAME_INVALID' });
     if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'MEMBER_PASSWORD_WEAK' });
-    if ([...this.demoFarmMembers.values()].some(member => member.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
+    if ([...this.demoUserAccounts.values()].some(account => account.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
-    const memberRole = String(role || 'FARMER').toUpperCase();
-    const memberRoleLabel = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' }[memberRole] || '种植农户';
+    const memberRole = 'FARMER';
+    const memberRoleLabel = '种植农户';
     const member = normalizeFarmMember({
       userId,
       username: normalized,
@@ -2226,10 +2261,11 @@ export class ApiService {
       role: memberRole,
       roleLabel: memberRoleLabel,
       farmIds: [farmId],
-      plotIds: memberRole === 'SYSTEM_ADMIN' ? ['*'] : plotIds,
+      plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
+    this.demoUserAccounts.set(userId, normalizeUserAccount({ ...member, enabled: true, createdAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
   }
 
@@ -2248,6 +2284,8 @@ export class ApiService {
     if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
     const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, enabled: nextEnabled, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
   }
 
@@ -2264,6 +2302,8 @@ export class ApiService {
     const plotIds = member.plotIds.filter(id => !farmPlotIds.has(id));
     if (farmIds.length) this.demoFarmMembers.set(userId, { ...member, farmIds, plotIds });
     else this.demoFarmMembers.delete(userId);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, farmIds, plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { userId, username: member.username, farmId, removed: true, sourceMode: 'SIMULATED' };
   }
 
@@ -2273,8 +2313,86 @@ export class ApiService {
       if (response?.data?.removed) return response.data;
       throw new ApiError('后端返回了无效的账号删除结果', { code: 'ACCOUNT_DELETE_INVALID', payload: response });
     }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能删除', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    this.demoUserAccounts.delete(userId);
     this.demoFarmMembers.delete(userId);
     return { userId, removed: true, sourceMode: 'SIMULATED' };
+  }
+
+  async getUserAccounts() {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users');
+      if (!Array.isArray(response?.data)) throw new ApiError('后端返回了无效的账号列表', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      const users = response.data.map((account) => normalizeUserAccount(account, 'ACCOUNT'));
+      if (users.some((account) => !account.userId || !account.username || !['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(account.role))) {
+        throw new ApiError('后端返回了无效的账号数据', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      }
+      return users;
+    }
+    return [...this.demoUserAccounts.values()].map((account) => normalizeUserAccount(account, 'SIMULATED'));
+  }
+
+  async createUserAccount({ username, password, role = 'FARMER', farmId = '', plotIds = [], authorizationCode = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, role, farmId, plotIds, authorizationCode })
+      });
+      if (!response?.data?.userId || !response?.data?.recoveryCode) {
+        throw new ApiError('后端返回了无效的账号创建结果', { code: 'USER_ACCOUNT_CREATE_INVALID', payload: response });
+      }
+      return { ...normalizeUserAccount(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode };
+    }
+    const normalized = String(username || '').trim().toLowerCase();
+    const normalizedRole = String(role || 'FARMER').trim().toUpperCase();
+    if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'ACCOUNT_USERNAME_INVALID' });
+    if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'ACCOUNT_PASSWORD_WEAK' });
+    if (!['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(normalizedRole)) throw new ApiError('请选择有效的账号身份', { status: 400, code: 'ACCOUNT_ROLE_INVALID' });
+    if (normalizedRole === 'SYSTEM_ADMIN' && !String(authorizationCode || '').trim()) throw new ApiError('创建系统管理员必须填写服务端授权码', { status: 403, code: 'SYSTEM_ADMIN_AUTHORIZATION_INVALID' });
+    if ([...this.demoUserAccounts.values()].some((account) => account.username.toLowerCase() === normalized)) throw new ApiError('该账号已存在', { status: 409, code: 'ACCOUNT_EXISTS' });
+    if (normalizedRole !== 'SYSTEM_ADMIN' && !(MOCK_DATA.farms || []).some((farm) => farm.farmId === farmId)) throw new ApiError('请选择有效的账号所属农场', { status: 404, code: 'FARM_NOT_FOUND' });
+    const availablePlots = [...this.demoPlots.values()].filter((plot) => plot.farmId === farmId).map((plot) => plot.plotId);
+    if (normalizedRole === 'FARMER' && plotIds.some((plotId) => !availablePlots.includes(plotId))) throw new ApiError('只能分配账号所属农场内的地块', { status: 403, code: 'ACCOUNT_SCOPE_FORBIDDEN' });
+    const scopedPlots = normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : normalizedRole === 'FARM_ADMIN' ? availablePlots : [...plotIds];
+    const account = normalizeUserAccount({
+      userId: `user-demo-${Date.now().toString(36)}`,
+      username: normalized,
+      role: normalizedRole,
+      farmIds: normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : [farmId],
+      plotIds: scopedPlots,
+      enabled: true,
+      createdAt: new Date().toISOString()
+    }, 'SIMULATED');
+    this.demoUserAccounts.set(account.userId, account);
+    if (normalizedRole === 'FARMER') {
+      this.demoFarmMembers.set(account.userId, normalizeFarmMember({
+        ...account,
+        displayName: normalized,
+        status: 'ACTIVE'
+      }, 'SIMULATED'));
+    }
+    return { ...account, recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateUserAccountStatus(userId, { enabled } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/users/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: Boolean(enabled) })
+      });
+      if (response?.data?.userId) return normalizeUserAccount(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的账号状态结果', { code: 'USER_ACCOUNT_STATUS_INVALID', payload: response });
+    }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能停用或启用', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    const updated = normalizeUserAccount({ ...account, enabled: Boolean(enabled), updatedAt: new Date().toISOString() }, 'SIMULATED');
+    this.demoUserAccounts.set(userId, updated);
+    const member = this.demoFarmMembers.get(userId);
+    if (member) this.demoFarmMembers.set(userId, normalizeFarmMember({ ...member, status: updated.status }, 'SIMULATED'));
+    return updated;
   }
 
   _demoActorId() {
@@ -3096,7 +3214,7 @@ export class ApiService {
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
     const existing = current.conversations.find((item) => item.conversationId === conversationId);
     const conversation = {
-      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, pinned: existing?.pinned === true, archived: existing?.archived === true, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
     };
     current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
     this._writeDemoAgentSession(current);
@@ -3129,13 +3247,17 @@ export class ApiService {
   }
 
   async getAgentConversations(limit = 20) {
-    const archived = Boolean(arguments[1]);
+    const options = arguments[1];
+    const normalized = typeof options === 'boolean' ? { archived: options } : (options || {});
+    const archived = Boolean(normalized.archived);
+    const plotId = String(normalized.plotId || '').trim();
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
       return session.conversations
         .filter((item) => Boolean(item.archived) === Boolean(archived))
+        .filter((item) => !plotId || String(item.plotId || '') === plotId)
         .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
         title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
@@ -3145,7 +3267,9 @@ export class ApiService {
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
-    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
+    const query = new URLSearchParams({ limit: String(bounded), archived: archived ? 'true' : 'false' });
+    if (plotId) query.set('plotId', plotId);
+    const resp = await this._fetch(`/api/v1/agent/conversations?${query}`);
     if (Array.isArray(resp?.data)) {
       return resp.data.map((item) => item && typeof item === 'object'
         ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
@@ -3207,6 +3331,25 @@ export class ApiService {
       this._writeDemoAgentSession(session);
     }
     return { conversationId, title: clean, sourceMode: 'SIMULATED' };
+  }
+
+  async setAgentConversationPinned(conversationId, pinned = true) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    const desired = Boolean(pinned);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ pinned: desired })
+      });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((item) => item.conversationId === conversationId);
+    if (conversation) {
+      conversation.pinned = desired;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, pinned: desired, sourceMode: 'SIMULATED' };
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
@@ -4600,6 +4743,59 @@ export class ApiService {
     return command;
   }
 
+  async executeVirtualLighting({ plotId, boostLux, durationSeconds = 60, confirmed = false, allowOfflineDemo = false, idempotencyKey = '', source = 'farmer-operation-system', outcome = 'SUCCEEDED' } = {}) {
+    if (!plotId) throw new ApiError('执行补光前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
+    if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有补光执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
+    if (confirmed !== true) throw new ApiError('执行补光前需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
+    const key = idempotencyKey || `virtual-lighting-${plotId}-${Date.now()}`;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/lighting/virtual', { method: 'POST', body: JSON.stringify({ plotId, boostLux, durationSeconds, confirmed: true, allowOfflineDemo, idempotencyKey: key, source, ...(outcome ? { outcome } : {}) }) });
+      const command = resp?.data || resp;
+      if (!command?.commandId) throw new ApiError('后端返回了无效的补光命令', { code: 'LIGHTING_COMMAND_INVALID', payload: resp });
+      const normalized = { ...command, executionMode: command.executionMode || 'SIMULATED', provenance: command.provenance || 'SIMULATED' };
+      this.decisionCache.commands.set(normalized.commandId, normalized);
+      return normalized;
+    }
+
+    this._demoHydrateWorkspaceState();
+    const plot = this.demoPlots.get(plotId) || this.mockPlot(plotId);
+    if (!plot) throw new ApiError('没有找到当前地块', { status: 404, code: 'PLOT_NOT_FOUND' });
+    const light = plot.metrics?.LIGHT || {};
+    const before = Number(light.value);
+    if (!Number.isFinite(before)) throw new ApiError('当前没有可用的光照模拟值', { status: 422, code: 'LIGHT_UNAVAILABLE' });
+    const stage = (MOCK_DATA.cropPackDetails || []).find((pack) => pack.cropCode === plot.cropCode)?.stages?.find((item) => item.code === plot.stageCode);
+    const low = Number(stage?.target?.lightLow ?? 15000);
+    const high = Number(stage?.target?.lightHigh ?? 30000);
+    if (before >= high && !allowOfflineDemo) throw new ApiError('当前光照已高于阶段目标，不应继续补光', { status: 409, code: 'LIGHT_ALREADY_HIGH' });
+    const amount = Math.min(50000, Math.max(1000, Number(boostLux) || Math.max(1000, (low + high) / 2 - before)));
+    const requestedOutcome = String(outcome || 'SUCCEEDED').toUpperCase();
+    const finalOutcome = ['SUCCEEDED', 'PARTIAL', 'FAILED', 'TIMEOUT'].includes(requestedOutcome) ? requestedOutcome : 'FAILED';
+    const actual = finalOutcome === 'SUCCEEDED' ? amount : finalOutcome === 'PARTIAL' ? Number((amount * .55).toFixed(0)) : 0;
+    const after = ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) ? Number(Math.min(high, before + actual).toFixed(0)) : before;
+    const existing = [...this.decisionCache.commands.values()].find((command) => command.idempotencyKey === key);
+    if (existing) {
+      if (existing.plotId !== plotId || existing.type !== 'LIGHT_BOOST') throw new ApiError('幂等键已绑定其他操作上下文', { status: 409, code: 'IDEMPOTENCY_CONTEXT_MISMATCH' });
+      return { ...existing };
+    }
+    const command = {
+      commandId: `cmd-light-${Math.random().toString(36).substring(2, 9)}`, plotId, idempotencyKey: key, type: 'LIGHT_BOOST',
+      durationSeconds: Math.max(1, Math.min(900, Number(durationSeconds) || 60)), lightLux: amount, expectedLightBefore: before, expectedLightAfter: after,
+      targetLightLow: low, targetLightHigh: high, deviceStatusAtRequest: plot.deviceStatus || 'UNKNOWN', offlineDemoOverride: allowOfflineDemo && String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE',
+      approvalRequired: false, confirmationMode: 'OPERATOR_CONFIRMED', confirmedBy: this._demoActorId(), confirmedAt: new Date().toISOString(), status: finalOutcome,
+      transport: 'MQTT_VIRTUAL_ACTUATOR', executionMode: 'SIMULATED', provenance: 'SIMULATED', sourceMode: 'SIMULATION', virtualOnly: true, riskLevel: 'MEDIUM', source,
+      ack: { ackId: `ack-light-${Math.random().toString(36).substring(2, 8)}`, status: finalOutcome, actualLightLux: actual, result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome, provenance: 'SIMULATED', receivedAt: new Date().toISOString() },
+      evaluation: { effectivenessScore: finalOutcome === 'SUCCEEDED' ? .94 : finalOutcome === 'PARTIAL' ? .45 : 0, status: ['SUCCEEDED', 'PARTIAL'].includes(finalOutcome) ? (finalOutcome === 'PARTIAL' ? 'PARTIAL' : 'COMPLETED') : 'INCONCLUSIVE', result: finalOutcome === 'SUCCEEDED' ? 'GOOD' : finalOutcome, expected: { lightLuxBefore: before, lightLuxAfter: after, lightLux: amount }, actual: { lightLuxBefore: before, lightLuxAfter: after, lightLux: actual }, executionMode: 'SIMULATED', provenance: 'SIMULATED' }
+    };
+    this.decisionCache.commands.set(command.commandId, command);
+    this.decisionCache.evaluations.set(command.commandId, { ...command.evaluation, commandId: command.commandId });
+    if (['SUCCEEDED', 'PARTIAL'].includes(finalOutcome)) {
+      const metrics = { ...(plot.metrics || {}), LIGHT: { ...light, value: after, status: 'NORMAL', updatedAt: new Date().toISOString() } };
+      this.demoPlots.set(plotId, { ...plot, metrics, updatedAt: new Date().toISOString() });
+    }
+    this._demoSaveWorkspaceState();
+    return command;
+  }
+
   async executeManualIrrigation({ plotId, sourcePlanId, waterLitre, confirmed = false, idempotencyKey = '', source = 'farmer-manual-fallback', outcome = 'SUCCEEDED' } = {}) {
     if (!plotId) throw new ApiError('人工浇灌前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
     if (!sourcePlanId) throw new ApiError('人工浇灌必须关联被阻塞的灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });
@@ -5215,6 +5411,42 @@ export class ApiService {
     return { ...device };
   }
 
+  async updateDevice(deviceId, input = {}) {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    const payload = { name: String(input.name || '').trim(), type: String(input.type || '').trim() };
+    if (!payload.name || !payload.type) throw new ApiError('请填写设备名称并选择设备类型', { status: 400, code: 'DEVICE_FIELDS_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      if (resp?.data?.deviceId === id) return resp.data;
+      throw new ApiError('后端返回了无效的设备更新结果', { code: 'DEVICE_UPDATE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    const saved = { ...device, ...payload, updatedAt: new Date().toISOString(), sourceMode: device.sourceMode || 'SIMULATION' };
+    this.demoDevices.set(id, saved);
+    return { ...saved };
+  }
+
+  async deleteDevice(deviceId, confirmName = '') {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ confirmName: String(confirmName || '') });
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}?${query}`, { method: 'DELETE' });
+      if (resp?.data?.deviceId === id && resp?.data?.deleted) return resp.data;
+      throw new ApiError('后端返回了无效的设备删除结果', { code: 'DEVICE_DELETE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    if (String(device.status || '').toUpperCase() !== 'OFFLINE') throw new ApiError('请先关闭设备，再执行永久删除', { status: 409, code: 'DEVICE_MUST_BE_OFFLINE' });
+    if (device.plotId || String(device.bindingState || '').toUpperCase() === 'BOUND') throw new ApiError('请先解除设备与地块的绑定', { status: 409, code: 'DEVICE_MUST_BE_UNBOUND' });
+    if (String(device.controlStatus || '').toUpperCase() === 'PENDING') throw new ApiError('请等待设备控制回执完成后再删除', { status: 409, code: 'DEVICE_CONTROL_PENDING' });
+    if (String(confirmName).trim() !== String(device.name || id).trim()) throw new ApiError('请输入完整设备名称进行确认', { status: 400, code: 'DEVICE_CONFIRMATION_MISMATCH' });
+    this.demoDevices.delete(id);
+    return { deviceId: id, name: device.name || id, deleted: true, deletedAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+  }
+
   async bindDevice(deviceId, plotId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/bind`, { method: 'POST', body: JSON.stringify({ plotId }) });
@@ -5514,10 +5746,78 @@ export class ApiService {
     return JSON.parse(JSON.stringify(saved));
   }
 
-  async getAlertLearningCases(farmId, candidateId = '') {
-    if (!farmId) return [];
-    if (this.sessionMode === 'live') { const query = new URLSearchParams({ farmId }); if (candidateId) query.set('candidateId', candidateId); const resp = await this._fetch(`/api/v1/alert-learning-cases?${query}`); return resp?.data || []; }
+  async getAlertLearningCases(farmId = '', candidateId = '', filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (candidateId) query.set('candidateId', candidateId);
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/alert-learning-cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
     return [];
+  }
+
+  async getLearningCases(filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/learning/cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async reevaluateLearningCase(caseId) {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return {};
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/re-evaluate`, { method: 'POST', body: JSON.stringify({}) });
+    return resp?.data || resp;
+  }
+
+  async reviewLearningCase(caseId, decision, note = '') {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { caseId, qualityStatus: String(decision || 'REJECTED').toUpperCase(), reviewNote: note };
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/review`, {
+      method: 'POST', body: JSON.stringify({ decision, note })
+    });
+    return resp?.data || resp;
+  }
+
+  async generateLearningStrategyCandidate(input = {}) {
+    if (this.sessionMode !== 'live') return { ...input, status: 'DRAFT', sourceMode: 'SIMULATED' };
+    const resp = await this._fetch('/api/v1/learning/strategy-candidates/generate', { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async offlineValidateLearningCandidate(candidateId, input = {}) {
+    if (!candidateId) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { candidateId, status: 'OFFLINE_VALIDATED', offlineValidation: { status: 'PASSED', seed: Number(input.seed || 42) } };
+    const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(candidateId)}/offline-validate`, { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async exportApprovedTrainingSet(filters = {}) {
+    if (this.sessionMode !== 'live') return { format: 'agriloop-controlled-learning-v1', caseCount: 0, cases: [], modelUpdate: 'NOT_PERFORMED' };
+    const query = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') query.set(key, String(value)); });
+    const resp = await this._fetch(`/api/v1/learning/training-export${query.toString() ? `?${query}` : ''}`);
+    return resp?.data || resp;
+  }
+
+  async getLearningAudit(limit = 100) {
+    if (this.sessionMode !== 'live') return [];
+    const resp = await this._fetch(`/api/v1/learning/audit?limit=${Math.max(1, Math.min(200, Number(limit) || 100))}`);
+    const data = resp?.data ?? resp;
+    return Array.isArray(data) ? data : [];
   }
 
   async createFarmCropPack(farmId, input) {

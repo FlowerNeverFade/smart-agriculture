@@ -18,6 +18,7 @@ stages:
       airHumidityHigh: 80
       lightLow: 15000
       lightHigh: 30000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 400
       co2High: 800
       phLow: 5.8
@@ -40,6 +41,7 @@ stages:
       airHumidityHigh: 80
       lightLow: 20000
       lightHigh: 40000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 500
       co2High: 900
       phLow: 5.8
@@ -62,6 +64,7 @@ stages:
       airHumidityHigh: 75
       lightLow: 25000
       lightHigh: 45000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 600
       co2High: 1000
       phLow: 5.8
@@ -84,6 +87,7 @@ stages:
       airHumidityHigh: 75
       lightLow: 25000
       lightHigh: 50000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 600
       co2High: 1000
       phLow: 5.8

@@ -1,5 +1,7 @@
 # BearPi HM Nano E53_IA1 接入
 
+> 当前状态（2026-09-02）：串口 -> MQTT -> API -> SSE 遥测链路已完成实测联调，作为当前硬件接入的唯一已验证范围；真实水泵/阀门/GPIO 执行器不包含在本记录内。
+
 `hardware/bearpi_e53_bridge.py` 是本地串口到 AgriLoop MQTT 的适配器。它把板卡的 SHT30 温度/湿度和 BH1750 光照读数转成统一遥测事件，并明确标记：
 
 ```text

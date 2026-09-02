@@ -1,19 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v600-main-merge-v1';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v600-main-merge-v1';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v600-main-merge-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v5910-main-merge-v2';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v5910-main-merge-v2';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v5910-main-merge-v2';
 import { buildAccountProfile } from './account-profile.js';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v600-main-merge-v1';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v600-main-merge-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v600-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v600-main-merge-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v600-main-merge-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v600-main-merge-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v600-main-merge-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v5910-main-merge-v2';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v5910-main-merge-v2';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v5910-main-merge-v2';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-main-merge-v2';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v5910-main-merge-v2';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v5910-main-merge-v2';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260901-v598-domestic-data-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v600-main-merge-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v600-main-merge-v1';
-import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v600-main-merge-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v600-main-merge-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v5910-main-merge-v2';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v5910-main-merge-v2';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260901-v5910-main-merge-v2';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v5910-main-merge-v2';
 import {
   agentResponseSource,
   agentResponseText,
@@ -44,7 +45,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v600-main-merge-v1';
+} from './live-data.js?v=20260901-v5910-main-merge-v2';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -101,6 +102,8 @@ const ICON_CLASS = Object.freeze({
   nutrition: 'ph-plant',
   remove_circle_outline: 'ph-minus-circle',
   close: 'ph-x',
+    search: 'ph-magnifying-glass',
+    checklist: 'ph-list-checks',
   psychology: 'ph-brain',
   receipt_long: 'ph-receipt',
   bolt: 'ph-lightning',
@@ -122,6 +125,7 @@ const ICON_CLASS = Object.freeze({
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
   add: 'ph-plus',
+  add_location_alt: 'ph-map-pin-plus',
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
   lock_reset: 'ph-lock-key-open',
@@ -141,6 +145,21 @@ const ICON_CLASS = Object.freeze({
   replay: 'ph-arrow-counter-clockwise',
   speed: 'ph-gauge',
   agriculture: 'ph-plant',
+  // AI assistant uses the same shared app-icon component as the main shell.
+  // Keep these aliases here as well as in the standalone role shells; an
+  // unknown alias falls back to ph-circle, which made valid actions look like
+  // empty radio buttons in the assistant.
+  plot_open_field: 'ph-rows',
+  plot_greenhouse: 'ph-barn',
+  plot_shade_house: 'ph-umbrella-simple',
+  plot_orchard: 'ph-tree',
+  location_on: 'ph-map-pin',
+  chat_bubble_outline: 'ph-chat-circle',
+  inbox: 'ph-tray',
+  push_pin: 'ph-push-pin',
+  more_vert: 'ph-dots-three-vertical',
+  more_vertical: 'ph-dots-three-vertical',
+  arrow_upward: 'ph-arrow-up',
   manage_accounts: 'ph-user-gear',
   tune: 'ph-sliders',
   history: 'ph-clock-counter-clockwise',
@@ -601,6 +620,7 @@ const DashboardView = {
       get: () => props.state.adminContext?.farmId || '',
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
+    const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
     const visiblePlots = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
@@ -831,6 +851,7 @@ const DashboardView = {
     return {
       isFarmAdmin,
       selectedFarmId,
+      managedFarm,
       visiblePlots,
       devices,
       deviceOptions,
@@ -2786,63 +2807,7 @@ const SETTINGS_COPY = Object.freeze({
  * it deliberately controls only the current browser's presentation and
  * refresh preferences, leaving platform/account settings to System Admin.
  */
-const SettingsView = {
-  template: '#tmpl-settings',
-  props: ['state'],
-  emits: ['settings-changed'],
-  setup(props, { emit }) {
-    const account = computed(() => props.state?.currentUser || null);
-    const settings = ref(readUserSettings(undefined, account.value));
-    const copy = computed(() => SETTINGS_COPY['zh-CN']);
-    const themeOptions = computed(() => [
-      { value: 'light', label: copy.value.themeLight, hint: copy.value.themeLightHint },
-      { value: 'dark', label: copy.value.themeDark, hint: copy.value.themeDarkHint },
-      { value: 'system', label: copy.value.themeSystem, hint: copy.value.themeSystemHint }
-    ]);
-    const presetOptions = computed(() => PRESET_OPTIONS);
-    const accentOptions = computed(() => ACCENT_OPTIONS);
-    const surfaceStyleOptions = computed(() => SURFACE_STYLE_OPTIONS);
-    const fontOptions = computed(() => FONT_FAMILY_OPTIONS);
-    const refreshOptions = [5, 15, 30, 60];
-    const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
-    const themeLabel = computed(() => themeOptions.value.find(item => item.value === settings.value.theme)?.label || copy.value.themeLight);
-    const presetLabel = computed(() => presetOptions.value.find(item => item.value === settings.value.preset)?.label || 'Codex');
-    const accentLabel = computed(() => accentOptions.value.find(item => item.value === settings.value.accent)?.label || copy.value.accent);
-    const surfaceStyleLabel = computed(() => surfaceStyleOptions.value.find(item => item.value === settings.value.surfaceStyle)?.label || copy.value.cardStyle);
-    const fontLabel = computed(() => fontOptions.value.find(item => item.value === settings.value.fontFamily)?.label || 'System default');
-    const updateSetting = (key, value) => {
-      const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
-      const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    const resetSettings = () => {
-      const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
-      settings.value = next;
-      applyUserSettings(next);
-      emit('settings-changed', next);
-    };
-    return {
-      settings,
-      copy,
-      presetOptions,
-      accentOptions,
-      surfaceStyleOptions,
-      fontOptions,
-      themeOptions,
-      refreshOptions,
-      roleLabel,
-      themeLabel,
-      presetLabel,
-      accentLabel,
-      surfaceStyleLabel,
-      fontLabel,
-      updateSetting,
-      resetSettings
-    };
-  }
-};
+const SettingsView = createWorkspaceSettingsView({ ref, computed, watch });
 
 const AdminSettingsView = {
   template: '#tmpl-admin-settings',
@@ -3092,6 +3057,11 @@ const app = createApp({
       adminCropPacks: isDemoSession ? (MOCK_DATA.adminCropPacks || []) : [],
       adminRules: isDemoSession ? (MOCK_DATA.adminRules || []) : [],
       adminStrategyCandidates: isDemoSession ? (MOCK_DATA.adminStrategyCandidates || []) : [],
+      // Controlled-learning cases are kept separate from strategy candidates so
+      // the governance views can show their quality gate and learning scope.
+      // Demo data is optional; live data is hydrated by the scoped API calls
+      // below and never falls back to another farm/session.
+      adminLearningCases: isDemoSession ? (MOCK_DATA.adminLearningCases || []) : [],
       adminUsers: isDemoSession ? (MOCK_DATA.adminUsers || []) : [],
       adminAuditLogs: isDemoSession ? (MOCK_DATA.adminAuditLogs || []) : []
     });
@@ -3102,6 +3072,8 @@ const app = createApp({
     let farmRefreshTimer = null;
     let systemRefreshInFlight = false;
     let systemRefreshQueued = false;
+    let systemDetailRefreshInFlight = false;
+    let systemDetailRefreshAt = 0;
     let systemLastRefreshAt = 0;
     let farmRefreshInFlight = false;
     let farmRefreshQueued = false;
@@ -3114,10 +3086,63 @@ const app = createApp({
     let liveHealthProbeInFlight = false;
     const pendingFarmDomains = new Set();
     const pendingFarmPlots = new Map();
-    const LIVE_FARM_REFRESH_DOMAINS = Object.freeze([
-      'overview', 'plots', 'workOrders', 'alerts', 'devices', 'members', 'batches', 'ledgers', 'simulator',
-      'resourceProfiles', 'resourcePlans', 'resourceRequests', 'rulesStrategies', 'inspections'
+    // Keep the first paint limited to the data required by the dashboard and
+    // live device state.  Governance, history and configuration data are
+    // hydrated after the core response so a slow optional endpoint cannot
+    // hold the whole workspace hostage.
+    const FARM_CORE_DOMAINS = Object.freeze(['overview', 'plots', 'workOrders', 'alerts', 'devices']);
+    const FARM_BACKGROUND_DOMAINS = Object.freeze([
+      'members', 'batches', 'ledgers', 'simulator', 'resourceProfiles', 'resourcePlans',
+      'resourceRequests', 'cropPacks', 'rulesStrategies', 'inspections'
     ]);
+    const LIVE_FARM_REFRESH_DOMAINS = FARM_CORE_DOMAINS;
+    const CORE_REQUEST_BUDGET_MS = 2200;
+    const ADMIN_BOOTSTRAP_BUDGET_MS = 2600;
+    const deferNonCritical = (task) => {
+      const run = () => {
+        try { task(); } catch (error) { console.warn('[AgriLoop] deferred refresh failed:', error); }
+      };
+      if (typeof window.requestIdleCallback === 'function') {
+        window.requestIdleCallback(run, { timeout: 1200 });
+      } else {
+        window.setTimeout(run, 80);
+      }
+    };
+    const waitForBootstrapBudget = (promise, timeoutMs = ADMIN_BOOTSTRAP_BUDGET_MS) => {
+      let timer = null;
+      const timeout = new Promise((resolve) => {
+        timer = window.setTimeout(() => resolve({ timedOut: true }), timeoutMs);
+      });
+      return Promise.race([promise, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+    // Resolve independent requests within the first-paint budget. A slow
+    // request is reconciled by the normal background refresh instead of
+    // keeping the role workspace blank.
+    const settleWithinBudget = (promise, timeoutMs = CORE_REQUEST_BUDGET_MS) => {
+      const operation = Promise.resolve(promise).then(
+        value => ({ status: 'fulfilled', value }),
+        reason => ({ status: 'rejected', reason })
+      );
+      if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) return operation;
+      let timer = null;
+      const timeout = new Promise(resolve => {
+        timer = window.setTimeout(() => resolve({ status: 'timeout' }), timeoutMs);
+      });
+      return Promise.race([operation, timeout]).finally(() => {
+        if (timer !== null) window.clearTimeout(timer);
+      });
+    };
+    const scheduleSystemDetailRefresh = () => {
+      if (systemDetailRefreshInFlight || state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') return;
+      systemDetailRefreshInFlight = true;
+      deferNonCritical(() => {
+        Promise.resolve(refreshSystemAdminData({ announceErrors: false }))
+          .catch(() => {})
+          .finally(() => { systemDetailRefreshInFlight = false; });
+      });
+    };
     const scheduleSystemRefresh = (delay = 450) => {
       if (state.value.sessionMode !== 'live') return;
       if (systemRefreshInFlight) {
@@ -3138,7 +3163,19 @@ const app = createApp({
         }
         systemRefreshInFlight = true;
         try {
-          await refreshSystemAdminData({ announceErrors: false });
+          const core = refreshSystemAdminCore({ announceErrors: false });
+          await core.visible;
+          // Full timelines, ledgers and governance catalogs change less often
+          // than telemetry.  Reconcile them at a relaxed cadence while the
+          // compact core pass keeps cards and counters live.
+          if (Date.now() - systemDetailRefreshAt >= 15000) {
+            systemDetailRefreshAt = Date.now();
+            void core.settled.then(() => {
+              if (state.value.currentUser?.role === 'SYSTEM_ADMIN' && state.value.sessionMode === 'live') {
+                scheduleSystemDetailRefresh();
+              }
+            }).catch(() => {});
+          }
         } finally {
           isLive.value = api.isLive;
           systemLastRefreshAt = Date.now();
@@ -3267,6 +3304,19 @@ const app = createApp({
       isSidebarOpen.value = !isSidebarOpen.value;
     };
 
+    const closeSidebarOnMobile = () => {
+      if (typeof window === 'undefined') return;
+      const isMobile = window.innerWidth <= 760
+        || (typeof window.matchMedia === 'function' && window.matchMedia('(max-width: 760px)').matches);
+      if (isMobile) isSidebarOpen.value = false;
+    };
+
+    const handleSidebarKeydown = (event) => {
+      if (event.key === 'Escape' && isSidebarOpen.value) closeSidebarOnMobile();
+    };
+    onMounted(() => window.addEventListener('keydown', handleSidebarKeydown));
+    onBeforeUnmount(() => window.removeEventListener('keydown', handleSidebarKeydown));
+
     const toggleProfileMenu = () => {
       showProfileMenu.value = !showProfileMenu.value;
     };
@@ -3333,6 +3383,12 @@ const app = createApp({
         : `演示找回密码指引：${accountProfile.value.contact}`);
     };
 
+    const openArchivedConversations = () => {
+      closeProfileMenu();
+      if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+      navigate('ai-assistant', { archived: '1', farmId: state.value.adminContext.farmId });
+    };
+
     const logout = () => {
       api.clearSession();
       window.location.replace('login.html');
@@ -3352,45 +3408,67 @@ const app = createApp({
       window.location.assign(page);
     };
 
-    const refreshFarmData = async (farmId, domains = ['all'], { announceErrors = true } = {}) => {
+    const refreshFarmData = async (farmId, domains = ['all'], { announceErrors = true, budgetMs = 0 } = {}) => {
       if (!farmId || state.value.currentUser?.role !== 'FARM_ADMIN') return;
-      const version = ++contextRequestVersion;
       const requested = new Set(domains || []);
       const all = requested.has('all');
+      // Expand an all-domain refresh into two phases.  The first phase keeps
+      // the existing API contract but only waits for dashboard-critical data;
+      // the second phase is scheduled after it has rendered.
+      if (all) {
+        const corePromise = refreshFarmData(farmId, FARM_CORE_DOMAINS, {
+          announceErrors,
+          budgetMs: budgetMs || ADMIN_BOOTSTRAP_BUDGET_MS
+        });
+        corePromise.then((result) => {
+          if (state.value.currentUser?.role !== 'FARM_ADMIN' || state.value.adminContext.farmId !== farmId) return;
+          const backgroundDomains = result?.timedOut
+            ? [...FARM_CORE_DOMAINS, ...FARM_BACKGROUND_DOMAINS]
+            : FARM_BACKGROUND_DOMAINS;
+          deferNonCritical(() => {
+            void refreshFarmData(farmId, backgroundDomains, { announceErrors: false });
+          });
+        }).catch(() => {});
+        return corePromise;
+      }
+      const version = ++contextRequestVersion;
       const wants = domain => all || requested.has(domain);
       const jobs = {};
       if (wants('overview') || wants('plots')) {
         jobs.overview = api.getOverview({ farmId });
         jobs.plots = api.getPlots({ farmId, includeInactive: true });
       }
-      if (wants('workOrders') || wants('overview')) jobs.workOrders = api.getWorkOrders({ farmId });
-      if (wants('alerts') || wants('overview')) jobs.alerts = api.getAlerts({ farmId });
+      if (wants('workOrders')) jobs.workOrders = api.getWorkOrders({ farmId });
+      if (wants('alerts')) jobs.alerts = api.getAlerts({ farmId });
       if (wants('devices')) jobs.devices = api.getDevices({ farmId });
       if (wants('members')) jobs.members = api.getFarmMembers({ farmId });
       if (wants('batches')) jobs.batches = api.getCropBatches({ farmId });
       if (wants('ledgers')) jobs.ledgers = api.getValueLedgers({ farmId });
-      if (wants('resourceProfiles') || wants('overview')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
-      if (wants('resourcePlans') || wants('overview')) jobs.resourcePlans = api.listResourcePlans({ farmId });
-      if (wants('resourceRequests') || wants('resourcePlans') || wants('overview')) jobs.resourceRequests = api.listResourceRequests({ farmId });
-      if (wants('cropPacks') || wants('overview')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
-      if (wants('cropPacks') || wants('rulesStrategies') || wants('overview')) {
+      if (wants('resourceProfiles')) jobs.resourceProfile = api.getWaterResourceProfile(farmId);
+      if (wants('resourcePlans')) jobs.resourcePlans = api.listResourcePlans({ farmId });
+      if (wants('resourceRequests') || wants('resourcePlans')) jobs.resourceRequests = api.listResourceRequests({ farmId });
+      if (wants('cropPacks')) jobs.cropPacks = api.getCropPacks({ farmId, includeDrafts: true });
+      if (wants('cropPacks') || wants('rulesStrategies')) {
         jobs.adminRules = api.getRuleSets(farmId);
         jobs.adminStrategyCandidates = api.getStrategyCandidates({ farmId });
+        jobs.adminLearningCases = api.getLearningCases({ farmId });
       }
       if (wants('simulator')) jobs.simulator = api.getSimulatorStatus();
-      if (wants('inspections') || wants('overview')) {
+      if (wants('inspections')) {
         jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
-      const settled = await Promise.all(entries.map(async ([key, promise]) => {
-        try { return [key, { status: 'fulfilled', value: await promise }]; }
-        catch (reason) { return [key, { status: 'rejected', reason }]; }
-      }));
+      const settled = await Promise.all(entries.map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, budgetMs)
+      ]));
       if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
       const results = Object.fromEntries(settled);
       const failed = [];
+      const timedOut = [];
       Object.entries(results).forEach(([key, result]) => {
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
+        if (result.status === 'timeout') timedOut.push(key);
       });
       const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
       const plotsReadSucceeded = results.plots?.status === 'fulfilled';
@@ -3428,6 +3506,7 @@ const app = createApp({
       }
       if (results.adminRules?.status === 'fulfilled') state.value.adminRules = results.adminRules.value || [];
       if (results.adminStrategyCandidates?.status === 'fulfilled') state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
+      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
       if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
       if (results.inspections?.status === 'fulfilled') {
         state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
@@ -3440,6 +3519,105 @@ const app = createApp({
       });
       if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
+      return { timedOut: timedOut.length > 0, failed: failed.length > 0 };
+    };
+
+    const refreshFarmDataStaged = (farmId, options = {}) =>
+      refreshFarmData(farmId, ['all'], options);
+
+    // A system-admin overview can be painted from five scoped endpoints.  The
+    // old loader waited for every farm's ledgers and every plot's timeline
+    // before committing any state, which made a single slow history request
+    // look like a blank page.  Keep the full loader below for reconciliation,
+    // but provide a small core pass for the initial paint and polling.
+    const refreshSystemAdminCore = ({ announceErrors = true } = {}) => {
+      if (state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') {
+        const skipped = Promise.resolve();
+        return { visible: skipped, settled: skipped };
+      }
+      const version = ++systemRequestVersion;
+      const jobs = {
+        farms: api.getFarms(),
+        overview: api.getOverview(),
+        plots: api.getPlots({ includeInactive: true }),
+        workOrders: api.getWorkOrders(),
+        alerts: api.getAlerts(),
+        simulator: api.getSimulatorStatus(),
+        systemStatus: (async () => {
+          const startedAt = performance.now();
+          const status = await api.getSystemStatus();
+          return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
+        })()
+      };
+      const settled = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
+      ])).then(Object.fromEntries);
+      const applied = settled.then((results) => {
+        if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
+        const failures = Object.entries(results)
+          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
+          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
+        const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
+        const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : (state.value.overview || {});
+        const cards = Array.isArray(overview.plots) ? overview.plots : [];
+        const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
+        const rawPlots = results.plots?.status === 'fulfilled'
+          ? (results.plots.value || [])
+          : (state.value.allPlots || state.value.plots || []);
+        const plots = (rawPlots.length ? rawPlots : cards).map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+        const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
+        const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
+        const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : state.value.workOrders;
+        const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : state.value.alerts;
+        const simulator = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
+        const systemStatus = results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {};
+        // The overview card already carries the device snapshot.  Use it for
+        // the first paint and replace it with the authoritative device list in
+        // the background reconciliation pass.
+        const cardDevices = cards.map((card) => card?.device && ({
+          ...card.device,
+          farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
+          plotId: card.device.plotId || card.plotId
+        })).filter(Boolean);
+        const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
+        state.value.farms = farms;
+        state.value.overview = overview;
+        state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        state.value.allPlots = plots;
+        state.value.workOrders = workOrders || [];
+        state.value.alerts = alerts || [];
+        state.value.devices = devices;
+        state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
+        state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
+        state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
+        state.value.simulatorStatus = simulator || state.value.simulatorStatus;
+        state.value.adminOverview = adminOverviewFromLive({
+          overview,
+          systemStatus,
+          simulator: simulator || {},
+          alerts: alerts || [],
+          devices,
+          recentEvents: (alerts || []).slice(0, 8).map((alert, index) => ({
+            id: `alert:${alert.alertId || alert.id || index}`,
+            category: 'alert', icon: 'warning',
+            title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+            time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+            traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
+          }))
+        });
+        state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.allPlots });
+        if (failures.length && announceErrors && failures.length === Object.keys(jobs).length) {
+          showToast(`平台核心数据暂不可用：${failures.join('；')}`, 'error');
+        }
+      });
+      return {
+        visible: waitForBootstrapBudget(applied),
+        // Keep this separate from the budgeted promise.  Background work must
+        // wait for the original request to settle before it increments the
+        // version, otherwise a slow core response would be discarded.
+        settled: applied
+      };
     };
 
     const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {
@@ -3454,6 +3632,7 @@ const app = createApp({
         cropPacks: api.getCropPacks(),
         rules: api.getRules(),
         strategies: api.getStrategyCandidates(),
+        learningCases: api.getLearningCases(),
         simulator: api.getSimulatorStatus(),
         resourcePlans: api.listResourcePlans({}),
         resourceRequests: api.listResourceRequests({}),
@@ -3555,6 +3734,7 @@ const app = createApp({
       const adminCropPacks = (results.cropPacks?.status === 'fulfilled' ? results.cropPacks.value : []).map(mapCropPack);
       const adminRules = (results.rules?.status === 'fulfilled' ? results.rules.value : []).map(mapAdminRule);
       const adminStrategyCandidates = (results.strategies?.status === 'fulfilled' ? results.strategies.value : []).map(mapStrategyCandidate);
+      const adminLearningCases = results.learningCases?.status === 'fulfilled' ? (results.learningCases.value || []) : [];
       const currentUser = state.value.currentUser;
       const adminUsers = mapSystemMembers(members, farms);
       if (!adminUsers.some((member) => member.userId === currentUser.userId)) {
@@ -3622,10 +3802,23 @@ const app = createApp({
       state.value.adminCropPacks = adminCropPacks;
       state.value.adminRules = adminRules;
       state.value.adminStrategyCandidates = adminStrategyCandidates;
+      state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
       state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
+    };
+
+    const refreshSystemAdminDataStaged = async ({ announceErrors = true } = {}) => {
+      const core = refreshSystemAdminCore({ announceErrors });
+      // Reconcile the complete governance view only after the core request has
+      // settled.  This preserves the version guard when a tunnel is slow and
+      // keeps the first screen independent of per-plot history latency.
+      void core.settled.then(() => {
+        if (state.value.currentUser?.role !== 'SYSTEM_ADMIN' || state.value.sessionMode !== 'live') return;
+        scheduleSystemDetailRefresh();
+      }).catch(() => {});
+      await core.visible;
     };
 
     const runLivePoll = () => {
@@ -3661,6 +3854,8 @@ const app = createApp({
       farmRefreshTimer = null;
       systemRefreshQueued = false;
       farmRefreshQueued = false;
+      systemDetailRefreshInFlight = false;
+      systemDetailRefreshAt = 0;
       pendingFarmDomains.clear();
     };
     const startLiveRefresh = () => {
@@ -3744,7 +3939,7 @@ const app = createApp({
         state.value.cropBatches = [];
         state.value.valueLedgers = [];
       }
-      await refreshFarmData(selected, ['all']);
+      await refreshFarmDataStaged(selected);
       if (options.updateRoute === false) return;
       const params = { ...routeParams.value, farmId: selected };
       delete params.view;
@@ -3838,6 +4033,7 @@ const app = createApp({
       selectedPlotId.value = '';
       currentView.value = viewId;
       routeParams.value = nextParams;
+      closeSidebarOnMobile();
       const targetHash = routeHash(viewId, nextParams);
       if (window.location.hash === targetHash) return;
       window.location.hash = targetHash.slice(1);
@@ -3949,27 +4145,75 @@ const app = createApp({
         window.location.replace('login.html');
         return;
       }
-      isLive.value = await api.checkHealth();
-      if (isLive.value && session.mode === 'live') {
-        const restoredUser = await api.restoreSession();
-        if (!restoredUser) {
+      if (session.mode === 'live') {
+        // The saved session already contains the role and scope needed to
+        // render the shell.  Start REST hydration immediately and validate the
+        // token in the background; a health probe followed by /auth/me used to
+        // add two serial network round trips before any useful data loaded.
+        const cachedUser = presentRoleUser(session.user);
+        if (!cachedUser) {
           window.location.replace('login.html');
           return;
         }
-        state.value.currentUser = presentRoleUser(restoredUser);
-        state.value.allowedViews = roleViews(state.value.currentUser);
+        state.value.currentUser = cachedUser;
+        state.value.allowedViews = roleViews(cachedUser);
         state.value.sessionMode = 'live';
         state.value.farmMembers = [];
+        isLive.value = true;
+        void api.restoreSession().then((restoredUser) => {
+          if (restoredUser) {
+            state.value.currentUser = presentRoleUser(restoredUser);
+            state.value.allowedViews = roleViews(state.value.currentUser);
+            state.value.farmMembers = [];
+          } else if (!api.token) {
+            window.location.replace('login.html');
+          }
+        }).catch(() => {
+          // REST hydration below reports transport failures in-place.  Keep
+          // the cached shell usable while a transient tunnel outage recovers.
+        });
+      } else {
+        isLive.value = false;
       }
       state.value.adminContext.sessionMode = state.value.sessionMode;
       if (state.value.currentUser?.role === 'FARM_ADMIN') {
         try {
-          state.value.farms = await api.getFarms();
+          // The token's scoped farmIds are already available locally.  Start
+          // the core farm request in parallel with the farm catalog, then
+          // validate the selected id against the authoritative catalog before
+          // exposing it in the selector.
           const requestedFarm = initialRoute.params?.farmId || '';
-          const farmId = selectAuthorizedFarm(state.value.farms, requestedFarm);
+          const scopedFarmIds = Array.isArray(state.value.currentUser?.farmIds)
+            ? state.value.currentUser.farmIds.filter((id) => id && id !== '*') : [];
+          const hintedFarm = scopedFarmIds.includes(requestedFarm) ? requestedFarm : scopedFarmIds[0] || '';
+          if (hintedFarm) {
+            state.value.adminContext = { farmId: hintedFarm, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+          }
+          const farmsPromise = api.getFarms();
+          const corePromise = hintedFarm ? refreshFarmDataStaged(hintedFarm) : Promise.resolve();
+          const [farmsResult] = await Promise.all([
+            settleWithinBudget(farmsPromise, ADMIN_BOOTSTRAP_BUDGET_MS),
+            corePromise
+          ]);
+          if (farmsResult.status === 'fulfilled') state.value.farms = farmsResult.value || [];
+          let farmId = selectAuthorizedFarm(state.value.farms, requestedFarm || hintedFarm);
+          if (!farmId && farmsResult.status === 'timeout' && hintedFarm) {
+            // The token scope is sufficient to start the requested farm while
+            // the catalog tunnel catches up. The next poll replaces this hint
+            // with the authoritative server list before another switch.
+            farmId = hintedFarm;
+            farmsPromise.then((farms) => {
+              if (state.value.currentUser?.role !== 'FARM_ADMIN') return;
+              const authorized = selectAuthorizedFarm(farms, requestedFarm || hintedFarm);
+              if (!authorized) return;
+              state.value.farms = farms || [];
+            }).catch(() => {});
+          }
           if (!farmId) throw new Error('当前账户没有授权农场');
-           state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
-           await refreshFarmData(farmId, ['all']);
+           if (state.value.adminContext.farmId !== farmId) {
+             state.value.adminContext = { farmId, plotId: initialRoute.params?.plotId || null, sessionMode: state.value.sessionMode };
+             await refreshFarmDataStaged(farmId);
+           }
            farmLastRefreshAt = Date.now();
         } catch (error) {
           state.value.farms = [];
@@ -3979,7 +4223,7 @@ const app = createApp({
         }
       } else if (session.mode === 'live') {
         if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
-          await refreshSystemAdminData();
+          await refreshSystemAdminDataStaged();
           systemLastRefreshAt = Date.now();
         } else {
           const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
@@ -4028,7 +4272,10 @@ const app = createApp({
       // failure. Use the service transport flag here so formal sessions can
       // start SSE after their REST refresh has proved the backend works.
       isLive.value = api.isLive;
-      if (api.isLive && session.mode === 'live') await connectLiveEvents();
+      // Event-stream handshakes are long-lived by design. Do not make route
+      // rendering wait for response headers; REST polling remains the
+      // recovery path if the stream or proxy is slow.
+      if (api.isLive && session.mode === 'live') void connectLiveEvents({ announce: false });
       await applyHashRoute();
       userSettings.value = readUserSettings(undefined, state.value.currentUser);
       applyUserSettings(userSettings.value);
@@ -4085,12 +4332,14 @@ const app = createApp({
       toggleTheme,
       handleSettingsChanged,
       toggleSidebar,
+      closeSidebarOnMobile,
       toggleProfileMenu,
       closeProfileMenu,
       openAccountModal,
       closeAccountModal,
       changePassword,
       forgotPassword,
+      openArchivedConversations,
       logout,
       navigate,
       applyPlotChange,

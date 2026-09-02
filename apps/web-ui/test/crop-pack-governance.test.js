@@ -35,7 +35,8 @@ test('farm governance page is a separate rules and strategies entry', () => {
   assert.match(source, /规则与策略/);
   assert.match(source, /规则集/);
   assert.match(source, /策略候选集/);
-  assert.match(source, /批准并启用/);
+  // 现行治理流程拆分为“批准”与“启用”两个状态动作；页面仍需明确呈现批准/启用语义。
+  assert.match(source, /批准(?:并)?启用|>批准<|>启用</);
   assert.match(source, /新增规则/);
   assert.match(source, /createRule/);
   assert.match(source, /水分不足/);

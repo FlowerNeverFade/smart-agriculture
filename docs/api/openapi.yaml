@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.3.3
+  version: 1.3.4
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and an explicit
@@ -35,14 +35,20 @@ paths:
     post:
       tags: [auth]
       security: []
-      description: 创建普通种植用户；恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
+      description: |
+        创建 FARMER 或 FARM_ADMIN 无需额外授权；FARM_ADMIN 必须提交 farmProfile，服务端原子创建独立空农场，
+        不再加入 farm-demo。创建 SYSTEM_ADMIN 必须提交服务端环境变量 SYSTEM_ADMIN_AUTHORIZATION_CODE 对应的授权码。
+        恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/RegisterRequest'}}}
       responses:
         '201': {description: 账号创建成功，返回 JWT、用户与一次性展示的恢复码, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
-        '400': {description: 账号格式或密码强度不符合要求}
+        '400': {description: 账号格式、密码强度或 FARM_ADMIN 农场资料不符合要求（FARM_PROFILE_INVALID）}
+        '403': {description: SYSTEM_ADMIN_AUTHORIZATION_INVALID 授权码无效}
+        '429': {description: SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED，连续失败 5 次后限制 15 分钟}
         '409': {description: 账号已存在}
+        '503': {description: SYSTEM_ADMIN_CREATION_DISABLED 或 ACCOUNT_PERSISTENCE_UNAVAILABLE}
   /api/v1/auth/password/reset:
     post:
       tags: [auth]
@@ -125,7 +131,7 @@ paths:
     get: {tags: [farm], responses: {'200': {description: 授权农场列表}}}
   /api/v1/plots:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: status, in: query, schema: {type: string, enum: [ACTIVE, INACTIVE]}}, {name: includeInactive, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 按农场和生命周期过滤的授权地块列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
-    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建 ACTIVE 地块, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建持久化 ACTIVE 地块；不复制示范农场遥测、设备或任务, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 地块持久化成功}, '403': {$ref: '#/components/responses/Forbidden'}, '503': {description: PLOT_PERSISTENCE_UNAVAILABLE，数据库不可用且不会创建临时地块}}}
   /api/v1/plots/{plotId}:
     patch: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 修改作物、品种、生长阶段、生长周期或面积}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/devices:
@@ -395,6 +401,12 @@ paths:
       description: 当前地块处于数据冲突、数据质量、设备状态或决策就绪度阻塞时，由有权限的操作人输入水量并确认一次虚拟人工浇灌；仅绕过决策门，仍校验地块权限、幂等、单次/每日水量、资源容量和最大执行时长。新的幂等键不受次数或冷却限制；结果沿用命令、ACK、效果评价和模拟遥测链路。
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationRequest'}}}}
       responses: {'200': {description: 带 manualOverride、sourcePlanId、bypassedGates、ACK 和效果评价的虚拟人工浇灌命令, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationCommand'}}}}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键、处方上下文或人工兜底状态冲突}, '422': {description: 水量、时长或资源安全约束拒绝}}
+  /api/v1/lighting/virtual:
+    post:
+      tags: [execution]
+      description: 农户操作系统的虚拟补光入口。光照低于当前 Crop Pack 阶段下限时可由本人确认执行；设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualLightingRequest'}}}}
+      responses: {'200': {description: 带离线演示标记、ACK、光照效果评价和模拟遥测的 LIGHT_BOOST 命令}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键或阶段光照状态冲突}, '422': {description: 光照不可用、未确认或设备不满足离线演示条件}}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -411,13 +423,36 @@ paths:
   /api/v1/agent/conversations:
     get:
       tags: [decision]
-      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；农户仅能看到自己的会话。
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；可按地块过滤，过滤发生在排序和数量限制之前；农户仅能看到自己的会话。
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+        - {name: archived, in: query, schema: {type: boolean, default: false}}
+        - {name: plotId, in: query, required: false, schema: {type: string}}
       responses:
         '200': {description: 会话标题、关联地块、最后时间和消息数}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/conversations/{conversationId}:
+    put:
+      tags: [decision]
+      description: 更新当前账号拥有的 Agent 会话摘要；可修改标题或置顶状态，服务端校验会话归属。
+      parameters:
+        - {name: conversationId, in: path, required: true, schema: {type: string, maxLength: 120}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string, maxLength: 36}
+                pinned: {type: boolean}
+              minProperties: 1
+      responses:
+        '200': {description: 更新后的会话摘要}
+        '400': {description: 没有可更新字段或标题无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 对话不存在}
     delete:
       tags: [decision]
       description: 删除当前账号拥有的 Agent 对话及其消息；服务端校验会话归属。
@@ -494,8 +529,8 @@ paths:
   /api/v1/work-orders/{workOrderId}/review:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:
-    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场正式成员；只返回 FARMER/FARM_ADMIN 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
-    post: {tags: [management], description: 农场管理员创建种植农户账号并分配当前农场的活跃地块；若实现返回恢复码则只展示一次, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已创建种植农户成员}, '400': {description: 账号或初始密码不符合要求}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员账号已存在}}}
+    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场种植农户；只返回 FARMER 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
+    post: {tags: [management], description: 仅创建种植农户账号并分配当前农场地块；明确拒绝 FARM_ADMIN 和 SYSTEM_ADMIN，关闭角色提升入口, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已创建种植农户成员}, '400': {description: 账号或初始密码不符合要求}, '403': {description: 无农场管理权限或 MEMBER_ROLE_FORBIDDEN}, '409': {description: 成员账号已存在}, '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}}}
   /api/v1/farm-members/{userId}/status:
     patch:
       tags: [management]
@@ -509,8 +544,37 @@ paths:
     delete: {tags: [management], description: 从当前农场移除种植农户并保留其其他农场范围, parameters: [{name: userId, in: path, required: true, schema: {type: string}}, {name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 成员已从当前农场移除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 成员不存在或不属于当前农场}}}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
+  /api/v1/users:
+    get:
+      tags: [management]
+      description: SYSTEM_ADMIN 读取全平台真实账号及安全范围字段；不返回密码、恢复码哈希或 credentialVersion。
+      responses:
+        '200': {description: 全局账号列表, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/ApiEnvelope'}, {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/UserAccount'}}}}]}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [management]
+      description: SYSTEM_ADMIN 创建三类账号；SYSTEM_ADMIN 仍须再次提交服务端授权码。成功响应中的恢复码只显示一次。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserAccountRequest'}}}}
+      responses:
+        '201': {description: 账号持久化成功，返回安全账号字段与一次性恢复码}
+        '400': {description: 账号、密码、角色或范围无效}
+        '403': {description: ACCOUNT_MANAGEMENT_FORBIDDEN 或 SYSTEM_ADMIN_AUTHORIZATION_INVALID}
+        '429': {description: SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED}
+        '409': {description: 账号已存在}
+        '503': {description: SYSTEM_ADMIN_CREATION_DISABLED 或 ACCOUNT_PERSISTENCE_UNAVAILABLE}
+  /api/v1/users/{userId}/status:
+    patch:
+      tags: [management]
+      description: SYSTEM_ADMIN 启用或停用 FARMER/FARM_ADMIN；所有 SYSTEM_ADMIN 账号永久保护。
+      parameters: [{name: userId, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AccountStatusRequest'}}}}
+      responses:
+        '200': {description: 更新后的安全账号视图}
+        '403': {description: ACCOUNT_MANAGEMENT_FORBIDDEN 或 ACCOUNT_SYSTEM_ADMIN_PROTECTED}
+        '404': {description: 账号不存在}
+        '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}
   /api/v1/users/{userId}:
-    delete: {tags: [management], description: 系统管理员删除任意角色账号（含农场管理员/系统管理员）；不可删除自己, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 账号不存在}}}
+    delete: {tags: [management], description: SYSTEM_ADMIN 删除 FARMER 或 FARM_ADMIN；所有 SYSTEM_ADMIN 账号永久保护且不能删除, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {description: ACCOUNT_DELETE_FORBIDDEN 或 ACCOUNT_SYSTEM_ADMIN_PROTECTED}, '404': {description: 账号不存在}, '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}}}
   /api/v1/alerts:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前农场范围内的告警列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/alerts/{alertId}/ack:
@@ -552,6 +616,9 @@ paths:
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
     post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
+  /api/v1/devices/{deviceId}:
+    patch: {tags: [management], description: 仅修改设备名称和设备类型；设备编号、所属农场和接入来源不可变, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的设备事实}, '400': {description: 名称或类型无效}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    delete: {tags: [management], description: 永久删除设备主记录；必须离线、未绑定且没有待回执控制命令，并通过 confirmName 精确确认；遥测、命令和审计历史保留, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}, {name: confirmName, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 设备已删除且历史记录保留}, '400': {description: 名称确认不匹配}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备在线、已绑定或控制回执未完成}}}
   /api/v1/devices/{deviceId}/bind:
     post: {tags: [management], description: 设备与地块必须属于同一农场，且地块必须为 ACTIVE, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备但不改变心跳状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 跨农场或停用地块绑定被拒绝}}}
   /api/v1/devices/{deviceId}/unbind:
@@ -714,7 +781,45 @@ components:
       properties:
         username: {type: string, minLength: 4, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$'}
         password: {type: string, format: password, minLength: 8, maxLength: 64}
-        role: {type: string, enum: [FARMER], default: FARMER}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN], default: FARMER}
+        authorizationCode: {type: string, format: password, writeOnly: true, description: 仅 role=SYSTEM_ADMIN 时必填；与服务端环境配置进行恒定时间比较}
+        farmProfile: {$ref: '#/components/schemas/FarmRegistrationProfile'}
+    FarmRegistrationProfile:
+      type: object
+      description: 仅 role=FARM_ADMIN 时必填；成功后创建该管理员独占的空农场。
+      required: [name, region]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 60}
+        region: {type: string, minLength: 2, maxLength: 80}
+    CreateUserAccountRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: {type: string, minLength: 4, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$'}
+        password: {type: string, format: password, writeOnly: true, minLength: 8, maxLength: 64}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN]}
+        farmId: {type: string, description: FARMER/FARM_ADMIN 必填；SYSTEM_ADMIN 忽略}
+        plotIds: {type: array, items: {type: string}, description: FARMER 可选；FARM_ADMIN 自动获得所属农场完整范围}
+        authorizationCode: {type: string, format: password, writeOnly: true, description: 创建 SYSTEM_ADMIN 时必填}
+    AccountStatusRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+    UserAccount:
+      type: object
+      required: [userId, username, role, roleLabel, farmIds, plotIds, enabled, status]
+      properties:
+        userId: {type: string}
+        username: {type: string}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN]}
+        roleLabel: {type: string}
+        farmIds: {type: array, items: {type: string}}
+        plotIds: {type: array, items: {type: string}}
+        enabled: {type: boolean}
+        status: {type: string, enum: [ACTIVE, INACTIVE]}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
     PasswordResetRequest:
       type: object
       required: [username, recoveryCode, newPassword]
@@ -816,6 +921,18 @@ components:
         idempotencyKey: {type: string, minLength: 1}
         confirmed: {type: boolean, description: 当前操作人已核对地块、原因和水量并确认虚拟人工浇灌}
         source: {type: string, default: farmer-manual-fallback}
+    VirtualLightingRequest:
+      type: object
+      required: [plotId, idempotencyKey, confirmed]
+      properties:
+        plotId: {type: string}
+        boostLux: {type: number, minimum: 1000, description: 模拟补光增量，服务端按阶段上限裁剪}
+        durationSeconds: {type: integer, minimum: 1, maximum: 900, default: 60}
+        idempotencyKey: {type: string, minLength: 8}
+        confirmed: {type: boolean, description: 当前农户已核对地块并确认虚拟补光}
+        allowOfflineDemo: {type: boolean, default: false, description: 仅本地 standalone/simulation 模式允许离线设备虚拟执行}
+        source: {type: string, default: farmer-operation-system}
+        outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
     ManualIrrigationCommand:
       type: object
       required: [commandId, plotId, planId, sourcePlanId, manualOverride, waterLitre, manualWaterLitre, confirmationMode, executionMode, provenance, virtualOnly, cooldownMinutes]
