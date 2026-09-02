@@ -1,6 +1,6 @@
 import { api } from '../api.js?v=20260902-v5911-zhcn-v1';
 import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5915-task-sections-v2';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
 import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260902-v5911-zhcn-v1';
 

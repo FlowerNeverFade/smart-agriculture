@@ -175,6 +175,22 @@ test('管理员任务页独立展示补证申请并支持巡田记录展开全�
   assert.match(WorkOrderLifecycleView.template, /inspectionLoadError/);
 });
 
+test('巡田记录卡片可通过鼠标和键盘打开中文详情', () => {
+  assert.match(WorkOrderLifecycleView.template, /class="inspection-record-card" role="button" tabindex="0"/);
+  assert.match(WorkOrderLifecycleView.template, /@click="openInspectionDetail\(record, \$event\)"/);
+  assert.match(WorkOrderLifecycleView.template, /@keydown="openInspectionDetailFromKeyboard\(\$event, record\)"/);
+  assert.match(lifecycleSource, /if \(!\['Enter', ' '\]\.includes\(event\.key\)\) return/);
+  assert.match(WorkOrderLifecycleView.template, /showInspectionDetailModal && activeInspection/);
+  assert.match(WorkOrderLifecycleView.template, /aria-labelledby="inspection-detail-title"/);
+  assert.match(WorkOrderLifecycleView.template, /现场观察/);
+  assert.match(WorkOrderLifecycleView.template, /现场照片/);
+  assert.match(WorkOrderLifecycleView.template, /证据质量/);
+  assert.match(lifecycleCss, /\.inspection-record-card:focus-visible/);
+  assert.match(lifecycleCss, /\.inspection-detail-dialog/);
+  assert.match(WorkOrderLifecycleView.template, /人工巡田证据/);
+  assert.doesNotMatch(WorkOrderLifecycleView.template, /HUMAN EVIDENCE|READINESS REQUESTS|WORK ORDERS/);
+});
+
 test('农场管理员任务中心使用三个计数页签且以任务列表为默认区域', () => {
   assert.match(managementSource, />任务中心<\/button>/);
   assert.match(lifecycleSource, /const activeManagerSection = ref\('tasks'\)/);

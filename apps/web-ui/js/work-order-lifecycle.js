@@ -219,7 +219,10 @@ export const WorkOrderLifecycleView = {
     const showReviewModal = ref(false);
     const showCancelModal = ref(false);
     const showInspectionModal = ref(false);
+    const showInspectionDetailModal = ref(false);
     const activeOrder = ref(null);
+    const activeInspection = ref(null);
+    const inspectionDetailTrigger = ref(null);
     const assignment = ref({ assigneeId: '', note: '', dueAt: '' });
     const submission = ref({ resultSummary: '', evidenceText: '' });
     const review = ref({ note: '', verificationResult: 'CONFIRMED_ABNORMAL' });
@@ -246,6 +249,22 @@ export const WorkOrderLifecycleView = {
     const inspectionOperatorName = (record) => record.operatorName || props.state.farmMembers.find((member) => member.userId === record.operatorId)?.displayName || record.operatorId || '未记录';
     const inspectionObservationLabel = (group, value) => INSPECTION_LABELS[group]?.[String(value || '').toUpperCase()] || value || '—';
     const inspectionTaskName = (record) => props.state.workOrders.find((order) => order.workOrderId === record.workOrderId)?.title || (record.workOrderId ? `任务 ${record.workOrderId}` : '未关联任务');
+    const inspectionQualityLabel = (record) => ({ GOOD: '资料完整', INCOMPLETE: '资料待补充' }[String(record?.quality?.status || '').toUpperCase()] || '未评估');
+    const inspectionCompletenessLabel = (record) => {
+      const completeness = Number(record?.quality?.completeness);
+      return Number.isFinite(completeness) ? `${Math.round(Math.min(1, Math.max(0, completeness)) * 100)}%` : '—';
+    };
+    const inspectionPhotoPreview = (photo) => {
+      const value = String(photo?.previewUrl || photo?.url || photo?.downloadUrl || '').trim();
+      return /^(?:data:image\/|blob:|https?:\/\/)/i.test(value) ? value : '';
+    };
+    const inspectionPhotoSize = (photo) => {
+      const bytes = Number(photo?.sizeBytes);
+      if (!Number.isFinite(bytes) || bytes < 0) return '大小未记录';
+      if (bytes < 1024) return `${Math.round(bytes)} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     const scopedOrders = computed(() => {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
@@ -759,6 +778,29 @@ export const WorkOrderLifecycleView = {
       showInspectionModal.value = true;
     };
 
+    const openInspectionDetail = (record, event = null) => {
+      if (!record?.inspectionId) return;
+      inspectionDetailTrigger.value = event?.currentTarget || document.activeElement;
+      activeInspection.value = record;
+      showInspectionDetailModal.value = true;
+      nextTick(() => document.querySelector('.inspection-detail-dialog [aria-label="关闭巡田详情"]')?.focus());
+    };
+
+    const closeInspectionDetail = () => {
+      showInspectionDetailModal.value = false;
+      activeInspection.value = null;
+      nextTick(() => {
+        inspectionDetailTrigger.value?.focus?.();
+        inspectionDetailTrigger.value = null;
+      });
+    };
+
+    const openInspectionDetailFromKeyboard = (event, record) => {
+      if (!['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openInspectionDetail(record, event);
+    };
+
     const onInspectionPhotos = (event) => {
       inspectionForm.value = { ...inspectionForm.value, photos: Array.from(event.target.files || []).slice(0, 6) };
     };
@@ -908,15 +950,16 @@ export const WorkOrderLifecycleView = {
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
       inspections, recentInspections, visibleInspections, showAllInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
+      inspectionQualityLabel, inspectionCompletenessLabel, inspectionPhotoPreview, inspectionPhotoSize,
       evidenceRequests, evidenceTypeLabel, requesterName,
       isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, isFarmerIssueReport, formatTime, workStatus, TERMINAL_STATUSES,
-      showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
-      activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
+      showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal, showInspectionDetailModal,
+      activeOrder, activeInspection, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
       openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
       clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect, onAssigneeSelect,
-      loadInspections, openInspection, onInspectionPhotos, submitInspection
+      loadInspections, openInspection, onInspectionPhotos, submitInspection, openInspectionDetail, closeInspectionDetail, openInspectionDetailFromKeyboard
     };
   },
   template: `
@@ -925,7 +968,7 @@ export const WorkOrderLifecycleView = {
       :aria-label="isEmbeddedManager ? '任务中心' : null">
       <header class="work-lifecycle-header" :class="{ 'is-actions-only': isEmbeddedManager }">
         <div v-if="!isEmbeddedManager">
-          <p class="work-lifecycle-kicker">WORK ORDERS</p>
+          <p class="work-lifecycle-kicker">农务工单</p>
           <h1 id="work-lifecycle-title">{{ pageTitle }}</h1>
           <p>{{ pageHint }}</p>
         </div>
@@ -1059,7 +1102,7 @@ export const WorkOrderLifecycleView = {
         class="evidence-request-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
         :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-evidence' : 'evidence-request-history-title'">
         <header>
-          <div><p class="work-lifecycle-kicker">READINESS REQUESTS</p><h2 id="evidence-request-history-title">补证申请</h2><span>独立于任务状态筛选，当前农场的新申请会直接显示在这里。</span></div>
+          <div><p class="work-lifecycle-kicker">现场补证</p><h2 id="evidence-request-history-title">补证申请</h2><span>独立于任务状态筛选，当前农场的新申请会直接显示在这里。</span></div>
           <span class="evidence-request-count">共 {{ evidenceRequests.length }} 条</span>
         </header>
         <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '补证申请滚动区域' : null">
@@ -1086,13 +1129,15 @@ export const WorkOrderLifecycleView = {
         class="inspection-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
         :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-inspections' : 'inspection-history-title'">
         <header>
-          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">巡田记录</h2><span>共 {{ inspections.length }} 条；默认展示最新 8 条，人工记录不会覆盖传感器数据。</span></div>
+          <div><p class="work-lifecycle-kicker">人工巡田证据</p><h2 id="inspection-history-title">巡田记录</h2><span>共 {{ inspections.length }} 条；默认展示最新 8 条，人工记录不会覆盖传感器数据。</span></div>
           <div class="inspection-history-actions"><button v-if="inspections.length > 8" type="button" class="g-btn secondary compact" @click="showAllInspections = !showAllInspections">{{ showAllInspections ? '收起记录' : '查看全部' }}</button><button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button></div>
         </header>
         <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '巡田记录滚动区域' : null">
           <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
           <div v-if="visibleInspections.length" class="inspection-record-list">
-            <article v-for="record in visibleInspections" :key="record.inspectionId">
+            <article v-for="record in visibleInspections" :key="record.inspectionId" class="inspection-record-card" role="button" tabindex="0"
+              :aria-label="'查看巡田记录详情：' + plotName(record.plotId) + '，' + formatTime(record.observedAt)"
+              @click="openInspectionDetail(record, $event)" @keydown="openInspectionDetailFromKeyboard($event, record)">
               <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
               <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
               <div class="inspection-observations">
@@ -1102,12 +1147,56 @@ export const WorkOrderLifecycleView = {
                 <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
                 <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
               </div>
-              <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
+              <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><span class="inspection-record-detail-link"><code>{{ record.inspectionId }}</code><strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong></span></footer>
             </article>
           </div>
           <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
         </div>
       </section>
+
+      <div v-if="showInspectionDetailModal && activeInspection" class="g-modal-overlay" @click.self="closeInspectionDetail" @keydown.esc="closeInspectionDetail">
+        <section class="g-modal work-dialog inspection-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="inspection-detail-title">
+          <div class="g-modal-header">
+            <div><small>巡田记录 · {{ activeInspection.inspectionId }}</small><h3 id="inspection-detail-title">{{ plotName(activeInspection.plotId) }}巡田详情</h3></div>
+            <button type="button" class="g-btn icon-only" @click="closeInspectionDetail" aria-label="关闭巡田详情"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body inspection-detail-body">
+            <div class="inspection-detail-lead"><span class="inspection-provenance">人工记录</span><time>巡田时间：{{ formatTime(activeInspection.observedAt) }}</time></div>
+            <p class="inspection-detail-notes">{{ activeInspection.notes || activeInspection.evidenceSummary || '未填写现场说明' }}</p>
+            <dl class="inspection-detail-facts">
+              <div><dt>地块</dt><dd>{{ plotName(activeInspection.plotId) }}</dd></div>
+              <div><dt>记录人员</dt><dd>{{ inspectionOperatorName(activeInspection) }}</dd></div>
+              <div><dt>关联任务</dt><dd>{{ inspectionTaskName(activeInspection) }}</dd></div>
+              <div><dt>记录编号</dt><dd>{{ activeInspection.inspectionId }}</dd></div>
+              <div><dt>证据质量</dt><dd>{{ inspectionQualityLabel(activeInspection) }}</dd></div>
+              <div><dt>资料完整度</dt><dd>{{ inspectionCompletenessLabel(activeInspection) }}</dd></div>
+              <div><dt>创建时间</dt><dd>{{ formatTime(activeInspection.createdAt || activeInspection.observedAt) }}</dd></div>
+              <div><dt>最近更新</dt><dd>{{ formatTime(activeInspection.updatedAt || activeInspection.createdAt || activeInspection.observedAt) }}</dd></div>
+            </dl>
+            <section class="inspection-detail-section" aria-labelledby="inspection-observation-title">
+              <h4 id="inspection-observation-title">现场观察</h4>
+              <div class="inspection-detail-observations">
+                <article><span>土壤表层</span><strong>{{ inspectionObservationLabel('soil', activeInspection.soilSurface) }}</strong></article>
+                <article><span>作物状态</span><strong>{{ inspectionObservationLabel('crop', activeInspection.cropCondition) }}</strong></article>
+                <article><span>设备外观</span><strong>{{ inspectionObservationLabel('device', activeInspection.deviceStatus) }}</strong></article>
+                <article><span>便携仪含水率</span><strong>{{ activeInspection.portableSoilMoisture ?? '未测量' }}{{ activeInspection.portableSoilMoisture == null ? '' : '%' }}</strong></article>
+              </div>
+            </section>
+            <section class="inspection-detail-section" aria-labelledby="inspection-photo-title">
+              <div class="inspection-detail-section-heading"><h4 id="inspection-photo-title">现场照片</h4><span>共 {{ (activeInspection.photos || []).length }} 张 · 人工提供</span></div>
+              <div v-if="activeInspection.photos?.length" class="inspection-detail-photos">
+                <figure v-for="photo in activeInspection.photos" :key="photo.photoId || photo.fileName">
+                  <img v-if="inspectionPhotoPreview(photo)" :src="inspectionPhotoPreview(photo)" :alt="'巡田现场照片：' + (photo.fileName || '未命名照片')">
+                  <div v-else class="inspection-photo-placeholder"><app-icon name="image"></app-icon><span>照片已安全存档</span></div>
+                  <figcaption><strong>{{ photo.fileName || '未命名照片' }}</strong><span>{{ inspectionPhotoSize(photo) }}</span></figcaption>
+                </figure>
+              </div>
+              <p v-else class="inspection-detail-empty">本条巡田记录未上传现场照片。</p>
+            </section>
+          </div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="closeInspectionDetail">关闭</button></div>
+        </section>
+      </div>
 
       <div v-if="showDetailModal && activeOrder" class="g-modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
         <section class="g-modal work-dialog work-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="work-detail-title">
