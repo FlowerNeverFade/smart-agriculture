@@ -176,10 +176,11 @@ test('demo normal and no-action irrigation never expose manual fallback', async 
 });
 
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
-  const [html, source, presentation] = await Promise.all([
+  const [html, source, presentation, css] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
-    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
+    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
   ]);
   const farmerSurface = `${html}\n${source}\n${presentation}`;
   for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '人工复核或补充现场证据', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
@@ -247,6 +248,9 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(farmerSurface, /夜间目标|夜间休息/);
   assert.match(source, /light_target_context/);
   assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
+  assert.match(css, /\.g-btn:not\(:disabled\):active/);
+  assert.match(css, /\.farmer-risk-mini-card:focus-visible/);
+  assert.match(css, /\.farmer-operation-subsystem-tab:not\(\.active\):hover/);
 });
 
 test('demo operation system can execute offline virtual lighting and write a light effect', async () => {

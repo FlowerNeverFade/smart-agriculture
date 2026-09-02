@@ -4455,3 +4455,71 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 .farmer-water-resource-stats small { color: var(--g-text-secondary); font-size: 11px; }
 .farmer-water-resource-stats strong { color: var(--g-text-primary); font-size: 14px; }
 .farmer-water-resource-stats .is-warning strong { color: var(--g-warning); }
+
+/* 交互收口：按钮与可点击卡片共享一致的悬停、按压和禁用反馈。 */
+#farmer_app :is(.g-btn, .farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-operation-subsystem-tab, .farmer-tools-tab, .farmer-case-item, .farmer-cm-card) {
+  -webkit-tap-highlight-color: transparent;
+}
+#farmer_app .g-btn {
+  min-height: 38px;
+  padding-inline: 14px;
+  border-radius: 11px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  gap: 7px;
+}
+#farmer_app .g-btn > .ph,
+#farmer_app .g-btn > .material-symbols-outlined { flex: 0 0 auto; font-size: 17px; }
+#farmer_app .g-btn:not(:disabled):active {
+  transform: translateY(1px) scale(.985);
+  box-shadow: inset 0 2px 5px rgba(21, 67, 43, .18), 0 2px 6px rgba(21, 67, 43, .10);
+}
+#farmer_app .g-btn:disabled { opacity: .66; }
+
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card) {
+  position: relative;
+  overflow: hidden;
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card)::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(115deg, transparent 18%, rgba(255, 255, 255, .25) 50%, transparent 82%);
+  transform: translateX(-115%);
+  transition: opacity .18s ease, transform .45s ease;
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card):not(:disabled):hover::after {
+  opacity: .7;
+  transform: translateX(115%);
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card):not(:disabled):active {
+  transform: translateY(1px) scale(.992);
+  box-shadow: inset 0 2px 7px rgba(21, 67, 43, .10), var(--farmer-glass-shadow, var(--g-shadow-1));
+}
+#farmer_app .farmer-stat-card:focus-visible,
+#farmer_app .farmer-plot-overview-card:focus-visible,
+#farmer_app .farmer-risk-mini-card:focus-visible,
+#farmer_app .farmer-priority-item:focus-visible,
+#farmer_app .farmer-activity-item:focus-visible,
+#farmer_app .farmer-case-item:focus-visible,
+#farmer_app .farmer-cm-card:focus-visible,
+#farmer_app .farmer-operation-subsystem-tab:focus-visible,
+#farmer_app .farmer-tools-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 38%, transparent);
+  outline-offset: 3px;
+}
+#farmer_app .farmer-operation-subsystem-tab:not(.active):hover,
+#farmer_app .farmer-tools-tab:not(.active):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle));
+  background: color-mix(in srgb, var(--g-primary-bg) 62%, transparent);
+  transform: translateY(-1px);
+}
+#farmer_app .farmer-operation-subsystem-tab:active,
+#farmer_app .farmer-tools-tab:active { transform: translateY(1px) scale(.995); }
+
+@media (prefers-reduced-motion: reduce) {
+  #farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card)::after { transition: none; }
+}
