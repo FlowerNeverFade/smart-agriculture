@@ -379,10 +379,10 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(html, /current_view === 'assistant'/);
   assert.doesNotMatch(html, /farmer-ai-dock|farmer-ai-consult|show_ai_consult/);
   const surface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', 'Enter 发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
+  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', '回车发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
     assert.match(surface, new RegExp(marker));
   }
-  assert.match(surface, /Shift\+Enter 换行/);
+  assert.match(surface, /组合键换行/);
   assert.match(source, /id: 'assistant', label: '农智助手'/);
   assert.match(source, /assistant_drawer_open/);
   assert.match(source, /getAgentConversations/);

@@ -110,7 +110,7 @@ test('system admin resource audit remains reachable from the standalone shell', 
   assert.match(sysadmin, /resourceRequests: api\.listResourceRequests\(\{\}\)/);
   assert.match(sysadmin, /api\.getWaterResourceProfile\(farmId\)/);
   assert.match(sysadminHtml, /id="tmpl-admin-resources"/);
-  assert.match(sysadminHtml, /SYSTEM_ADMIN \/ READ ONLY/);
+  assert.match(sysadminHtml, /系统管理员 \/ 只读审计/);
   assert.match(sysadminHtml, /农户需求与回执审计/);
 });
 
@@ -146,5 +146,5 @@ test('all three resource workspaces identify durable sync and disable live write
   assert.match(sysadmin, /resourcePersistence/);
   assert.match(sysadmin, /持久化后端共享事实/);
   assert.match(sysadminHtml, /collaborationLabel/);
-  assert.match(sysadminHtml, /SYSTEM_ADMIN \/ READ ONLY/);
+  assert.match(sysadminHtml, /系统管理员 \/ 只读审计/);
 });

@@ -6,7 +6,7 @@ import {
   estimateGlobalWholesaleRoute,
   exportCropProfile,
   routeFacts
-} from './global-wholesale-data.js?v=20260901-v596-official-map-v1';
+} from './global-wholesale-data.js?v=20260902-v5911-zhcn-v1';
 
 const { ref, computed, watch } = Vue;
 const OFFICIAL_WORLD_MAP_URL = new URL('../../assets/maps/official-world-gs2016-1663.jpg', import.meta.url).href;
@@ -295,7 +295,7 @@ export const AdminGlobalWholesalePanel = {
           </section>
 
           <section class="global-cost-result">
-            <span class="market-eyebrow">SIMULATED · 不可执行</span>
+            <span class="market-eyebrow">模拟测算 · 不可执行</span>
             <div class="global-landed-cost"><small>到岸成本 / 可售公斤</small><strong>{{ moneyText(selectedEstimate.landedCostCnyKg) }}</strong><em>元/kg</em></div>
             <dl>
               <div><dt>预计可售量</dt><dd>{{ numberText(selectedEstimate.sellableKg, 1) }} kg</dd></div>
@@ -308,7 +308,7 @@ export const AdminGlobalWholesalePanel = {
         </div>
         <div v-if="selectedInternationalReference" class="global-observed-reference">
           <span class="ph ph-chart-line-up" aria-hidden="true"></span>
-          <p><strong>伦敦节点存在独立外部观测参考</strong>英国 DEFRA {{ selectedInternationalReference.label }}最近一期为 {{ moneyText(latestInternationalPoint?.price) }} {{ selectedInternationalReference.unitLabel }}（{{ latestInternationalPoint?.date }}）。该原币观测不换汇、不进入本页到岸或毛差计算。</p>
+          <p><strong>伦敦节点存在独立外部观测参考</strong>英国环境、食品与乡村事务部 {{ selectedInternationalReference.label }}最近一期为 {{ moneyText(latestInternationalPoint?.price) }} {{ selectedInternationalReference.unitLabel }}（{{ latestInternationalPoint?.date }}）。该原币观测不换汇、不进入本页到岸或毛差计算。</p>
         </div>
       </article>
 
@@ -323,7 +323,7 @@ export const AdminGlobalWholesalePanel = {
 
       <footer class="global-wholesale-footer">
         <span class="ph ph-info" aria-hidden="true"></span>
-        <p><strong>来源、口径与性能说明</strong>底图来自<a :href="OFFICIAL_WORLD_MAP.sourceUrl" target="_blank" rel="noopener noreferrer">自然资源部标准地图服务系统</a>，审图号 {{ OFFICIAL_WORLD_MAP.reviewNumber }}，原图审图号与“自然资源部 监制”信息完整保留。市场节点为演示目录；运费按“方式固定成本 + 球面距离 × 模式系数”，时效按固定处理日与日均里程估算，损耗随时效递增。官方 JPG 仅在进入本页后低优先级加载，覆盖层只包含当前一条关系线和最多 9 个按钮，不解析 GeoJSON、不连接在线地图 SDK、无持续动画。</p>
+        <p><strong>来源、口径与性能说明</strong>底图来自<a :href="OFFICIAL_WORLD_MAP.sourceUrl" target="_blank" rel="noopener noreferrer">自然资源部标准地图服务系统</a>，审图号 {{ OFFICIAL_WORLD_MAP.reviewNumber }}，原图审图号与“自然资源部 监制”信息完整保留。市场节点为演示目录；运费按“方式固定成本 + 球面距离 × 模式系数”，时效按固定处理日与日均里程估算，损耗随时效递增。官方图片仅在进入本页后低优先级加载，覆盖层只包含当前一条关系线和最多 9 个按钮，不解析地图矢量数据、不连接在线地图开发工具、无持续动画。</p>
       </footer>
     </section>
   `

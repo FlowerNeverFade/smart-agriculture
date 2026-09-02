@@ -25,6 +25,29 @@ function unwrap(payload) {
   return payload;
 }
 
+const ERROR_MESSAGES = {
+  SYSTEM_ADMIN_CREATION_DISABLED: '系统管理员账号创建功能尚未启用',
+  SYSTEM_ADMIN_AUTHORIZATION_INVALID: '系统管理员授权码无效',
+  SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED: '授权码尝试次数过多，请稍后再试',
+  ACCOUNT_SYSTEM_ADMIN_PROTECTED: '系统管理员账号受永久保护，不能执行此操作',
+  ACCOUNT_PERSISTENCE_UNAVAILABLE: '账号持久化服务暂不可用，请稍后再试',
+  PLOT_PERSISTENCE_UNAVAILABLE: '地块持久化服务暂不可用，请稍后再试',
+  RESOURCE_PERSISTENCE_UNAVAILABLE: '资源协同持久化服务暂不可用，当前仅可查看'
+};
+
+function localizedErrorMessage(message, code, statusCode) {
+  const raw = String(message || '').trim();
+  if (/[\u3400-\u9fff]/.test(raw)) return raw;
+  const known = ERROR_MESSAGES[String(code || '').toUpperCase()];
+  if (known) return known;
+  if (statusCode === 400 || statusCode === 422) return '提交内容有误，请检查后重试';
+  if (statusCode === 403) return '当前账号无权执行此操作';
+  if (statusCode === 404) return '没有找到请求的内容';
+  if (statusCode === 409) return '数据已发生变化，请刷新后重试';
+  if (statusCode >= 500) return '服务处理异常，请稍后重试';
+  return '操作未完成，请稍后重试';
+}
+
 function request(path, options) {
   const input = options || {};
   const authRequired = input.auth !== false;
@@ -57,11 +80,15 @@ function request(path, options) {
         }
         if (response.statusCode < 200 || response.statusCode >= 300) {
           const error = payload.error || {};
+          const code = error.code || `HTTP_${response.statusCode}`;
+          const rawMessage = String(error.message || '').trim();
           reject({
-            code: error.code || `HTTP_${response.statusCode}`,
-            message: error.message || `请求失败（${response.statusCode}）`,
+            code,
+            message: localizedErrorMessage(rawMessage, code, response.statusCode),
+            rawMessage,
             statusCode: response.statusCode,
-            details: error.details || {}
+            details: error.details || {},
+            payload
           });
           return;
         }

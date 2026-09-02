@@ -228,7 +228,7 @@
 .market-ticker-identity em { margin-left: 5px; padding: 2px 5px; border-radius: 4px; color: var(--g-primary); background: var(--g-primary-bg); font-style: normal; }
 .market-ticker-identity em.is-national { color: #7652c4; background: color-mix(in srgb, #7652c4 10%, var(--g-bg-surface)); }
 .market-ticker-price { grid-column: 1; display: flex; align-items: baseline; gap: 5px; }
-.market-ticker-price strong { font-family: "Times New Roman", Georgia, serif; font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
+.market-ticker-price strong { font-family: inherit; font-size: 28px; font-variant-numeric: tabular-nums; letter-spacing: -.025em; }
 .market-ticker-price small { color: var(--g-text-secondary); font-size: 10px; }
 .market-ticker-change { grid-column: 2; grid-row: 2; align-self: center; font-size: 12px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .market-ticker-change span { margin-right: 3px; }
@@ -261,7 +261,7 @@
 .market-panel-heading > small { color: var(--g-text-secondary); }
 .market-selected-quote > span { color: var(--g-text-secondary); font-size: 12px; font-weight: 700; }
 .market-selected-quote > div { align-items: baseline; gap: 7px; margin: 4px 0 2px; }
-.market-selected-quote strong { font-family: "Times New Roman", Georgia, serif; font-size: 31px; font-variant-numeric: tabular-nums; }
+.market-selected-quote strong { font-family: inherit; font-size: 31px; font-variant-numeric: tabular-nums; }
 .market-selected-quote small { color: var(--g-text-secondary); font-size: 11px; }
 .market-selected-quote em { font-size: 11px; font-style: normal; font-weight: 750; }
 .market-selected-quote p { font-size: 10px; }
@@ -307,7 +307,7 @@
 .market-stat-list { display: grid; gap: 0; margin: 0; }
 .market-stat-list > div { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--g-border-subtle); }
 .market-stat-list dt { color: var(--g-text-secondary); font-size: 11px; }
-.market-stat-list dd { margin: 0; font-family: "Times New Roman", Georgia, serif; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.market-stat-list dd { margin: 0; font-family: inherit; font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .market-observation-basis { margin-top: auto; font-size: 10px; line-height: 1.5; }
 
 .market-comparison-panel { padding: 14px; }
@@ -476,7 +476,7 @@
 }
 
 .global-evidence-counts span:first-child { border-left: 0; }
-.global-evidence-counts strong { color: var(--g-text-primary); font-family: "Times New Roman", Georgia, serif; font-size: 18px; font-variant-numeric: tabular-nums; }
+.global-evidence-counts strong { color: var(--g-text-primary); font-family: inherit; font-size: 18px; font-variant-numeric: tabular-nums; }
 
 .global-wholesale-controls {
   display: flex;
@@ -748,7 +748,7 @@
 .global-market-name small { overflow: hidden; color: var(--g-text-secondary); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .global-market-route { align-self: start; color: var(--g-text-tertiary); font-size: 9px; font-variant-numeric: tabular-nums; }
 .global-market-cost { display: flex; align-items: baseline; gap: 5px; }
-.global-market-cost strong { font-family: "Times New Roman", Georgia, serif; font-size: 19px; font-variant-numeric: tabular-nums; }
+.global-market-cost strong { font-family: inherit; font-size: 19px; font-variant-numeric: tabular-nums; }
 .global-market-cost small { color: var(--g-text-tertiary); font-size: 8px; }
 .global-market-status { align-self: end; justify-self: end; font-size: 8px; font-weight: 700; }
 .global-market-status.is-evidence { color: #6f5aa8; }
@@ -774,7 +774,7 @@
 .global-route-facts dt,
 .global-cost-result dt { color: var(--g-text-secondary); font-size: 9px; }
 .global-route-facts dd,
-.global-cost-result dd { margin: 0; font-family: "Times New Roman", Georgia, serif; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.global-cost-result dd { margin: 0; font-family: inherit; font-size: 12px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .global-cost-inputs { display: grid; align-content: start; gap: 9px; }
 .global-cost-inputs label > span:first-child { display: flex; align-items: center; justify-content: space-between; gap: 7px; }
 .global-cost-inputs label > span > em { padding: 2px 5px; border-radius: 4px; font-size: 7px; font-style: normal; font-weight: 700; }
@@ -784,7 +784,7 @@
 .global-cost-result { display: flex; flex-direction: column; }
 .global-landed-cost { display: flex; align-items: baseline; gap: 6px; margin: 7px 0 2px; }
 .global-landed-cost small { align-self: flex-start; margin-right: auto; color: var(--g-text-secondary); font-size: 9px; }
-.global-landed-cost strong { font-family: "Times New Roman", Georgia, serif; font-size: 31px; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.global-landed-cost strong { font-family: inherit; font-size: 31px; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
 .global-landed-cost em { color: var(--g-text-secondary); font-size: 9px; font-style: normal; }
 .global-cost-result dl > div.is-positive dd { color: var(--market-up); }
 .global-cost-result dl > div.is-negative dd { color: var(--market-down); }
