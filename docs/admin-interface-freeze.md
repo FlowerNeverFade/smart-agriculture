@@ -72,7 +72,7 @@ SYSTEM_ADMIN
 ### 3.3 执行边界
 
 - 当前灌溉执行只允许描述为虚拟执行。
-- 不承诺真实水泵、阀门、网关或真实硬件控制。
+- 当前灌溉执行仍不承诺真实水泵、阀门、网关或其他真实硬件控制；BearPi E53_IA1 的真实遥测输入另有明确接入合同。
 - 高风险动作必须有明确人工确认和幂等键。
 - 命令失败、部分成功和超时不得显示为成功。
 
@@ -141,7 +141,7 @@ sourceMode=SIMULATION
 sourceMode=REAL
 ```
 
-本期真实后端中的遥测也可能来自模拟器，因此不能仅凭 `sessionMode=live` 将数据标为真实硬件观测。
+本期后端中的遥测可能来自模拟器，也可能来自 BearPi E53_IA1 真实适配器；不能仅凭 `sessionMode=live` 判断来源，必须依据事件中的 `sourceMode`、`provenance` 和 `dataOrigin`。只有 `sourceMode=REAL` 且 `dataOrigin=HARDWARE` 才能标为已验证的真实硬件观测。
 
 ### 5.2 缺失值
 

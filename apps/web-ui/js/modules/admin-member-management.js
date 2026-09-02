@@ -1,5 +1,5 @@
-import { api } from '../api.js?v=20260901-v592-main-merge-v1';
-import { sourceLabel } from '../live-data.js?v=20260901-v592-main-merge-v1';
+import { api } from '../api.js?v=20260901-v593-market-v3';
+import { sourceLabel } from '../live-data.js?v=20260901-v593-market-v3';
 
 const { ref, computed, inject, onMounted, onBeforeUnmount } = Vue;
 

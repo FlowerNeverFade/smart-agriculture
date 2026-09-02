@@ -418,6 +418,10 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   transition: border-color 190ms ease, background-color 190ms ease, box-shadow 190ms ease;
 }
 
+.field[hidden] { display: none; }
+
+.register-farm-profile[hidden] { display: none; }
+
 .field::after {
   content: "";
   position: absolute;

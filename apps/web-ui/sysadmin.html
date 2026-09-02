@@ -7,18 +7,19 @@
   <title>AgriLoop · 智慧农业工作台</title>
 
   <link rel="stylesheet" href="vendor/phosphor/style.css">
-  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260901-v599-accounts-v2">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v592-main-merge-v1">
-  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v592-main-merge-v1">
+  <link rel="stylesheet" href="css/style.css?v=20260901-v600-motion-fix">
+  <link rel="stylesheet" href="css/account-profile.css?v=20260901-v599-accounts-v2">
+  <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/work-order-lifecycle.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/decision-console.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/admin-management.css?v=20260901-v599-accounts-v2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260901-v599-accounts-v2">
+  <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v593-market-v3">
+  <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-sidebar-unify-v2">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌱</text></svg>">
 
@@ -153,6 +154,7 @@
     </header>
 
     <div class="g-body">
+      <button v-if="isSidebarOpen" type="button" class="g-sidebar-backdrop" aria-label="关闭导航" @click="closeSidebarOnMobile"></button>
       <nav class="g-sidebar" :class="{collapsed: !isSidebarOpen, 'farmer-sidebar': isFarmer}">
         <div class="g-sidebar-main" :class="{ 'farmer-nav-main': isFarmer }">
           <button v-for="nav in mainNavItems" :key="nav.id" type="button"
@@ -233,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260901-v592-main-merge-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260901-v600-motion-fix&rev=20260902-mobile-v1"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -255,7 +257,7 @@
         </div>
         <div class="admin-metric-card">
           <div class="admin-metric-icon green"><app-icon name="schedule"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div><div class="admin-metric-sub">接口版本 {{ state.adminOverview.apiVersion }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">平台运行时长</div><div class="admin-metric-value">{{ displayText(state.adminOverview.uptime) }}</div></div>
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-settings',{tab:'config'})">
           <div class="admin-metric-icon" :class="state.adminOverview.aiMode === 'full' ? 'purple' : state.adminOverview.aiMode === 'rules-only' ? 'orange' : 'red'"><app-icon name="head_circuit"></app-icon></div>
@@ -352,6 +354,7 @@
             </select>
             <select v-model="statusFilter" aria-label="按健康状态筛选">
               <option value="all">全部状态</option>
+              <option value="abnormal">仅异常</option>
               <option value="HEALTHY">健康 {{ plotSummary.healthy }}</option>
               <option value="WARNING">预警 {{ plotSummary.warning }}</option>
               <option value="CRITICAL">告警 {{ plotSummary.critical }}</option>
@@ -446,7 +449,7 @@
             <tbody>
               <tr v-for="d in devicePageRecords" :key="d.deviceId">
                 <td style="font-family:var(--g-mono);font-size:12px">{{ d.deviceId }}</td>
-                <td>{{ d.plotId }}</td>
+                <td>{{ d.plotId }}<template v-if="plotNameOf(d.plotId) !== d.plotId"> · {{ plotNameOf(d.plotId) }}</template></td>
                 <td>{{ d.typeLabel || deviceTypeLabel(d.type) }}</td>
                 <td>{{ d.lastHeartbeat }}</td>
                 <td><span class="status-pill" :class="d.status.toLowerCase()">{{ d.statusLabel || serviceStatusLabel(d.status) }}</span></td>
@@ -497,10 +500,7 @@
                 <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
                 <td>{{ displayText(a.summary) }}</td>
                 <td><span class="status-pill" :class="a.status === 'OPEN' ? 'warning' : a.status === 'ACK' ? 'info' : 'completed'">{{ a.statusLabel || alertStatusLabel(a.status) }}</span></td>
-                <td>
-                  <button v-if="a.status==='OPEN'" class="g-btn text sm" @click="transitionAlert(a, 'ack')">确认</button>
-                  <button v-if="a.status==='ACK'" class="g-btn text sm" @click="transitionAlert(a, 'close')">关闭</button>
-                </td>
+                <td><span style="color:var(--g-muted);font-size:12px">—</span></td>
               </tr>
             </tbody>
           </table>
@@ -598,15 +598,16 @@
             <th>时间</th><th>追踪编号</th><th>操作人</th><th>地块</th><th>类型</th><th>摘要</th><th>结果</th><th></th>
           </tr></thead>
           <tbody>
+            <tr v-if="!auditPageRecords.length"><td colspan="8" style="text-align:center;color:var(--g-muted);padding:24px">暂无决策审计记录</td></tr>
             <template v-for="record in auditPageRecords" :key="record.traceId">
               <tr @click="togglePassport(record.traceId)" style="cursor:pointer">
                 <td style="white-space:nowrap">{{ record.time }}</td>
                 <td style="font-family:var(--g-mono);font-size:11px;color:var(--g-primary)">{{ record.traceId }}</td>
                 <td><span class="status-pill agent">{{ record.operator }}</span></td>
-                <td>{{ record.plotId }}</td>
+                <td>{{ plotNameOf(record.plotId) }}</td>
                 <td>{{ record.typeLabel }}</td>
                 <td>{{ displayText(record.summary) }}</td>
-                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '待审' }}</span></td>
+                <td><span class="status-pill" :class="record.result === 'PASS' ? 'approved' : record.result === 'REJECT' ? 'rejected' : 'pending'">{{ record.result === 'PASS' ? '通过' : record.result === 'REJECT' ? '否决' : '未决' }}</span></td>
                 <td><app-icon name="expand_more" style="font-size:18px;transition:transform 0.2s" :style="{transform: expandedPassport===record.traceId?'rotate(180deg)':''}"></app-icon></td>
               </tr>
               <!-- Decision Passport Expansion -->
@@ -666,7 +667,7 @@
       <h2 class="g-page-title"><app-icon name="science"></app-icon> 仿真模拟</h2>
 
       <!-- Control Bar -->
-      <div class="sim-control-bar">
+      <div class="sim-control-bar admin-sim-control-bar">
         <span class="sim-status-dot" :class="simRunning ? 'running' : 'stopped'"></span>
         <div class="sim-info">
           <div class="sim-info-label">模拟器状态</div>
@@ -715,10 +716,15 @@
       </div>
 
       <!-- Scenario Selection -->
-      <div class="admin-section-head">
-        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置矩阵</div>
-        <div style="display:flex; gap: 8px; align-items: center">
-          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用：</span>
+      <div class="admin-section-head admin-sim-scenario-head">
+        <div class="admin-section-title"><app-icon name="category"></app-icon> 场景配置</div>
+        <div class="admin-sim-scenario-controls" style="display:flex; gap: 8px; align-items: center">
+          <span style="font-size: 13px; color: var(--g-text-secondary)">按场景筛选：</span>
+          <select v-model="scenarioFilter" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
+            <option value="all">全部场景</option>
+            <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
+          </select>
+          <span style="font-size: 13px; color: var(--g-text-secondary)">批量应用（当前筛选 {{ filteredPlotScenarios.length }} 地块）：</span>
           <select v-model="globalScenario" style="padding: 4px 8px; border-radius: var(--g-radius); border: 1px solid var(--g-border); background: var(--g-bg-base); color: var(--g-text-primary)">
             <option value="">-- 选择场景 --</option>
             <option v-for="sc in scenarios" :key="sc.id" :value="sc.id">{{ sc.icon }} {{ sc.label }}</option>
@@ -735,7 +741,7 @@
             <th style="font-size:13px; color:var(--g-text-primary); font-weight:600">模拟</th>
           </tr></thead>
           <tbody>
-            <tr v-for="plot in plotScenarios" :key="plot.plotId">
+            <tr v-for="plot in filteredPlotScenarios" :key="plot.plotId">
               <td style="font-family:var(--g-mono);font-size:11px">{{ plot.plotId }}</td>
               <td style="font-weight:500">{{ plot.name }}</td>
               <td><span class="status-pill info">{{ plot.cropName }}</span></td>
@@ -773,35 +779,39 @@
         <div class="admin-section-title"><app-icon name="history"></app-icon> 运行历史</div>
       </div>
       <div class="admin-pagination-bar">
-        <span>共 {{ simTotalRecords }} 条</span>
-        <select v-model.number="simPageSize" @change="simChangeSize()">
-          <option v-for="s in simPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
-        </select>
-        <button class="g-btn text sm" :disabled="simPage <= 1" @click="simPrevPage()">上一页</button>
-        <span class="admin-pagination-current">第 {{ simPage }} / {{ simTotalPages }} 页</span>
-        <button class="g-btn text sm" :disabled="simPage >= simTotalPages" @click="simNextPage()">下一页</button>
-        <span>跳至 <input type="number" v-model.number="simJumpInput" min="1" :max="simTotalPages" class="admin-page-jump-input"> 页
-          <button class="g-btn text sm" @click="simJumpTo()">跳转</button>
-        </span>
+        <span>共 {{ simTotalRecords }} 条运行记录（按地块分组，每地块显示最新一条）</span>
       </div>
       <div class="admin-table-wrap">
         <table class="admin-table">
           <thead><tr>
-            <th>场景编号</th><th>场景类型</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
+            <th>场景编号</th><th>场景类型</th><th>地块</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
           <tbody>
-            <tr v-for="run in simPageRecords" :key="run.scenarioId">
-              <td style="font-family:var(--g-mono);font-size:11px">{{ run.scenarioId }}</td>
-              <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
-              <td>{{ run.startTime }}</td>
-              <td>{{ run.endTime || '—' }}</td>
-              <td>{{ run.events }}</td>
-              <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.statusLabel || localizedStatusLabel(run.status) }}</span></td>
-              <td class="admin-action-cell">
-                <button class="g-btn text sm" @click="openDualTrack(run)"><app-icon name="compare_arrows"></app-icon> 双轨对比</button>
-                <button class="g-btn text sm" @click="openReplay(run)"><app-icon name="replay"></app-icon> 回放</button>
-              </td>
-            </tr>
+            <template v-for="group in simGrouped" :key="group.plotId">
+              <tr class="admin-sim-group-head" style="background:var(--g-bg-muted, rgba(127,127,127,0.06))">
+                <td colspan="8">
+                  <strong>{{ group.name }}</strong>
+                  <span style="opacity:.65;margin:0 10px">共 {{ group.runs.length }} 次运行</span>
+                  <button v-if="group.runs.length > 1" class="g-btn text sm" @click="toggleSimGroup(group.plotId)">
+                    <app-icon :name="group.expanded ? 'expand_less' : 'expand_more'"></app-icon>{{ group.expanded ? '收起历史' : '展开历史' }}
+                  </button>
+                </td>
+              </tr>
+              <tr v-for="run in group.displayRuns" :key="run.scenarioId">
+                <td style="font-family:var(--g-mono);font-size:11px" :title="run.scenarioId">{{ shortId(run.scenarioId) }}</td>
+                <td>{{ run.typeLabel || scenarioLabel(run.type) }}</td>
+                <td>{{ plotNameOf(run.plotId) }}</td>
+                <td>{{ run.startTime }}</td>
+                <td>{{ run.endTime || '—' }}</td>
+                <td>{{ run.events }}</td>
+                <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.statusLabel || localizedStatusLabel(run.status) }}</span></td>
+                <td class="admin-action-cell">
+                  <button class="g-btn text sm" @click="openDualTrack(run)"><app-icon name="compare_arrows"></app-icon> 双轨对比</button>
+                  <button class="g-btn text sm" @click="openReplay(run)"><app-icon name="replay"></app-icon> 回放</button>
+                </td>
+              </tr>
+            </template>
+            <tr v-if="!simGrouped.length"><td colspan="8" style="text-align:center;color:var(--g-muted);padding:24px">暂无运行历史</td></tr>
           </tbody>
         </table>
       </div>
@@ -847,6 +857,7 @@
         <button class="admin-tab" :class="{active: activeTab === 'packs'}" @click="activeTab = 'packs'">作物模型包</button>
         <button class="admin-tab" :class="{active: activeTab === 'rules'}" @click="activeTab = 'rules'">规则集</button>
         <button class="admin-tab" :class="{active: activeTab === 'candidates'}" @click="activeTab = 'candidates'">策略候选</button>
+        <button class="admin-tab" :class="{active: activeTab === 'learning'}" @click="activeTab = 'learning'">经验学习 <small>{{ learningCasesList.length }}</small></button>
       </div>
 
       <!-- Tab: Crop Packs -->
@@ -946,7 +957,7 @@
             </tr></thead>
             <tbody>
               <tr v-for="rule in rulePageRecords" :key="rule.cropCode + '@' + rule.id">
-                <td><span class="status-pill info">{{ rule.cropName || rule.cropCode }}</span></td>
+                <td><span class="status-pill info">{{ ruleCropName(rule) }}</span></td>
                 <td style="font-family:var(--g-mono);font-size:12px">{{ rule.id }}</td>
                 <td>{{ displayText(rule.description) }}</td>
                 <td><span class="status-pill info">{{ rule.typeLabel || rule.type }}</span></td>
@@ -979,14 +990,16 @@
             </tr></thead>
             <tbody>
               <tr v-for="cand in candPageRecords" :key="cand.id">
-                <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}</td>
+                <td style="font-family:var(--g-mono);font-size:12px">{{ cand.id }}<details v-if="cand.evidenceCaseIds?.length || cand.baselineStrategy || cand.proposedStrategy" class="admin-governance-evidence"><summary>查看依据</summary><span v-if="cand.evidenceCaseIds?.length">引用案例：{{ offlineEvidence(cand) }}</span><span v-if="cand.baselineStrategy">基线：{{ strategySummary(cand.baselineStrategy) }}</span><span v-if="cand.proposedStrategy">候选：{{ strategySummary(cand.proposedStrategy) }}</span></details><small v-if="cand.status === 'rolled_back'">{{ rollbackSummary(cand) }}</small></td>
                 <td><span class="status-pill" :class="cand.source === 'learning' ? 'agent' : 'info'">{{ cand.sourceLabel || (cand.source === 'learning' ? '案例学习' : '人工录入') }}</span></td>
                 <td>{{ displayText(cand.description) }}</td>
-                <td><span class="status-pill" :class="cand.status">{{ cand.statusLabel || ({pending:'待验证',verified:'已验证',approved:'已批准',rejected:'已拒绝'}[cand.status] || '未知') }}</span></td>
+                <td><span class="status-pill" :class="cand.status">{{ cand.statusLabel || ({pending:'待验证',verified:'离线验证通过',approved:'已批准',rejected:'已拒绝',active:'已启用',rolled_back:'已回滚'}[cand.status] || '待确认') }}</span><small v-if="cand.offlineValidation?.seed">seed {{ cand.offlineValidation.seed }} · {{ cand.offlineValidation.replayHash || '—' }}</small><small v-if="cand.offlineValidation?.failures?.length">失败：{{ cand.offlineValidation.failures.join('、') }}</small></td>
                 <td>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" @click="transitionCandidate(cand, 'APPROVED')">批准</button>
-                  <button v-if="cand.status==='verified'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'REJECTED')">拒绝</button>
-                  <button v-if="cand.status==='active'" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'ROLLED_BACK')">回滚</button>
+                  <button v-if="canValidateCandidate(cand)" class="g-btn text sm" @click="validateCandidate(cand)">执行离线验证</button>
+                  <button v-if="canApproveCandidate(cand)" class="g-btn text sm" @click="transitionCandidate(cand, 'APPROVED')">批准</button>
+                  <button v-if="canActivateCandidate(cand)" class="g-btn text sm" @click="transitionCandidate(cand, 'ACTIVE')">启用</button>
+                  <button v-if="canRejectCandidate(cand)" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'REJECTED')">拒绝</button>
+                  <button v-if="canRollbackCandidate(cand)" class="g-btn text sm" style="color:var(--g-danger)" @click="transitionCandidate(cand, 'ROLLED_BACK')">回滚</button>
                 </td>
               </tr>
             </tbody>
@@ -1005,60 +1018,15 @@
           </span>
         </div>
       </div>
-    </div>
-  </template>
 
-  <!-- Shared: Workspace Settings (kept in the system-admin entry too) -->
-  <template id="tmpl-settings">
-    <section class="settings-page" aria-labelledby="settings-page-title">
-      <header class="settings-page-header">
-        <div>
-          <span class="settings-kicker">{{ roleLabel }} · 个人偏好</span>
-          <h1 id="settings-page-title"><app-icon name="settings"></app-icon> 工作台设置</h1>
-          <p>自定义当前浏览器中的外观、信息密度和数据刷新方式。设置即时生效，不会修改服务器上的业务数据。</p>
-        </div>
-        <span class="settings-local-badge"><app-icon name="lock_reset"></app-icon> 仅本机保存</span>
-      </header>
-
-      <div class="settings-grid">
-        <article class="g-card settings-card">
-          <div class="settings-card-head"><div><span class="settings-card-kicker">显示外观</span><h2>主题与颜色</h2><p>让三种角色的工作台保持清晰统一，也可以按个人习惯调整。</p></div><app-icon name="tune"></app-icon></div>
-          <div class="settings-field">
-            <span class="settings-label">主题</span>
-            <div class="settings-theme-options" role="group" aria-label="选择主题">
-              <button v-for="theme in themeOptions" :key="theme.value" type="button" class="settings-theme-option" :class="{active: settings.theme === theme.value}" @click="updateSetting('theme', theme.value)"><span class="settings-theme-icon"><app-icon :name="theme.value === 'dark' ? 'dark_mode' : theme.value === 'light' ? 'light_mode' : 'settings'"></app-icon></span><strong>{{ theme.label }}</strong><small>{{ theme.hint }}</small></button>
-            </div>
-          </div>
-          <div class="settings-field">
-            <span class="settings-label">卡片风格</span>
-            <div class="settings-theme-options settings-surface-options" role="group" aria-label="选择卡片风格">
-              <button v-for="surface in surfaceStyleOptions" :key="surface.value" type="button" class="settings-theme-option settings-surface-option" :data-surface-style="surface.value" :class="{active: settings.surfaceStyle === surface.value}" @click="updateSetting('surfaceStyle', surface.value)"><span class="settings-theme-icon"><app-icon :name="surface.value === 'classic' ? 'grid_view' : surface.value === 'glass-latest' ? 'auto_awesome' : 'tune'"></app-icon></span><strong>{{ surface.label }}</strong><small>{{ surface.hint }}</small></button>
-            </div>
-          </div>
-          <div class="settings-field">
-            <span class="settings-label">强调色</span>
-            <div class="settings-accent-options" role="group" aria-label="选择强调色">
-              <button v-for="accent in accentOptions" :key="accent.value" type="button" class="settings-accent-option" :class="{active: settings.accent === accent.value}" :style="{'--settings-swatch': accent.color}" @click="updateSetting('accent', accent.value)"><i></i><span>{{ accent.label }}</span><app-icon v-if="settings.accent === accent.value" name="check_circle"></app-icon></button>
-            </div>
-          </div>
-          <div class="settings-two-col">
-            <label>显示密度<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
-            <label>内容宽度<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
-          </div>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>减少动效</strong><small>减少过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
-        </article>
-
-        <article class="g-card settings-card">
-          <div class="settings-card-head"><div><span class="settings-card-kicker">数据体验</span><h2>刷新与提示</h2><p>控制工作台如何更新信息，以及是否保留来源标识。</p></div><app-icon name="sync"></app-icon></div>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.autoRefresh" @change="updateSetting('autoRefresh', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>自动刷新工作台</strong><small>保持页面打开时拉取最新任务、遥测和建议。</small></span></label>
-          <label class="settings-select-field">刷新间隔<select :value="settings.refreshInterval" :disabled="!settings.autoRefresh" @change="updateSetting('refreshInterval', Number($event.target.value))"><option v-for="seconds in refreshOptions" :key="seconds" :value="seconds">{{ seconds }} 秒</option></select></label>
-          <label class="settings-switch"><input type="checkbox" :checked="settings.showDataOrigin" @change="updateSetting('showDataOrigin', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>显示数据来源</strong><small>保留模拟、后端或人工记录标识，便于核对信息。</small></span></label>
-          <div class="settings-info"><app-icon name="info"></app-icon><p>外观和工作台偏好只写入当前浏览器的本地存储。系统管理员的账号、规则、模拟策略等平台配置仍在“系统管理”中维护。</p></div>
-        </article>
+      <!-- Tab: Controlled Learning -->
+      <div v-if="activeTab === 'learning'" class="admin-controlled-learning">
+        <div class="admin-pack-toolbar"><div class="admin-pack-hint">质量门由数据新鲜度、可追溯证据、执行 ACK、效果评价和安全约束共同决定。合格案例才可检索或生成策略，已排除案例只用于反例回归。</div><label class="admin-governance-filter"><span>筛选</span><select class="g-select" v-model="learningFilter"><option value="ALL">全部（{{ learningCasesList.length }}）</option><option value="QUALIFIED">合格（{{ learningCounts.qualified }}）</option><option value="PENDING">待审核（{{ learningCounts.pending }}）</option><option value="REJECTED">已排除（{{ learningCounts.rejected }}）</option></select></label></div>
+        <div class="admin-learning-summary"><div class="admin-learning-count qualified"><strong>{{ learningCounts.qualified }}</strong><span>合格经验</span></div><div class="admin-learning-count pending"><strong>{{ learningCounts.pending }}</strong><span>待审核</span></div><div class="admin-learning-count rejected"><strong>{{ learningCounts.rejected }}</strong><span>反例</span></div></div>
+        <div v-if="!filteredLearningCases.length" class="admin-governance-empty"><app-icon name="fact_check"></app-icon><strong>暂无受控学习案例</strong><span>反馈、告警闭环和效果评价完成后，案例会自动进入质量门。</span></div>
+        <div v-else class="admin-table-wrap"><table class="admin-table admin-learning-table"><thead><tr><th>案例</th><th>范围 / 来源</th><th>质量状态</th><th>判定依据</th><th>学习用途</th><th>效果</th><th>操作</th></tr></thead><tbody><tr v-for="item in filteredLearningCases" :key="item.caseId"><td><strong class="admin-governance-code">{{ item.caseId }}</strong><small>{{ item.cropCode || '未指定作物' }} · {{ item.plotId || '未指定地块' }}</small><small>{{ item.farmId || '未指定农场' }}</small></td><td><span class="status-pill info">{{ String(item.sourceMode || item.dataOrigin || '').toUpperCase() === 'REAL' ? '真实遥测' : String(item.sourceMode || '').toUpperCase().includes('SIM') ? '模拟数据' : '记录快照' }}</span><small>{{ item.scenarioId || '标准场景' }}</small></td><td><span class="status-pill" :class="learningTone(item.qualityStatus)">{{ learningStatus(item.qualityStatus) }}</span></td><td><span class="admin-governance-description" :title="learningReason(item)">{{ learningReason(item) }}</span></td><td><span class="admin-learning-uses">{{ learningUses(item) }}</span></td><td>{{ item.result || item.evaluationResult || '待评价' }}<small v-if="item.reviewedBy">审核：{{ item.reviewedBy }}</small></td><td class="admin-governance-actions"><button v-if="item.qualityStatus !== 'QUALIFIED'" class="g-btn text sm" @click="reEvaluateLearningCase(item)">重新评估</button><button v-if="item.qualityStatus !== 'QUALIFIED'" class="g-btn text sm" @click="reviewLearningCase(item, 'QUALIFIED')">审核纳入</button><button v-if="item.qualityStatus !== 'REJECTED'" class="g-btn text sm danger-text" @click="reviewLearningCase(item, 'REJECTED')">标记反例</button></td></tr></tbody></table></div>
       </div>
-
-      <footer class="settings-footer"><div><strong>当前设置</strong><span>主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
-    </section>
+    </div>
   </template>
 
   <template id="tmpl-admin-settings">
@@ -1082,7 +1050,7 @@
             <option value="FARMER">种植农户</option>
           </select>
           <div style="margin-left:auto">
-            <button class="g-btn primary" @click="showCreateUser = true">
+            <button class="g-btn primary" @click="openCreateUser">
               <app-icon name="person_add"></app-icon> 创建用户
             </button>
           </div>
@@ -1123,31 +1091,65 @@
         </div>
 
         <!-- Create User Modal -->
-        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="showCreateUser = false">
-          <div class="admin-modal">
+        <div class="admin-modal-overlay" v-if="showCreateUser" @click.self="closeCreateUser">
+          <div class="admin-modal admin-modal-wide admin-account-create-modal">
             <div class="admin-modal-header">
               <h3>创建用户</h3>
-              <button class="g-btn icon-only" @click="showCreateUser = false"><app-icon name="close"></app-icon></button>
+              <button class="g-btn icon-only" :disabled="userActionBusy" @click="closeCreateUser"><app-icon name="close"></app-icon></button>
             </div>
             <div class="admin-modal-body">
-              <label>用户名</label>
-              <input type="text" v-model="newUser.username" placeholder="4-32位字母数字">
-              <label>密码</label>
-              <input type="password" v-model="newUser.password" placeholder="8位以上，含字母和数字">
-              <label>角色</label>
-              <select v-model="newUser.role">
-                <option value="FARMER">种植农户</option>
-                <option value="FARM_ADMIN">农场管理员</option>
-                <option value="SYSTEM_ADMIN">系统管理员</option>
-              </select>
-              <label>关联农场</label>
-              <select v-model="newUser.farmId">
-                <option value="farm-demo">农智示范农场</option>
-              </select>
+              <p class="admin-modal-hint">账号只有在持久化数据库写入成功后才会创建；恢复码只显示一次。</p>
+              <div class="admin-form-grid">
+                <label><span>用户名</span><input type="text" v-model.trim="newUser.username" autocomplete="off" maxlength="32" placeholder="4–32 位字母、数字或 . _ -"></label>
+                <label><span>初始密码</span><input type="password" v-model="newUser.password" autocomplete="new-password" maxlength="64" placeholder="8–64 位，包含字母和数字"></label>
+                <label><span>角色</span><select v-model="newUser.role">
+                  <option value="FARMER">种植农户</option>
+                  <option value="FARM_ADMIN">农场管理员</option>
+                  <option value="SYSTEM_ADMIN">系统管理员</option>
+                </select></label>
+                <label v-if="newUser.role !== 'SYSTEM_ADMIN'"><span>所属农场</span><select v-model="newUser.farmId">
+                  <option v-for="farm in accountFarms" :key="farm.farmId" :value="farm.farmId">{{ farm.name || farm.farmId }}</option>
+                </select></label>
+              </div>
+
+              <section v-if="newUser.role === 'FARMER'" class="admin-account-scope">
+                <header><div><strong>地块范围</strong><small>可暂不分配，之后仍可在农场成员管理中调整。</small></div><span>{{ newUser.plotIds.length }} 个已选</span></header>
+                <div class="admin-account-plot-grid" v-if="availableAccountPlots.length">
+                  <label v-for="plot in availableAccountPlots" :key="plot.plotId">
+                    <input type="checkbox" :value="plot.plotId" v-model="newUser.plotIds">
+                    <span><strong>{{ plot.name }}</strong><small>{{ plot.plotId }}</small></span>
+                  </label>
+                </div>
+                <p v-else>该农场暂无可分配地块，可先创建账号。</p>
+              </section>
+
+              <div v-else-if="newUser.role === 'FARM_ADMIN'" class="admin-account-role-note success">
+                <app-icon name="verified_user"></app-icon><div><strong>自动获得完整农场范围</strong><p>该账号会自动获得所选农场的完整管理范围，无需在创建时逐块授权。</p></div>
+              </div>
+
+              <div v-else class="admin-account-system-fields">
+                <div class="admin-account-role-note warning"><app-icon name="shield"></app-icon><div><strong>全平台永久保护账号</strong><p>创建后不能被任何管理员停用或删除，并自动获得全平台范围。</p></div></div>
+                <label><span>服务端授权码</span><input type="password" v-model="newUser.authorizationCode" autocomplete="off" maxlength="128" placeholder="再次输入部署环境配置的授权码"></label>
+              </div>
             </div>
             <div class="admin-modal-footer">
-              <button class="g-btn" @click="showCreateUser = false">取消</button>
-              <button class="g-btn primary" @click="createUser">确认创建</button>
+              <button class="g-btn" :disabled="userActionBusy" @click="closeCreateUser">取消</button>
+              <button class="g-btn primary" :disabled="userActionBusy" @click="createUser">{{ userActionBusy ? '正在创建…' : '确认创建' }}</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="admin-modal-overlay" v-if="createdRecovery">
+          <div class="admin-modal admin-account-recovery-modal" role="dialog" aria-modal="true" aria-labelledby="createdRecoveryTitle">
+            <div class="admin-modal-header"><h3 id="createdRecoveryTitle">保存一次性恢复码</h3></div>
+            <div class="admin-modal-body">
+              <div class="admin-account-role-note success"><app-icon name="check_circle"></app-icon><div><strong>{{ createdRecovery.username }} 已创建</strong><p>{{ createdRecovery.roleLabel }} · 恢复码关闭后不再显示。</p></div></div>
+              <code class="admin-account-recovery-code">{{ createdRecovery.recoveryCode }}</code>
+              <p class="admin-modal-hint">恢复码等同于账号备用钥匙，请交给账号本人并保存在安全位置，不要写入聊天或审计备注。</p>
+            </div>
+            <div class="admin-modal-footer">
+              <button class="g-btn" @click="copyCreatedRecovery"><app-icon name="content_copy"></app-icon>复制恢复码</button>
+              <button class="g-btn primary" @click="createdRecovery = null">我已安全保存</button>
             </div>
           </div>
         </div>
@@ -1223,10 +1225,7 @@
         <div class="admin-filter-bar">
           <select v-model="logFilter">
             <option value="all">全部操作</option>
-            <option value="LOGIN">登录</option>
-            <option value="USER_CREATE">创建用户</option>
-            <option value="CONFIG_CHANGE">修改配置</option>
-            <option value="RULE_PUBLISH">发布规则</option>
+            <option v-for="opt in logFilterOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
           </select>
         </div>
         <div class="admin-table-wrap">

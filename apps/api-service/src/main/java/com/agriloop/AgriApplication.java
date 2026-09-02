@@ -44,6 +44,9 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionException;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.ResourceLoader;
@@ -69,6 +72,7 @@ import java.net.http.HttpResponse;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.SecureRandom;
 import java.sql.ResultSet;
 import java.time.Duration;
@@ -125,6 +129,8 @@ class AgriProperties {
     private String valueMode = "simulation";
     private String jwtSecret = "change-me-in-production-change-me-in-production";
     private long jwtTtlMinutes = 720;
+    /** Shared server-side code required whenever a SYSTEM_ADMIN account is created. */
+    private String systemAdminAuthorizationCode = "";
     private String mqttUrl = "tcp://localhost:1883";
     private String mqttClientId = "agriloop-api";
     private String mqttUsername = "";
@@ -146,6 +152,16 @@ class AgriProperties {
     private String simulationConfigPath = "data/plot-simulation.json";
     /** Local directory for USER_PROVIDED inspection photos; not object storage. */
     private String attachmentDir = "data/attachments";
+    /** Daily wholesale-price provider used by the farm-admin market workspace. */
+    private boolean marketPriceEnabled = true;
+    private String marketPriceBaseUrl = "https://pfsc.agri.cn";
+    private String marketPriceProvinceCode = "500000";
+    private String marketPriceProvinceName = "重庆市";
+    private String marketPricePreferredMarket = "重庆双福国际农贸城";
+    /** The provider publishes this browser-side protocol key; deployments may override it when the upstream rotates. */
+    private String marketPriceAesKey = "7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV";
+    private long marketPriceTimeoutMs = 8000;
+    private long marketPriceCacheMinutes = 30;
 
     public String getMode() { return mode; }
     public void setMode(String mode) { this.mode = mode; }
@@ -183,6 +199,8 @@ class AgriProperties {
     public void setJwtSecret(String jwtSecret) { this.jwtSecret = jwtSecret; }
     public long getJwtTtlMinutes() { return jwtTtlMinutes; }
     public void setJwtTtlMinutes(long jwtTtlMinutes) { this.jwtTtlMinutes = jwtTtlMinutes; }
+    public String getSystemAdminAuthorizationCode() { return systemAdminAuthorizationCode; }
+    public void setSystemAdminAuthorizationCode(String systemAdminAuthorizationCode) { this.systemAdminAuthorizationCode = systemAdminAuthorizationCode; }
     public String getMqttUrl() { return mqttUrl; }
     public void setMqttUrl(String mqttUrl) { this.mqttUrl = mqttUrl; }
     public String getMqttClientId() { return mqttClientId; }
@@ -219,6 +237,22 @@ class AgriProperties {
     public void setSimulationConfigPath(String simulationConfigPath) { this.simulationConfigPath = simulationConfigPath; }
     public String getAttachmentDir() { return attachmentDir; }
     public void setAttachmentDir(String attachmentDir) { this.attachmentDir = attachmentDir; }
+    public boolean isMarketPriceEnabled() { return marketPriceEnabled; }
+    public void setMarketPriceEnabled(boolean marketPriceEnabled) { this.marketPriceEnabled = marketPriceEnabled; }
+    public String getMarketPriceBaseUrl() { return marketPriceBaseUrl; }
+    public void setMarketPriceBaseUrl(String marketPriceBaseUrl) { this.marketPriceBaseUrl = marketPriceBaseUrl; }
+    public String getMarketPriceProvinceCode() { return marketPriceProvinceCode; }
+    public void setMarketPriceProvinceCode(String marketPriceProvinceCode) { this.marketPriceProvinceCode = marketPriceProvinceCode; }
+    public String getMarketPriceProvinceName() { return marketPriceProvinceName; }
+    public void setMarketPriceProvinceName(String marketPriceProvinceName) { this.marketPriceProvinceName = marketPriceProvinceName; }
+    public String getMarketPricePreferredMarket() { return marketPricePreferredMarket; }
+    public void setMarketPricePreferredMarket(String marketPricePreferredMarket) { this.marketPricePreferredMarket = marketPricePreferredMarket; }
+    public String getMarketPriceAesKey() { return marketPriceAesKey; }
+    public void setMarketPriceAesKey(String marketPriceAesKey) { this.marketPriceAesKey = marketPriceAesKey; }
+    public long getMarketPriceTimeoutMs() { return marketPriceTimeoutMs; }
+    public void setMarketPriceTimeoutMs(long marketPriceTimeoutMs) { this.marketPriceTimeoutMs = marketPriceTimeoutMs; }
+    public long getMarketPriceCacheMinutes() { return marketPriceCacheMinutes; }
+    public void setMarketPriceCacheMinutes(long marketPriceCacheMinutes) { this.marketPriceCacheMinutes = marketPriceCacheMinutes; }
 }
 
 @Configuration
@@ -310,12 +344,14 @@ class AgriStore {
             "readiness", 1_000,
             "irrigation-plan", 1_000,
             "evaluation", 1_000,
-            "scenario-run", 1_000
+            "scenario-run", 1_000,
+            "market-price-snapshot", 5_000
     );
     private final ObjectMapper mapper;
     private final JdbcTemplate jdbc;
     private final AgriProperties properties;
     private final PasswordEncoder passwordEncoder;
+    private final TransactionTemplate transactionTemplate;
     private final Map<String, Map<String, Map<String, Object>>> records = new ConcurrentHashMap<>();
     private final Map<String, Long> listLoadedAt = new ConcurrentHashMap<>();
     private final Set<String> loadedTypes = ConcurrentHashMap.newKeySet();
@@ -335,11 +371,13 @@ class AgriStore {
     private volatile boolean databaseReady;
     private volatile boolean postgres;
 
-    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder) {
+    AgriStore(ObjectMapper mapper, JdbcTemplate jdbc, AgriProperties properties, PasswordEncoder passwordEncoder,
+              PlatformTransactionManager transactionManager) {
         this.mapper = mapper;
         this.jdbc = jdbc;
         this.properties = properties;
         this.passwordEncoder = passwordEncoder;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
     }
 
     @PostConstruct
@@ -417,18 +455,29 @@ class AgriStore {
     }
 
     synchronized void saveDurably(String type, String id, Map<String, Object> value) {
+        saveDurably(type, id, value, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看", "资源协同数据库不可用，写入未保存");
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String errorMessage) {
+        saveDurably(type, id, value, errorCode, errorMessage, errorMessage);
+    }
+
+    synchronized void saveDurably(String type, String id, Map<String, Object> value,
+                                  String errorCode, String unavailableMessage, String failureMessage) {
         if (!databaseReady) {
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，当前仅可查看");
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, unavailableMessage);
         }
         Map<String, Object> copy = Jsons.copy(mapper, value);
         try {
             // Persist first so a failed collaborative write never appears in
             // the shared in-memory read model or emits a false success event.
             persistEntity(type, id, copy);
-            records.computeIfAbsent(type, ignored -> new ConcurrentHashMap<>()).put(id, copy);
+            cacheRecord(type, id, copy);
+            invalidateListCache(type);
         } catch (DataAccessException error) {
             databaseReady = false;
-            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "RESOURCE_PERSISTENCE_UNAVAILABLE", "资源协同数据库不可用，写入未保存");
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, errorCode, failureMessage);
         }
     }
 
@@ -540,6 +589,41 @@ class AgriStore {
                 loadedTypes.add(type);
                 listLoadedAt.put(type, now);
             } catch (DataAccessException ignored) { databaseReady = false; }
+        }
+        return result;
+    }
+
+    /** timeline 专用：按地块取最近 limit 条，避免对全量历史做深拷贝（200 万级事件场景）。 */
+    List<Map<String, Object>> timelineForPlot(String type, String plotId, int limit) {
+        java.util.Comparator<Map<String, Object>> newest = java.util.Comparator.comparing(
+                (Map<String, Object> x) -> Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", "")), Comparator.reverseOrder());
+        List<Map<String, Object>> result = records.getOrDefault(type, Map.of()).values().stream()
+                .filter(v -> plotId.equals(Jsons.text(v, "plotId", "")))
+                .sorted(newest)
+                .limit(limit)
+                .map(v -> Jsons.copy(mapper, v))
+                .collect(Collectors.toCollection(ArrayList::new));
+        if (databaseReady && result.size() < limit) {
+            try {
+                int need = limit - result.size();
+                String sql = "SELECT entity_id,payload FROM entity_record WHERE entity_type=? AND payload->>'plotId'=? ORDER BY updated_at DESC LIMIT " + Math.max(1, need);
+                List<Map<String, Object>> persisted = jdbc.query(sql,
+                        (rs, rowNum) -> {
+                            try { return mapper.readValue(rs.getString("payload"), Map.class); }
+                            catch (Exception e) { return Map.<String, Object>of(); }
+                        }, type, plotId);
+                for (Map<String, Object> v : persisted) {
+                    if (v.isEmpty()) continue;
+                    String key = Jsons.text(v, "createdAt", "");
+                    boolean duplicate = false;
+                    for (Map<String, Object> existing : result) {
+                        if (Jsons.text(existing, "createdAt", "").equals(key)) { duplicate = true; break; }
+                    }
+                    if (!duplicate) result.add(v);
+                }
+                result.sort(newest);
+                if (result.size() > limit) result = new ArrayList<>(result.subList(0, limit));
+            } catch (DataAccessException ignored) { /* 内存结果可用 */ }
         }
         return result;
     }
@@ -746,13 +830,32 @@ class AgriStore {
         } catch (DataAccessException ignored) { databaseReady = false; }
     }
 
+    // 操作审计日志：最近 limit 条系统事件（event_log 表），按时间倒序
+    List<Map<String, Object>> auditLogs(int limit) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (!databaseReady) return result;
+        try {
+            return jdbc.query("SELECT id, event_type, event_id, payload, created_at FROM event_log ORDER BY id DESC LIMIT ?",
+                    (rs, rowNum) -> {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("id", "evt-" + rs.getLong("id"));
+                        m.put("action", rs.getString("event_type"));
+                        m.put("eventId", rs.getString("event_id"));
+                        m.put("payload", rs.getString("payload"));
+                        m.put("time", rs.getTimestamp("created_at").toInstant().toString());
+                        return m;
+                    }, Math.max(1, Math.min(limit, 200)));
+        } catch (DataAccessException ignored) { databaseReady = false; }
+        return result;
+    }
+
     Map<String, Object> userByUsername(String username) {
         String normalized = String.valueOf(username == null ? "" : username).trim().toLowerCase(Locale.ROOT);
         Map<String, Object> u = users.values().stream().filter(v -> normalized.equals(Jsons.text(v, "username", "").toLowerCase(Locale.ROOT))).findFirst().orElse(null);
         if (u != null) return Jsons.copy(mapper, u);
         if (!databaseReady) return null;
         try {
-            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE LOWER(username)=?",
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account WHERE LOWER(username)=?",
                     (rs, rowNum) -> userMap(rs), normalized);
             if (persisted != null) users.put(Jsons.text(persisted, "userId", normalized), Jsons.copy(mapper, persisted));
             return persisted;
@@ -764,7 +867,7 @@ class AgriStore {
         if (cached != null) return Jsons.copy(mapper, cached);
         if (!databaseReady) return null;
         try {
-            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account WHERE user_id=?",
+            Map<String, Object> persisted = jdbc.queryForObject("SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account WHERE user_id=?",
                     (rs, rowNum) -> userMap(rs), userId);
             if (persisted != null) users.put(userId, Jsons.copy(mapper, persisted));
             return persisted;
@@ -778,7 +881,7 @@ class AgriStore {
         if (!databaseReady) return result;
         try {
             List<Map<String, Object>> persisted = jdbc.query(
-                    "SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version FROM user_account ORDER BY username",
+                    "SELECT user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version,created_at,updated_at FROM user_account ORDER BY username",
                     (rs, rowNum) -> userMap(rs));
             persisted.forEach(user -> users.put(Jsons.text(user, "userId", ""), Jsons.copy(mapper, user)));
             return persisted.stream().map(this::safeUser).collect(Collectors.toCollection(ArrayList::new));
@@ -805,18 +908,19 @@ class AgriStore {
     synchronized Map<String, Object> updateUserScope(String userId, Collection<String> farmIds, Collection<String> plotIds) {
         Map<String, Object> user = userById(userId);
         if (user == null) return null;
+        if (!databaseReady) return null;
         user.put("farmIds", new ArrayList<>(farmIds));
         user.put("plotIds", new ArrayList<>(plotIds));
-        if (databaseReady) {
-            try {
-                int updated = jdbc.update("UPDATE user_account SET farm_ids=?,plot_ids=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
-                        String.join(",", Jsons.strings(user.get("farmIds"))),
-                        String.join(",", Jsons.strings(user.get("plotIds"))), userId);
-                if (updated != 1) return null;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        try {
+            int updated = jdbc.update("UPDATE user_account SET farm_ids=?,plot_ids=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                    String.join(",", Jsons.strings(user.get("farmIds"))),
+                    String.join(",", Jsons.strings(user.get("plotIds"))), userId);
+            if (updated != 1) return null;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return null;
         }
+        user.put("updatedAt", Instant.now().toString());
         users.put(userId, Jsons.copy(mapper, user));
         return safeUser(Jsons.copy(mapper, user));
     }
@@ -824,19 +928,20 @@ class AgriStore {
     synchronized Map<String, Object> updateUserEnabled(String userId, boolean enabled, boolean rotateCredentials) {
         Map<String, Object> user = userById(userId);
         if (user == null) return null;
+        if (!databaseReady) return null;
         user.put("enabled", enabled);
         if (rotateCredentials) {
             user.put("credentialVersion", (int) Jsons.whole(user, "credentialVersion", 1) + 1);
         }
-        if (databaseReady) {
-            try {
-                int updated = jdbc.update("UPDATE user_account SET enabled=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
-                        enabled, Jsons.whole(user, "credentialVersion", 1), userId);
-                if (updated != 1) return null;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        try {
+            int updated = jdbc.update("UPDATE user_account SET enabled=?,credential_version=?,updated_at=CURRENT_TIMESTAMP WHERE user_id=?",
+                    enabled, Jsons.whole(user, "credentialVersion", 1), userId);
+            if (updated != 1) return null;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return null;
         }
+        user.put("updatedAt", Instant.now().toString());
         users.put(userId, Jsons.copy(mapper, user));
         return Jsons.copy(mapper, user);
     }
@@ -844,13 +949,13 @@ class AgriStore {
     synchronized boolean deleteUserAccount(String userId) {
         Map<String, Object> user = userById(userId);
         if (user == null) return false;
-        if (databaseReady) {
-            try {
-                int deleted = jdbc.update("DELETE FROM user_account WHERE user_id=?", userId);
-                if (deleted != 1) return false;
-            } catch (DataAccessException error) {
-                databaseReady = false;
-            }
+        if (!databaseReady) return false;
+        try {
+            int deleted = jdbc.update("DELETE FROM user_account WHERE user_id=?", userId);
+            if (deleted != 1) return false;
+        } catch (DataAccessException error) {
+            databaseReady = false;
+            return false;
         }
         users.remove(userId);
         return true;
@@ -862,7 +967,12 @@ class AgriStore {
         u.put("passwordHash", rs.getString("password_hash")); u.put("role", rs.getString("role_code"));
         u.put("farmIds", Jsons.strings(rs.getString("farm_ids"))); u.put("plotIds", Jsons.strings(rs.getString("plot_ids")));
         u.put("enabled", rs.getBoolean("enabled")); u.put("recoveryCodeHash", rs.getString("recovery_code_hash"));
-        u.put("credentialVersion", rs.getInt("credential_version")); return u;
+        u.put("credentialVersion", rs.getInt("credential_version"));
+        java.sql.Timestamp createdAt = rs.getTimestamp("created_at");
+        java.sql.Timestamp updatedAt = rs.getTimestamp("updated_at");
+        if (createdAt != null) u.put("createdAt", createdAt.toInstant().toString());
+        if (updatedAt != null) u.put("updatedAt", updatedAt.toInstant().toString());
+        return u;
     }
 
     private void saveUser(Map<String, Object> user) {
@@ -889,22 +999,76 @@ class AgriStore {
     synchronized boolean createUser(Map<String, Object> user) {
         String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
         if (username.isBlank() || userByUsername(username) != null) return false;
+        if (!databaseReady) return false;
         String id = Jsons.text(user, "userId", Jsons.id("usr"));
         user.put("userId", id); user.put("username", username); user.putIfAbsent("credentialVersion", 1);
-        if (databaseReady) {
-            try {
-                jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
-                        id, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
-                        String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
-                        Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
-            } catch (DataAccessException error) {
-                String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
-                if (message.contains("unique") || message.contains("duplicate")) return false;
-                databaseReady = false;
-            }
+        try {
+            jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                    id, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARMER"),
+                    String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                    Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+        } catch (DataAccessException error) {
+            String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+            if (message.contains("unique") || message.contains("duplicate")) return false;
+            databaseReady = false;
+            return false;
         }
+        Instant now = Instant.now();
+        user.putIfAbsent("createdAt", now.toString());
+        user.put("updatedAt", now.toString());
         users.put(id, Jsons.copy(mapper, user));
         return true;
+    }
+
+    synchronized void createUserWithFarmDurably(Map<String, Object> user, Map<String, Object> farm) {
+        String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
+        String userId = Jsons.text(user, "userId", Jsons.id("user"));
+        String farmId = Jsons.text(farm, "farmId", "").trim();
+        if (username.isBlank() || userByUsername(username) != null) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        }
+        if (farmId.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "无法生成农场编号");
+        }
+        if (!databaseReady) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+        }
+
+        user.put("userId", userId);
+        user.put("username", username);
+        user.putIfAbsent("credentialVersion", 1);
+        Map<String, Object> farmCopy = Jsons.copy(mapper, farm);
+        try {
+            transactionTemplate.executeWithoutResult(status -> {
+                try {
+                    jdbc.update("INSERT INTO user_account(user_id,username,password_hash,role_code,farm_ids,plot_ids,enabled,recovery_code_hash,credential_version) VALUES (?,?,?,?,?,?,?,?,?)",
+                            userId, username, Jsons.text(user, "passwordHash", ""), Jsons.text(user, "role", "FARM_ADMIN"),
+                            String.join(",", Jsons.strings(user.get("farmIds"))), String.join(",", Jsons.strings(user.get("plotIds"))), Jsons.bool(user, "enabled", true),
+                            Jsons.text(user, "recoveryCodeHash", ""), Jsons.whole(user, "credentialVersion", 1));
+                } catch (DataAccessException error) {
+                    String message = String.valueOf(error.getMessage()).toLowerCase(Locale.ROOT);
+                    if (message.contains("unique") || message.contains("duplicate") || message.contains("primary key")) {
+                        throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+                    }
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能创建农场账号");
+                }
+                try {
+                    persistEntity("farm", farmId, farmCopy);
+                } catch (DataAccessException error) {
+                    databaseReady = false;
+                    throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+                }
+            });
+        } catch (TransactionException error) {
+            databaseReady = false;
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "农场资料写入失败，账号与农场均未创建");
+        }
+
+        Instant now = Instant.now();
+        user.putIfAbsent("createdAt", now.toString());
+        user.put("updatedAt", now.toString());
+        invalidateListCache("farm");
     }
 
     synchronized Map<String, Object> updatePassword(String username, String passwordHash, String recoveryCodeHash) {
@@ -961,6 +1125,13 @@ class AgriStore {
             caseRecord.put("primaryCause", c[6]); caseRecord.put("effectivenessScore", Double.parseDouble(c[7]));
             caseRecord.put("quality", "GOOD"); caseRecord.put("ruleVersion", "rules-v1"); caseRecord.put("cropPackVersion", "1.0.0");
             caseRecord.put("fingerprint", Integer.toHexString(Objects.hash(c[5], c[6], c[2], c[3])));
+            // Legacy demo cases are intentionally pending until a complete
+            // snapshot, execution ACK and effect evaluation are rechecked.
+            caseRecord.put("qualityStatus", "PENDING"); caseRecord.put("qualityScore", null);
+            caseRecord.put("selectionReason", List.of("等待确定性质量判断")); caseRecord.put("excludedReason", List.of());
+            caseRecord.put("learningUses", List.of("NONE")); caseRecord.put("accountId", "seed");
+            caseRecord.put("farmId", "farm-demo"); caseRecord.put("sourceSnapshot", Map.of());
+            caseRecord.put("scenarioId", ""); caseRecord.put("agentVersion", "rules-only");
             caseRecord.put("createdAt", Instant.now().toString()); save("decision-case", c[0], caseRecord);
         }
         seedUser("user-farmer", "farmer", "demo123", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
@@ -984,13 +1155,14 @@ final class TimestampParser {
 @Service
 class AgriEventBus {
     private final ObjectMapper mapper;
+    private final AgriStore store;
     private record ScopedEmitter(SseEmitter emitter, UserPrincipal principal) { }
     private final List<ScopedEmitter> emitters = new CopyOnWriteArrayList<>();
     private final ExecutorService executor = Executors.newCachedThreadPool(r -> {
         Thread t = new Thread(r, "agriloop-sse"); t.setDaemon(true); return t;
     });
 
-    AgriEventBus(ObjectMapper mapper) { this.mapper = mapper; }
+    AgriEventBus(ObjectMapper mapper, AgriStore store) { this.mapper = mapper; this.store = store; }
 
     SseEmitter subscribe(UserPrincipal principal) {
         SseEmitter emitter = new SseEmitter(0L);
@@ -1004,12 +1176,26 @@ class AgriEventBus {
     }
 
     boolean canReceive(UserPrincipal principal, Map<String, Object> payload) {
+        return canReceive(principal, "", payload);
+    }
+
+    private boolean canReceive(UserPrincipal principal, String eventType, Map<String, Object> payload) {
         if (principal == null) return false;
         if (principal.isSystemAdmin()) return true;
+        if (Jsons.bool(payload, "systemAdminOnly", false)) return false;
         String farmId = Jsons.text(payload, "farmId", Jsons.text(payload, "scope", "")).trim();
         String plotId = Jsons.text(payload, "plotId", "").trim();
         if (!farmId.isBlank() && !principal.canAccessFarm(farmId)) return false;
-        if (!plotId.isBlank() && !(principal.isFarmAdmin() && !farmId.isBlank()) && !principal.canAccessPlot(plotId)) return false;
+        if (!plotId.isBlank() && !canReceivePlot(principal, farmId, plotId)) return false;
+        if (principal.isFarmer() && "inspection.created".equals(eventType)) {
+            return principal.userId.equals(Jsons.text(payload, "operatorId", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
+        }
+        if (principal.isFarmer() && eventType.startsWith("workorder.")
+                && "READINESS".equalsIgnoreCase(Jsons.text(payload, "sourceType", ""))) {
+            return principal.userId.equals(Jsons.text(payload, "createdBy", ""))
+                    || principal.userId.equals(Jsons.text(payload, "assigneeId", ""));
+        }
         if (principal.isFarmer() && !Jsons.text(payload, "resourceRequestId", "").isBlank()) {
             return principal.userId.equals(Jsons.text(payload, "requestedBy", ""))
                     || principal.userId.equals(Jsons.text(payload, "assignedFarmerId", ""));
@@ -1021,6 +1207,16 @@ class AgriEventBus {
         // Unscoped platform events are intentionally withheld from farmers.
         // Their REST refresh remains the recovery path for secondary state.
         return !farmId.isBlank() || !plotId.isBlank() || principal.isFarmAdmin();
+    }
+
+    private boolean canReceivePlot(UserPrincipal principal, String payloadFarmId, String plotId) {
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
+        String farmId = payloadFarmId;
+        if (farmId == null || farmId.isBlank()) {
+            Map<String, Object> plot = store.find("plot", plotId);
+            farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
+        }
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
 
     private Map<String, Object> scopedPayload(UserPrincipal principal, Map<String, Object> payload) {
@@ -1038,7 +1234,7 @@ class AgriEventBus {
     void publish(String type, Map<String, Object> payload) {
         String eventId = Jsons.id("evt"); String timestamp = Instant.now().toString();
         for (ScopedEmitter subscription : emitters) {
-            if (!canReceive(subscription.principal(), payload)) continue;
+            if (!canReceive(subscription.principal(), type, payload)) continue;
             Map<String, Object> event = new LinkedHashMap<>(); event.put("eventType", type); event.put("eventId", eventId); event.put("ts", timestamp);
             event.put("payload", scopedPayload(subscription.principal(), payload));
             executor.submit(() -> {
@@ -1372,8 +1568,14 @@ class AgriEngine {
     private static final String RECOVERY_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
     private static final int RECOVERY_MAX_FAILURES = 5;
     private static final Duration RECOVERY_FAILURE_WINDOW = Duration.ofMinutes(15);
+    private final java.time.Instant startedAt = java.time.Instant.now();
+    private static final int SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES = 5;
+    private static final Duration SYSTEM_ADMIN_AUTHORIZATION_FAILURE_WINDOW = Duration.ofMinutes(15);
     private static final Set<String> ACCOUNT_ROLES = RolePolicy.PUBLIC_ROLES;
-    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER");
+    private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FARM_ADMIN");
+    private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
+    private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
+    private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
     private static final Set<String> PLOT_SIMULATION_SCENARIOS = Set.of(
@@ -1424,7 +1626,8 @@ class AgriEngine {
             "\\s*(?:图片|图像)(?:会|将)(?:(?:随(?:本次)?请求)|(?:以原文件字节)|直接)?(?:直接)?送入视觉模型[\\s\\S]*$", Pattern.CASE_INSENSITIVE);
     private final ObjectMapper mapper;
     private final ResourceLoader resourceLoader;
-    private final HttpClient llmHttpClient;
+    private volatile HttpClient llmHttpClient;
+    private final Object llmHttpClientLock = new Object();
     private final AgriStore store;
     private final AgriEventBus events;
     private final AgriProperties properties;
@@ -1437,11 +1640,13 @@ class AgriEngine {
     private final AdminManagementService adminManagement;
     private final SimulationEngine simulationEngine;
     private final FarmGovernanceService governance;
+    private final ControlledLearningService controlledLearning;
     private final Map<String, Map<String, Object>> idempotentCommands = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> ackByCommand = new ConcurrentHashMap<>();
     private final Set<String> evaluatedCommands = ConcurrentHashMap.newKeySet();
     private final Map<String, Deque<Instant>> ruleWindows = new ConcurrentHashMap<>();
     private final Map<String, Deque<Instant>> recoveryFailures = new ConcurrentHashMap<>();
+    private final Map<String, Deque<Instant>> systemAdminAuthorizationFailures = new ConcurrentHashMap<>();
     private final AtomicBoolean redisAvailable = new AtomicBoolean(false);
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
@@ -1457,21 +1662,35 @@ class AgriEngine {
                CropPackCatalog cropPackCatalog,
                PasswordEncoder passwordEncoder, JwtService jwtService, StringRedisTemplate redis, MqttCommandGateway mqttCommands,
                RedisStreamWorker streamWorker, @Lazy AdminManagementService adminManagement,
-               @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance) {
+               @Lazy SimulationEngine simulationEngine, FarmGovernanceService governance,
+               ControlledLearningService controlledLearning) {
         this.mapper = mapper;
         this.resourceLoader = resourceLoader;
-        // vLLM/uvicorn on the private loopback endpoint is intentionally used
-        // with HTTP/1.1 requests.  This avoids a known incompatibility with
-        // Java HTTP/2 upgrade negotiation while keeping the model endpoint
-        // private and bounded by the per-request timeout.
-        this.llmHttpClient = HttpClient.newBuilder()
-                .version(HttpClient.Version.HTTP_1_1)
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
         this.store = store; this.events = events; this.properties = properties; this.cropPackCatalog = cropPackCatalog;
         this.passwordEncoder = passwordEncoder; this.jwtService = jwtService; this.redis = redis; this.mqttCommands = mqttCommands; this.streamWorker = streamWorker; this.adminManagement = adminManagement;
         this.simulationEngine = simulationEngine;
         this.governance = governance;
+        this.controlledLearning = controlledLearning;
+    }
+
+    private HttpClient llmHttpClient() throws IOException {
+        HttpClient existing = llmHttpClient;
+        if (existing != null) return existing;
+        synchronized (llmHttpClientLock) {
+            if (llmHttpClient != null) return llmHttpClient;
+            try {
+                // vLLM/uvicorn on the private loopback endpoint is intentionally used
+                // with HTTP/1.1 requests. Keep this dependency lazy so a local selector
+                // failure cannot prevent unrelated API domains from starting.
+                llmHttpClient = HttpClient.newBuilder()
+                        .version(HttpClient.Version.HTTP_1_1)
+                        .connectTimeout(Duration.ofSeconds(10))
+                        .build();
+                return llmHttpClient;
+            } catch (java.io.UncheckedIOException error) {
+                throw new IOException("LLM_HTTP_CLIENT_UNAVAILABLE", error);
+            }
+        }
     }
 
     @PostConstruct
@@ -1508,20 +1727,143 @@ class AgriEngine {
     }
 
     Map<String, Object> register(String username, String password, String requestedRole) {
+        return register(username, password, requestedRole, "");
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode) {
+        return register(username, password, requestedRole, authorizationCode, Map.of());
+    }
+
+    Map<String, Object> register(String username, String password, String requestedRole, String authorizationCode, Object rawFarmProfile) {
         String normalized = normalizeUsername(username);
-        String role = validateSelfRegistrationRole(requestedRole);
         validateUsername(normalized);
         validatePassword(normalized, password);
+        String role = validateSelfRegistrationRole(requestedRole, authorizationCode, "register:" + normalized);
         String recoveryCode = generateRecoveryCode();
         Map<String, Object> user = new LinkedHashMap<>();
         user.put("userId", Jsons.id("user")); user.put("username", normalized);
         user.put("passwordHash", passwordEncoder.encode(password)); user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
-        user.put("role", role); user.put("farmIds", List.of("farm-demo"));
-        user.put("plotIds", List.of("plot-a01", "plot-a02")); user.put("enabled", true); user.put("credentialVersion", 1);
-        if (!store.createUser(user)) throw new ApiException(HttpStatus.CONFLICT, "ACCOUNT_EXISTS", "该账号已存在");
+        user.put("role", role);
+        if ("SYSTEM_ADMIN".equals(role)) {
+            user.put("farmIds", List.of("*"));
+            user.put("plotIds", List.of("*"));
+        } else if ("FARM_ADMIN".equals(role)) {
+            Map<String, Object> farmProfile = validateFarmProfile(rawFarmProfile);
+            String farmId = Jsons.id("farm");
+            user.put("farmIds", List.of(farmId));
+            user.put("plotIds", List.of());
+            user.put("enabled", true); user.put("credentialVersion", 1);
+
+            Map<String, Object> farm = new LinkedHashMap<>();
+            farm.put("farmId", farmId);
+            farm.put("name", farmProfile.get("name"));
+            farm.put("region", farmProfile.get("region"));
+            farm.put("ownerId", user.get("userId"));
+            farm.put("status", "ACTIVE");
+            farm.put("createdAt", Instant.now().toString());
+            farm.put("createdBy", user.get("userId"));
+            store.createUserWithFarmDurably(user, farm);
+            store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role, "farmId", farmId));
+            events.publish("farm.created", farm);
+            Map<String, Object> result = authenticatedSession(user);
+            result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+            return result;
+        } else {
+            user.put("farmIds", List.of("farm-demo"));
+            user.put("plotIds", List.of("plot-a01", "plot-a02"));
+        }
+        user.put("enabled", true); user.put("credentialVersion", 1);
+        persistNewAccount(user, "ACCOUNT_EXISTS", "该账号已存在");
         store.logEvent("ACCOUNT_REGISTERED", Map.of("userId", user.get("userId"), "username", normalized, "role", role));
         Map<String, Object> result = authenticatedSession(user);
         result.put("recoveryCode", recoveryCode); result.put("recoveryCodeShownOnce", true);
+        return result;
+    }
+
+    List<Map<String, Object>> userAccounts(UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        return store.listUsers().stream()
+                .map(this::accountView)
+                .sorted(Comparator.comparing(account -> Jsons.text(account, "username", "")))
+                .toList();
+    }
+
+    Map<String, Object> createUserAccount(Map<String, Object> input, UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        String username = normalizeUsername(Jsons.text(input, "username", ""));
+        String password = Jsons.text(input, "password", "");
+        String role = normalizeRole(Jsons.text(input, "role", "FARMER"));
+        validateUsername(username);
+        validatePassword(username, password);
+        if (!ACCOUNT_ROLES.contains(role)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的账号身份");
+        }
+        if ("SYSTEM_ADMIN".equals(role)) {
+            verifySystemAdminAuthorization(Jsons.text(input, "authorizationCode", ""), "operator:" + principal.userId);
+        }
+
+        List<String> farmIds;
+        List<String> plotIds;
+        String farmId = "";
+        if ("SYSTEM_ADMIN".equals(role)) {
+            farmIds = List.of("*");
+            plotIds = List.of("*");
+        } else {
+            farmId = Jsons.text(input, "farmId", "").trim();
+            if (farmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请选择账号所属农场");
+            if (store.find("farm", farmId) == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在");
+            farmIds = List.of(farmId);
+            plotIds = "FARM_ADMIN".equals(role) ? plotIdsForFarm(farmId) : validateAccountPlotScope(farmId, input.get("plotIds"));
+        }
+
+        String recoveryCode = generateRecoveryCode();
+        Map<String, Object> user = new LinkedHashMap<>();
+        user.put("userId", Jsons.id("user"));
+        user.put("username", username);
+        user.put("passwordHash", passwordEncoder.encode(password));
+        user.put("recoveryCodeHash", passwordEncoder.encode(normalizeRecoveryCode(recoveryCode)));
+        user.put("role", role);
+        user.put("farmIds", farmIds);
+        user.put("plotIds", plotIds);
+        user.put("enabled", true);
+        user.put("credentialVersion", 1);
+        persistNewAccount(user, "ACCOUNT_EXISTS", "该账号已存在");
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("userId", user.get("userId")); audit.put("username", username); audit.put("role", role);
+        audit.put("createdBy", principal.userId);
+        audit.put("systemAdminOnly", true);
+        if (!farmId.isBlank()) audit.put("farmId", farmId);
+        store.logEvent("ACCOUNT_CREATED", audit);
+        events.publish("account.created", audit);
+        Map<String, Object> result = accountView(user);
+        result.put("recoveryCode", recoveryCode);
+        result.put("recoveryCodeShownOnce", true);
+        result.put("createdBy", principal.userId);
+        return result;
+    }
+
+    Map<String, Object> updateUserAccountStatus(String userId, Map<String, Object> input, UserPrincipal principal) {
+        requireSystemAccountAdministrator(principal);
+        Map<String, Object> user = store.userById(userId);
+        if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在");
+        if ("SYSTEM_ADMIN".equals(RolePolicy.canonical(Jsons.text(user, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能停用或启用");
+        }
+        if (!(input.get("enabled") instanceof Boolean enabled)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_STATUS_INVALID", "请指定账号是否启用");
+        }
+        Map<String, Object> updated = store.updateUserEnabled(userId, enabled, !enabled);
+        if (updated == null) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_STATUS_UPDATE_FAILED", "账号状态更新失败");
+        }
+        String action = enabled ? "ACCOUNT_ENABLED" : "ACCOUNT_DISABLED";
+        Map<String, Object> audit = Map.of("userId", userId, "username", Jsons.text(user, "username", userId),
+                "role", Jsons.text(user, "role", ""), "updatedBy", principal.userId, "systemAdminOnly", true);
+        store.logEvent(action, audit);
+        events.publish(enabled ? "account.enabled" : "account.disabled", audit);
+        Map<String, Object> result = accountView(updated);
+        result.put("updatedBy", principal.userId);
         return result;
     }
 
@@ -1588,7 +1930,7 @@ class AgriEngine {
 
     List<String> permissionsFor(UserPrincipal principal) {
         if (principal.isSystemAdmin()) return List.of("plots:read", "diagnosis:read", "work-order:audit", "simulator:control", "strategy:manage", "value:audit", "platform:manage", "irrigation:execute", "irrigation:approve");
-        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "strategy:read", "value:manage");
+        if (principal.isFarmAdmin()) return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:manage", "irrigation:request", "irrigation:execute", "irrigation:approve", "simulator:control", "resource:manage", "market-price:read", "strategy:read", "value:manage");
         return List.of("plots:read", "diagnosis:read", "inspection:create", "work-order:request", "irrigation:request", "irrigation:execute");
     }
 
@@ -1665,10 +2007,40 @@ class AgriEngine {
         if (input.containsKey("enabled")) saved.put("enabled", Jsons.bool(input, "enabled", true));
         store.save("plot-simulation", plotId, saved);
         boolean delivered = syncSimulationConfiguration();
+        if (scenarioChanged) {
+            recordScenarioRun(plotId, scenario, principal);
+        }
         Map<String, Object> event = new LinkedHashMap<>(saved); event.put("configDelivered", delivered);
         events.publish("plot.simulation.updated", event); store.logEvent("plot.simulation.updated", event);
         Map<String, Object> view = plotSimulationView(plotId); view.put("configDelivered", delivered);
         return view;
+    }
+
+    // 切换场景 = 结束该地块旧的运行记录 + 按新场景开始一条新运行（供'运行历史'展示）
+    private void recordScenarioRun(String plotId, String scenario, UserPrincipal principal) {
+        Instant now = Instant.now();
+        for (Map<String, Object> oldRun : store.list("scenario-run")) {
+            if (plotId.equals(Jsons.text(oldRun, "plotId", ""))
+                    && "RUNNING".equalsIgnoreCase(Jsons.text(oldRun, "status", ""))) {
+                oldRun.put("status", "COMPLETED");
+                oldRun.put("endedAt", now.toString());
+                oldRun.put("endedBy", principal.userId);
+                store.save("scenario-run", Jsons.text(oldRun, "runId", ""), oldRun);
+            }
+        }
+        Map<String, Object> run = new LinkedHashMap<>();
+        run.put("runId", Jsons.id("scenario-run"));
+        run.put("scenarioId", Jsons.id("scenario-run"));
+        run.put("plotId", plotId);
+        run.put("scenario", scenario.toLowerCase(Locale.ROOT));
+        run.put("seed", 42);
+        run.put("status", "RUNNING");
+        run.put("startedAt", now.toString());
+        run.put("startedBy", principal.userId);
+        run.put("branchId", "MAIN");
+        run.put("sourceMode", "SIMULATION");
+        store.save("scenario-run", Jsons.text(run, "runId", ""), run);
+        events.publish("scenario.started", run);
     }
 
     synchronized Map<String, Object> resetPlotSimulation(String plotId, String requestedTarget, UserPrincipal principal) {
@@ -1814,9 +2186,7 @@ class AgriEngine {
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
         List<Map<String, Object>> hardware = store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
-                .filter(device -> "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                        || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
-                        || !Jsons.text(device, "deviceId", "mock-").toLowerCase(Locale.ROOT).startsWith("mock-"))
+                .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
         if (hardware.isEmpty()) return Map.of("bindingState", "UNBOUND", "status", "NOT_BOUND", "usability", "NOT_BOUND", "label", "未绑定硬件");
@@ -1834,8 +2204,9 @@ class AgriEngine {
     private Map<String, Object> simulatorDeviceForPlot(String plotId) {
         Map<String, Object> device = store.list("device").stream()
                 .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
-                .filter(item -> Jsons.text(item, "deviceId", "").toLowerCase(Locale.ROOT).startsWith("mock-")
-                        || "SIMULATOR".equalsIgnoreCase(Jsons.text(item, "dataOrigin", "")))
+                .filter(this::deviceIsSimulated)
+                .filter(item -> !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "bindingState", ""))
+                        && !"UNBOUND".equalsIgnoreCase(Jsons.text(item, "status", "")))
                 .sorted(Comparator
                         .comparing((Map<String, Object> item) -> "ONLINE".equalsIgnoreCase(Jsons.text(item, "status", "")))
                                 .reversed()
@@ -1899,17 +2270,131 @@ class AgriEngine {
         return RolePolicy.normalize(role);
     }
 
-    private String validateSelfRegistrationRole(String requestedRole) {
+    private String validateSelfRegistrationRole(String requestedRole, String authorizationCode, String attemptKey) {
         String role = normalizeRole(requestedRole);
         if (role.isBlank()) role = "FARMER";
         if (SELF_REGISTRATION_ROLES.contains(role)) return role;
         if (RolePolicy.LEGACY_ROLES.contains(role) || "OPERATOR".equals(role)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "旧操作员身份已迁移为种植农户，请由管理员授权账号");
         }
-        if (ACCOUNT_ROLES.contains(role)) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_ROLE_REQUIRES_ADMIN", "管理员身份需要系统授权，不能自助注册");
+        if ("SYSTEM_ADMIN".equals(role)) {
+            verifySystemAdminAuthorization(authorizationCode, attemptKey);
+            return role;
         }
         throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_ROLE_INVALID", "请选择有效的注册身份");
+    }
+
+    private void verifySystemAdminAuthorization(String authorizationCode, String attemptKey) {
+        String configured = String.valueOf(properties.getSystemAdminAuthorizationCode() == null ? "" : properties.getSystemAdminAuthorizationCode());
+        if (configured.isBlank()) {
+            throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "SYSTEM_ADMIN_CREATION_DISABLED", "系统管理员创建尚未配置，请联系服务维护人员");
+        }
+        String key = String.valueOf(attemptKey == null ? "unknown" : attemptKey);
+        ensureSystemAdminAuthorizationAllowed(key);
+        byte[] expected = configured.getBytes(StandardCharsets.UTF_8);
+        byte[] presented = String.valueOf(authorizationCode == null ? "" : authorizationCode).getBytes(StandardCharsets.UTF_8);
+        if (!MessageDigest.isEqual(expected, presented)) {
+            recordSystemAdminAuthorizationFailure(key);
+            throw new ApiException(HttpStatus.FORBIDDEN, "SYSTEM_ADMIN_AUTHORIZATION_INVALID", "系统管理员授权码无效");
+        }
+        systemAdminAuthorizationFailures.remove(key);
+    }
+
+    private void ensureSystemAdminAuthorizationAllowed(String key) {
+        Deque<Instant> attempts = systemAdminAuthorizationFailures.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+        synchronized (attempts) {
+            pruneAuthorizationFailures(attempts);
+            if (attempts.size() >= SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES) {
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED", "授权码尝试次数过多，请 15 分钟后重试");
+            }
+        }
+    }
+
+    private void recordSystemAdminAuthorizationFailure(String key) {
+        Deque<Instant> attempts = systemAdminAuthorizationFailures.computeIfAbsent(key, ignored -> new ArrayDeque<>());
+        synchronized (attempts) {
+            pruneAuthorizationFailures(attempts);
+            attempts.addLast(Instant.now());
+            if (attempts.size() >= SYSTEM_ADMIN_AUTHORIZATION_MAX_FAILURES) {
+                throw new ApiException(HttpStatus.TOO_MANY_REQUESTS, "SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED", "授权码尝试次数过多，请 15 分钟后重试");
+            }
+        }
+    }
+
+    private void pruneAuthorizationFailures(Deque<Instant> attempts) {
+        Instant cutoff = Instant.now().minus(SYSTEM_ADMIN_AUTHORIZATION_FAILURE_WINDOW);
+        while (!attempts.isEmpty() && attempts.peekFirst().isBefore(cutoff)) attempts.removeFirst();
+    }
+
+    private List<String> plotIdsForFarm(String farmId) {
+        return store.list("plot").stream()
+                .filter(plot -> farmId.equals(Jsons.text(plot, "farmId", "")))
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(plotId -> !plotId.isBlank())
+                .sorted()
+                .toList();
+    }
+
+    private List<String> validateAccountPlotScope(String farmId, Object rawPlotIds) {
+        LinkedHashSet<String> plotIds = new LinkedHashSet<>(Jsons.strings(rawPlotIds));
+        for (String plotId : plotIds) {
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot == null || !farmId.equals(Jsons.text(plot, "farmId", ""))) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SCOPE_FORBIDDEN", "只能分配账号所属农场内的地块");
+            }
+        }
+        return new ArrayList<>(plotIds);
+    }
+
+    private void persistNewAccount(Map<String, Object> user, String conflictCode, String conflictMessage) {
+        if (!store.createUser(user)) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.CONFLICT, conflictCode, conflictMessage);
+        }
+    }
+
+    private ApiException accountPersistenceUnavailable() {
+        return new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "ACCOUNT_PERSISTENCE_UNAVAILABLE", "账号数据库当前不可用，暂时不能修改账号");
+    }
+
+    private void requireSystemAccountAdministrator(UserPrincipal principal) {
+        if (principal == null || !principal.isSystemAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_MANAGEMENT_FORBIDDEN", "只有系统管理员可以管理全平台账号");
+        }
+    }
+
+    private Map<String, Object> accountView(Map<String, Object> user) {
+        Map<String, Object> view = new LinkedHashMap<>();
+        String role = RolePolicy.canonical(Jsons.text(user, "role", "FARMER"));
+        boolean enabled = Jsons.bool(user, "enabled", true);
+        view.put("userId", Jsons.text(user, "userId", ""));
+        view.put("username", Jsons.text(user, "username", ""));
+        view.put("role", role);
+        view.put("roleLabel", RolePolicy.label(role));
+        List<String> farmIds = Jsons.strings(user.get("farmIds"));
+        List<String> plotIds = "FARM_ADMIN".equals(role)
+                ? farmIds.stream().filter(farmId -> !"*".equals(farmId)).flatMap(farmId -> plotIdsForFarm(farmId).stream()).distinct().sorted().toList()
+                : Jsons.strings(user.get("plotIds"));
+        view.put("farmIds", farmIds);
+        view.put("plotIds", plotIds);
+        view.put("enabled", enabled);
+        view.put("status", enabled ? "ACTIVE" : "INACTIVE");
+        view.put("createdAt", Jsons.text(user, "createdAt", ""));
+        view.put("updatedAt", Jsons.text(user, "updatedAt", ""));
+        return view;
+    }
+
+    private Map<String, Object> validateFarmProfile(Object rawFarmProfile) {
+        Map<String, Object> profile = Jsons.map(mapper, rawFarmProfile);
+        String name = Jsons.text(profile, "name", "").trim();
+        String region = Jsons.text(profile, "region", "").trim();
+        if (name.length() < 2 || name.length() > 60) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "农场名称需为 2–60 个字符");
+        }
+        if (region.length() < 2 || region.length() > 80) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_PROFILE_INVALID", "所在地区需为 2–80 个字符");
+        }
+        return Map.of("name", name, "region", region);
     }
 
     private void validateUsername(String username) {
@@ -1967,6 +2452,128 @@ class AgriEngine {
     Map<String, Object> overview(UserPrincipal principal) {
         String farmId = principal == null ? null : principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null);
         return overview(farmId, principal);
+    }
+
+    synchronized Map<String, Object> farmerWorkspacePreference(UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        return farmerWorkspacePreferenceView(principal, store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal)));
+    }
+
+    synchronized Map<String, Object> updateFarmerWorkspacePreference(Map<String, Object> input, UserPrincipal principal) {
+        requireFarmerWorkspacePreferenceAccess(principal);
+        Map<String, Object> current = store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal));
+        long currentRevision = current == null ? 0 : Jsons.whole(current, "revision", 0);
+        Map<String, Object> request = input == null ? Map.of() : input;
+        if (!(request.get("plotOrder") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "plotOrder 必须是数组");
+        }
+        long expectedRevision = requiredFarmerWorkspaceRevision(request);
+        if (expectedRevision != currentRevision) {
+            throw new ApiException(HttpStatus.CONFLICT, "FARMER_WORKSPACE_PREFERENCE_CONFLICT", "地块顺序已在其他设备更新，请刷新后重试");
+        }
+
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> requestedOrder = normalizePreferenceOrder(request.get("plotOrder"));
+        if (requestedOrder.size() > FARMER_WORKSPACE_MAX_PLOTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "地块顺序数量超过上限");
+        }
+
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        for (String plotId : requestedOrder) {
+            if (availableIds.contains(plotId)) {
+                order.add(plotId);
+                continue;
+            }
+            // A plot may disappear or become inactive while a drag is in
+            // progress. Ignore that stale id, but never accept an id that is
+            // currently owned by another farmer.
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot != null && !principal.canAccessPlot(plotId)) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权设置该地块顺序");
+            }
+        }
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Instant now = Instant.now();
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("preferenceId", farmerWorkspacePreferenceId(principal));
+        saved.put("userId", principal.userId);
+        saved.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        saved.put("plotOrder", new ArrayList<>(order));
+        saved.put("revision", currentRevision + 1);
+        saved.put("updatedAt", now.toString());
+        saved.put("updatedBy", principal.userId);
+        // Durable preference writes must not silently fall back to this
+        // process's cache: another browser must be able to read the order.
+        store.saveDurably(FARMER_WORKSPACE_PREFERENCE_TYPE, farmerWorkspacePreferenceId(principal), saved);
+        return farmerWorkspacePreferenceView(principal, saved);
+    }
+
+    private long requiredFarmerWorkspaceRevision(Map<String, Object> input) {
+        Object value = input == null ? null : input.get("expectedRevision");
+        double revision = Jsons.numberValue(value, Double.NaN);
+        if (!Double.isFinite(revision) || revision < 0 || Math.rint(revision) != revision || revision > Long.MAX_VALUE) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARMER_WORKSPACE_PREFERENCE_INVALID", "expectedRevision 必须是非负整数");
+        }
+        return (long) revision;
+    }
+
+    private void requireFarmerWorkspacePreferenceAccess(UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARMER_WORKSPACE_PREFERENCE_FORBIDDEN", "只有农户可以设置自己的地块顺序");
+        }
+    }
+
+    private String farmerWorkspacePreferenceId(UserPrincipal principal) {
+        return principal.userId + ":" + FARMER_WORKSPACE_PREFERENCE_SCOPE;
+    }
+
+    private List<Map<String, Object>> activeFarmerPlots(UserPrincipal principal) {
+        return store.list("plot").stream()
+                .filter(plot -> !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
+                .filter(plot -> principal.canAccessPlot(Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", "")))
+                .toList();
+    }
+
+    private List<String> normalizePreferenceOrder(Object value) {
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        for (String plotId : Jsons.strings(value)) {
+            String normalized = String.valueOf(plotId == null ? "" : plotId).trim();
+            if (!normalized.isBlank()) ids.add(normalized);
+        }
+        return new ArrayList<>(ids);
+    }
+
+    private Map<String, Object> farmerWorkspacePreferenceView(UserPrincipal principal, Map<String, Object> stored) {
+        List<Map<String, Object>> availablePlots = activeFarmerPlots(principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        normalizePreferenceOrder(stored == null ? null : stored.get("plotOrder")).forEach(id -> {
+            if (availableIds.contains(id)) order.add(id);
+        });
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", principal.userId);
+        result.put("scope", FARMER_WORKSPACE_PREFERENCE_SCOPE);
+        result.put("plotOrder", new ArrayList<>(order));
+        result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
+        result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
+        return result;
     }
 
     Map<String, Object> overview(String farmId, UserPrincipal principal) {
@@ -2207,8 +2814,10 @@ class AgriEngine {
             Map<String, Object> eventQuality = Jsons.map(mapper, event.get("quality"));
             boolean offlineSignal = "device-offline".equalsIgnoreCase(Jsons.text(event, "scenarioId", ""))
                     && "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", ""));
+            boolean simulatorOnlineOverride = simulatorManualOnlineOverride(device, sourceMode);
             if (!realControlPending) {
-                device.put("status", offlineSignal ? "OFFLINE" : "ONLINE"); device.put("lastSeen", event.get("ts"));
+                device.put("status", simulatorOnlineOverride || !offlineSignal ? "ONLINE" : "OFFLINE");
+                device.put("lastSeen", event.get("ts"));
                 device.put("healthScore", "BAD".equalsIgnoreCase(Jsons.text(eventQuality, "status", "GOOD")) ? 0.35 : 0.98);
             }
             device.put("sourceMode", sourceMode);
@@ -2269,6 +2878,9 @@ class AgriEngine {
         status.put("ai", checkLlmHealth());
         status.put("aiMode", properties.getAiMode());
         status.put("llmModel", properties.getLlmModel());
+        // 运行时长（秒）与接口版本
+        status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
+        status.put("apiVersion", "v1");
         // 真实测量的依赖往返延迟（毫秒），-1 表示不可用/测量失败
         status.put("databaseLatencyMs", store.pingDbLatencyMs());
         status.put("redisLatencyMs", redisPingLatencyMs());
@@ -2323,7 +2935,7 @@ class AgriEngine {
             if (properties.getLlmApiKey() != null && !properties.getLlmApiKey().isBlank()) {
                 builder.header("Authorization", "Bearer " + properties.getLlmApiKey());
             }
-            HttpResponse<String> response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            HttpResponse<String> response = llmHttpClient().send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int code = response.statusCode();
             return code >= 200 && code < 300 ? "UP" : "DOWN";
         } catch (Exception ex) {
@@ -2348,7 +2960,9 @@ class AgriEngine {
         Instant now = Instant.now();
         for (Map<String, Object> device : store.list("device")) {
             Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
-            if ("ONLINE".equals(Jsons.text(device, "status", "")) && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
+            if ("ONLINE".equals(Jsons.text(device, "status", ""))
+                    && !simulatorManualOnlineOverride(device, Jsons.text(device, "sourceMode", ""))
+                    && Duration.between(lastSeen, now).getSeconds() > properties.getDeviceTimeoutSeconds()) {
                 String id = Jsons.text(device, "deviceId", ""); device.put("status", "OFFLINE"); device.put("offlineAt", now.toString());
                 store.save("device", id, device); events.publish("device.offline", device); store.logEvent("device.offline", device);
             }
@@ -2766,9 +3380,12 @@ class AgriEngine {
     }
 
     private boolean isHardwareDevice(Map<String, Object> device) {
-        String id = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return "REAL".equalsIgnoreCase(Jsons.text(device, "sourceMode", ""))
-                || "HARDWARE".equalsIgnoreCase(Jsons.text(device, "dataOrigin", ""))
+        if (deviceIsSimulated(device)) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .trim().toUpperCase(Locale.ROOT);
+        String id = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        return "REAL".equals(source)
+                || "HARDWARE".equals(source)
                 || ("BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "")) && !id.startsWith("mock-"));
     }
 
@@ -2820,6 +3437,10 @@ class AgriEngine {
         String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
         if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
             device.put("status", "OFFLINE");
+        } else if (simulatorManualOnlineOverride(device, Jsons.text(input, "sourceMode", ""))) {
+            // Ignore a stale/scene-generated OFFLINE status after the
+            // administrator has explicitly brought a simulated device back.
+            device.put("status", "ONLINE");
         } else if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus) && current != null) {
             device.put("status", Jsons.text(current, "status", "OFFLINE"));
         }
@@ -2894,9 +3515,28 @@ class AgriEngine {
     }
 
     private boolean deviceIsSimulated(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
         String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", "")).trim().toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        if ("REAL".equals(source) || "HARDWARE".equals(source)) return false;
+        return Set.of("SIMULATION", "SIMULATED", "SIMULATOR").contains(source) || deviceId.startsWith("mock-");
+    }
+
+    private boolean simulatorManualOnlineOverride(Map<String, Object> device, String incomingSourceMode) {
+        if (!deviceIsSimulated(device)) return false;
         String deviceId = Jsons.text(device, "deviceId", "").toLowerCase(Locale.ROOT);
-        return Set.of("SIMULATION", "SIMULATED").contains(source) || deviceId.startsWith("mock-");
+        String source = incomingSourceMode == null || incomingSourceMode.isBlank()
+                ? Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                : incomingSourceMode;
+        if (!("SIMULATION".equalsIgnoreCase(source) || "SIMULATED".equalsIgnoreCase(source)
+                || "SIMULATOR".equalsIgnoreCase(source) || deviceId.startsWith("mock-"))) return false;
+        String override = Jsons.text(device, "manualStatusOverride", "").trim().toUpperCase(Locale.ROOT);
+        if ("ONLINE".equals(override)) return true;
+        // Backward compatibility for successful ONLINE controls written by an
+        // older server before the explicit override field existed.
+        return "SUCCEEDED".equals(Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT))
+                && "ONLINE".equals(Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT))
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
     }
 
     private Map<String, Object> deviceControlResponse(Map<String, Object> command, Map<String, Object> device) {
@@ -2928,6 +3568,14 @@ class AgriEngine {
                 device.put("status", target); device.put("desiredStatus", target); device.put("controlStatus", "SUCCEEDED");
                 device.put("lastControlCommandId", Jsons.text(command, "commandId", "")); device.put("lastControlAt", ack.get("receivedAt"));
                 device.remove("lastControlError");
+                if (deviceIsSimulated(device)) {
+                    device.put("manualStatusOverride", target);
+                    device.put("manualStatusOverrideAt", ack.get("receivedAt"));
+                    if ("ONLINE".equals(target)) device.put("lastSeen", ack.get("receivedAt"));
+                } else {
+                    device.remove("manualStatusOverride");
+                    device.remove("manualStatusOverrideAt");
+                }
                 if ("OFFLINE".equals(target)) device.put("offlineAt", ack.get("receivedAt")); else device.remove("offlineAt");
             } else {
                 device.put("controlStatus", status); device.put("lastControlCommandId", Jsons.text(command, "commandId", ""));
@@ -3398,6 +4046,7 @@ class AgriEngine {
             case "DEVICE_HEALTH" -> "检查设备心跳";
             case "MORE_TELEMETRY_HISTORY" -> "延长数据观察";
             case "MORE_DIAGNOSIS_EVIDENCE" -> "补充诊断证据";
+            case "HUMAN_EVIDENCE_REVIEW" -> "复核人工现场证据";
             case "SOIL_MOISTURE" -> "土壤湿度数据";
             case "GOOD_DATA_QUALITY" -> "合格数据质量";
             case "QUALITY_REVIEW" -> "数据质量复核";
@@ -4792,6 +5441,7 @@ class AgriEngine {
 
         String inspectionId = Jsons.id("ins");
         String summary = inspectionSummary(soilSurface, cropCondition, deviceStatus, notes);
+        Map<String, Object> sensorConflictAlert = null;
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("inspectionId", inspectionId);
         record.put("farmId", farmId);
@@ -4850,14 +5500,18 @@ class AgriEngine {
                     alert.put("createdAt", now.toString());
                     alert.put("raisedAt", now.toString());
                     alert.put("updatedAt", now.toString());
-                    store.save("alert", alertId, alert);
-                    events.publish("alert.created", alert);
-                    store.logEvent("alert.created", alert);
+                    sensorConflictAlert = alert;
                 }
             }
         }
 
-        store.save("inspection", inspectionId, record);
+        store.saveDurably("inspection", inspectionId, record,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "巡田记录数据库不可用，写入未保存");
+        if (sensorConflictAlert != null) {
+            store.save("alert", Jsons.text(sensorConflictAlert, "alertId", ""), sensorConflictAlert);
+            events.publish("alert.created", sensorConflictAlert);
+            store.logEvent("alert.created", sensorConflictAlert);
+        }
         if (linkedWorkOrder != null) {
             List<String> evidenceRefs = new ArrayList<>(Jsons.strings(linkedWorkOrder.get("evidenceRefs")));
             if (!evidenceRefs.contains(inspectionId)) evidenceRefs.add(inspectionId);
@@ -4867,7 +5521,12 @@ class AgriEngine {
             appendWorkOrderHistory(linkedWorkOrder, "EVIDENCE_ADDED", status, status, principal, "新增巡田证据：" + summary, List.of(inspectionId));
             saveWorkOrder(linkedWorkOrder, "evidence-added");
         }
-        events.publish("inspection.created", record);
+        Map<String, Object> inspectionEvent = new LinkedHashMap<>(record);
+        if (linkedWorkOrder != null) {
+            String assignedFarmerId = Jsons.text(linkedWorkOrder, "assigneeId", "");
+            if (!assignedFarmerId.isBlank()) inspectionEvent.put("assignedFarmerId", assignedFarmerId);
+        }
+        events.publish("inspection.created", inspectionEvent);
         store.logEvent("inspection.created", record);
         return record;
     }
@@ -5015,10 +5674,39 @@ class AgriEngine {
     }
 
     List<Map<String, Object>> inspections(UserPrincipal principal) {
+        return inspections(principal, "", "");
+    }
+
+    List<Map<String, Object>> inspections(String plotId, UserPrincipal principal) {
+        return inspections(principal, "", plotId);
+    }
+
+    List<Map<String, Object>> inspections(UserPrincipal principal, String farmId, String plotId) {
+        String requestedFarmId = farmId == null ? "" : farmId.trim();
+        String requestedPlotId = plotId == null ? "" : plotId.trim();
+        if (principal != null && !requestedFarmId.isBlank() && !principal.canAccessFarm(requestedFarmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        }
+        if (principal != null && !requestedPlotId.isBlank()) ensurePlotAccess(principal, requestedPlotId);
         return store.list("inspection").stream()
-                .filter(item -> canAccessPlot(principal, Jsons.text(item, "plotId", "")))
+                .filter(item -> {
+                    String itemFarmId = Jsons.text(item, "farmId", farmIdForPlot(Jsons.text(item, "plotId", "")));
+                    return requestedFarmId.isBlank() || requestedFarmId.equals(itemFarmId);
+                })
+                .filter(item -> requestedPlotId.isBlank() || requestedPlotId.equals(Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || canAccessPlot(principal, Jsons.text(item, "plotId", "")))
+                .filter(item -> principal == null || !principal.isFarmer() || farmerCanSeeInspection(item, principal))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("observedAt"), Instant.EPOCH)).reversed())
                 .toList();
+    }
+
+    private boolean farmerCanSeeInspection(Map<String, Object> inspection, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmer()) return true;
+        if (principal.userId.equals(Jsons.text(inspection, "operatorId", ""))) return true;
+        String workOrderId = Jsons.text(inspection, "workOrderId", "").trim();
+        if (workOrderId.isBlank()) return false;
+        Map<String, Object> workOrder = store.find("work-order", workOrderId);
+        return workOrder != null && principal.userId.equals(Jsons.text(workOrder, "assigneeId", ""));
     }
 
     List<Map<String, Object>> todayWork(String plotId, UserPrincipal principal) {
@@ -5040,7 +5728,9 @@ class AgriEngine {
     }
 
     Map<String, Object> createWorkOrder(Map<String, Object> input, UserPrincipal principal) {
-        boolean evidenceRequest = "READINESS".equalsIgnoreCase(Jsons.text(input, "sourceType", ""))
+        String sourceType = Jsons.text(input, "sourceType", "").trim().toUpperCase(Locale.ROOT);
+        boolean readinessEvidenceRequest = "READINESS".equals(sourceType);
+        boolean evidenceRequest = readinessEvidenceRequest
                 || "INSPECTION".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         boolean irrigationReview = "IRRIGATION_REVIEW".equalsIgnoreCase(Jsons.text(input, "actionType", ""));
         if (!principal.isFarmAdmin() && !(principal.canInspect() && evidenceRequest)
@@ -5064,6 +5754,12 @@ class AgriEngine {
         String actionType = canonicalWorkActionType(Jsons.text(input, "actionType", evidenceRequest ? "INSPECTION" : "FIELD_OPERATION"));
         work.put("actionType", actionType);
         work.put("actionLabel", workOperationLabel(actionType));
+        if (readinessEvidenceRequest) {
+            work.put("sourceType", "READINESS");
+            work.put("evidenceType", canonicalEvidenceType(Jsons.text(input, "evidenceType", "FIELD_INSPECTION")));
+            work.put("requesterId", principal.userId);
+            work.put("requesterName", principal.username);
+        }
         work.put("status", "OPEN");
         work.put("priority", normalizePriority(Jsons.text(input, "priority", "MEDIUM")));
         work.put("assigneeId", null);
@@ -5073,8 +5769,88 @@ class AgriEngine {
         work.put("createdBy", principal.userId);
         work.put("updatedBy", principal.userId);
         appendWorkOrderHistory(work, "CREATE", null, "OPEN", principal, Jsons.text(input, "reason", "创建任务"), List.of());
-        saveWorkOrder(work, "created");
+        if (readinessEvidenceRequest) saveWorkOrderDurably(work, "created");
+        else saveWorkOrder(work, "created");
         return work;
+    }
+
+    synchronized Map<String, Object> reportWorkOrderIssue(String workOrderId, Map<String, Object> input, UserPrincipal principal) {
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> original = requireRecord("work-order", workOrderId);
+        ensurePlotAccess(principal, Jsons.text(original, "plotId", ""));
+        requireAssignedFarmer(original, principal);
+        String current = normalizeWorkStatus(original.get("status"));
+        ensureWorkOrderState(current);
+        if (TERMINAL_WORK_ORDER_STATUSES.contains(current)) {
+            throw new ApiException(HttpStatus.CONFLICT, "WORK_ORDER_TERMINAL", "已结束的任务不能上报新问题");
+        }
+        String description = Jsons.text(request, "description", Jsons.text(request, "issueDescription", Jsons.text(request, "note", ""))).trim();
+        if (description.isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_REQUIRED", "请具体描述遇到的问题");
+        }
+        if (description.length() > 1000) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ISSUE_DESCRIPTION_TOO_LONG", "问题描述不能超过 1000 个字");
+        }
+        Map<String, Object> existing = store.list("work-order").stream()
+                .filter(item -> "FARMER_REPORT".equalsIgnoreCase(Jsons.text(item, "sourceType", "")))
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> principal.userId.equals(Jsons.text(item, "reporterId", Jsons.text(item, "createdBy", ""))))
+                .filter(item -> !Set.of("DONE", "CANCELLED", "REJECTED").contains(normalizeWorkStatus(item.get("status"))))
+                .findFirst()
+                .orElse(null);
+        if (existing != null) {
+            Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(existing));
+            result.put("reused", true);
+            result.put("sourceWorkOrderId", workOrderId);
+            result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+            return result;
+        }
+
+        Instant now = Instant.now();
+        Map<String, Object> report = new LinkedHashMap<>();
+        report.put("workOrderId", Jsons.id("wo"));
+        report.put("farmId", Jsons.text(original, "farmId", farmIdForPlot(Jsons.text(original, "plotId", ""))));
+        report.put("plotId", Jsons.text(original, "plotId", ""));
+        report.put("sourceType", "FARMER_REPORT");
+        report.put("sourceRef", workOrderId);
+        report.put("parentWorkOrderId", workOrderId);
+        report.put("title", "农户问题上报：" + Jsons.text(original, "title", "农务任务"));
+        report.put("reason", description);
+        report.put("description", description);
+        report.put("issueDescription", description);
+        report.put("reporterId", principal.userId);
+        report.put("reporterName", principal.username);
+        report.put("reporterRole", "FARMER");
+        report.put("actionType", "INSPECTION");
+        report.put("actionLabel", workOperationLabel("INSPECTION"));
+        report.put("priority", normalizePriority(Jsons.text(request, "priority", "HIGH")));
+        report.put("status", "OPEN");
+        report.put("createdBy", principal.userId);
+        report.put("updatedBy", principal.userId);
+        report.put("createdAt", now.toString());
+        report.put("updatedAt", now.toString());
+        report.put("provenance", "USER_PROVIDED");
+        report.put("sourceMode", "SIMULATION");
+        appendWorkOrderHistory(report, "CREATE", null, "OPEN", principal, description, List.of());
+        saveWorkOrder(report, "farmer-report");
+
+        original.put("issueReportId", report.get("workOrderId"));
+        original.put("issueReportStatus", "OPEN");
+        original.put("issueReportDescription", description);
+        original.put("issueReportedAt", now.toString());
+        original.put("issueReportedBy", principal.userId);
+        updateWorkOrderAudit(original, principal, now);
+        appendWorkOrderHistory(original, "ISSUE_REPORTED", current, current, principal, description, List.of(Jsons.text(report, "workOrderId", "")));
+        // The report event is the single admin notification. Keep the parent
+        // marker auditable without publishing a duplicate SSE notification.
+        store.save("work-order", workOrderId, original);
+        store.logEvent("workorder.issue-reported", original);
+
+        Map<String, Object> result = new LinkedHashMap<>(normalizeWorkOrderForRead(report));
+        result.put("reused", false);
+        result.put("sourceWorkOrderId", workOrderId);
+        result.put("originalWorkOrder", normalizeWorkOrderForRead(original));
+        return result;
     }
 
     List<Map<String, Object>> workOrders(Map<String, String> filters, UserPrincipal principal) {
@@ -5129,6 +5905,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, "OPEN".equals(current) ? "ASSIGN" : "REASSIGN", current, "ASSIGNED", principal,
                 Jsons.text(input, "note", "任务已分配"), List.of());
         saveWorkOrder(work, "assigned");
+        syncFarmerIssueReportParent(work, "ASSIGNED", principal, now);
         return work;
     }
 
@@ -5202,6 +5979,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, action, current, target, principal, note,
                 "SUBMIT".equals(action) ? Jsons.strings(work.get("evidenceRefs")) : Jsons.strings(input.get("evidenceRefs")));
         saveWorkOrder(work, target.toLowerCase(Locale.ROOT));
+        syncFarmerIssueReportParent(work, target, principal, now);
         return work;
     }
 
@@ -5241,6 +6019,7 @@ class AgriEngine {
         appendWorkOrderHistory(work, approved ? "APPROVE" : "REJECT", current, target, principal,
                 note.isBlank() ? "验收通过" : note, List.of());
         saveWorkOrder(work, approved ? "completed" : "rejected");
+        syncFarmerIssueReportParent(work, target, principal, now);
         if (approved && isManualIrrigationWork(work)) settleManualIrrigationWork(work, principal);
         if (verification && approved) {
             Map<String, Object> result = new LinkedHashMap<>(work);
@@ -5339,7 +6118,7 @@ class AgriEngine {
         if (normalizedFarmId.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_CONTEXT_REQUIRED", "请先选择农场");
         if (!principal.canAccessFarm(normalizedFarmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         return store.listUsers().stream()
-                .filter(user -> Set.of("FARMER", "FARM_ADMIN").contains(RolePolicy.canonical(Jsons.text(user, "role", ""))))
+                .filter(user -> "FARMER".equals(RolePolicy.canonical(Jsons.text(user, "role", ""))))
                 .filter(user -> Jsons.strings(user.get("farmIds")).contains(normalizedFarmId) || Jsons.strings(user.get("farmIds")).contains("*"))
                 .map(user -> {
                     Map<String, Object> member = new LinkedHashMap<>();
@@ -5416,8 +6195,11 @@ class AgriEngine {
         if (!principal.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
         Map<String, Object> member = store.userById(userId);
         if (member == null) throw new ApiException(HttpStatus.NOT_FOUND, "FARM_MEMBER_NOT_FOUND", "农场成员不存在");
-        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", ""))) && !adminWide) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "只有系统管理员可以启用或停用非农户账号");
+        if ("SYSTEM_ADMIN".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能停用或启用");
+        }
+        if (!"FARMER".equals(RolePolicy.canonical(Jsons.text(member, "role", "")))) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "农场成员接口只能启用或停用种植农户账号");
         }
         List<String> memberFarms = Jsons.strings(member.get("farmIds"));
         if (!adminWide && !memberFarms.contains(farmId) && !memberFarms.contains("*")) {
@@ -5436,7 +6218,10 @@ class AgriEngine {
         boolean currentlyEnabled = Jsons.bool(member, "enabled", true);
         Map<String, Object> updated = currentlyEnabled == enabled ? member
                 : store.updateUserEnabled(userId, enabled, !enabled);
-        if (updated == null) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_STATUS_UPDATE_FAILED", "成员状态更新失败");
+        if (updated == null) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "MEMBER_STATUS_UPDATE_FAILED", "成员状态更新失败");
+        }
         store.logEvent(enabled ? "FARM_MEMBER_ENABLED" : "FARM_MEMBER_DISABLED",
                 Map.of("userId", userId, "farmId", farmId, "updatedBy", principal.userId));
         events.publish(enabled ? "member.enabled" : "member.disabled", Map.of("userId", userId, "farmId", farmId));
@@ -5446,15 +6231,60 @@ class AgriEngine {
         return result;
     }
 
+    // 操作审计日志视图：event_log → 前端可读格式（操作人/详情）
+    List<Map<String, Object>> auditLogsView(int limit) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (Map<String, Object> row : store.auditLogs(limit)) {
+            Map<String, Object> payload = Jsons.map(mapper, Jsons.text(row, "payload", "{}"));
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("id", row.get("id"));
+            item.put("time", Jsons.text(row, "time", ""));
+            item.put("action", row.get("action"));
+            item.put("operator", Stream.of("updatedBy", "userId", "username", "operator", "initiator")
+                    .map(key -> Jsons.text(payload, key, "").trim()).filter(s -> !s.isEmpty()).findFirst().orElse("system"));
+            String detail = auditLogDetail(Jsons.text(row, "action", ""), payload);
+            item.put("detail", detail);
+            result.add(item);
+        }
+        return result;
+    }
+
+    // 事件类型 → 中文操作详情（读 payload 关键字段）
+    private String auditLogDetail(String action, Map<String, Object> payload) {
+        if (action == null || action.isBlank()) return "系统事件";
+        String summary = Jsons.text(payload, "summary", "").trim();
+        if (!summary.isEmpty()) return summary;
+        String username = Jsons.text(payload, "username", "").trim();
+        if (!username.isEmpty()) return "账号：" + username;
+        String userId = Jsons.text(payload, "userId", "").trim();
+        if (!userId.isEmpty()) return "用户：" + userId;
+        String plotId = Jsons.text(payload, "plotId", "").trim();
+        if (!plotId.isEmpty()) return "地块：" + plotId;
+        String target = Jsons.text(payload, "target", "").trim();
+        if (!target.isEmpty()) return "对象：" + target;
+        String reason = Jsons.text(payload, "reason", "").trim();
+        if (!reason.isEmpty()) return reason;
+        return action.replace('.', ' ') + "（" + payload.size() + " 字段）";
+    }
+
     Map<String, Object> deleteAccount(String userId, UserPrincipal principal) {
         if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_DELETE_FORBIDDEN", "只有系统管理员可以删除账号");
         if (principal.userId.equals(userId)) throw new ApiException(HttpStatus.BAD_REQUEST, "ACCOUNT_SELF_DELETE_FORBIDDEN", "不能删除自己的账号");
         Map<String, Object> user = store.userById(userId);
         if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在");
+        String role = RolePolicy.canonical(Jsons.text(user, "role", ""));
+        if ("SYSTEM_ADMIN".equals(role)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护，不能删除");
+        }
         String username = Jsons.text(user, "username", userId);
-        if (!store.deleteUserAccount(userId)) throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_DELETE_FAILED", "账号删除失败");
-        store.logEvent("ACCOUNT_DELETED", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
-        events.publish("account.deleted", Map.of("userId", userId, "username", username, "deletedBy", principal.userId));
+        if (!store.deleteUserAccount(userId)) {
+            if (!store.databaseReady()) throw accountPersistenceUnavailable();
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "ACCOUNT_DELETE_FAILED", "账号删除失败");
+        }
+        Map<String, Object> audit = Map.of("userId", userId, "username", username, "role", role,
+                "deletedBy", principal.userId, "systemAdminOnly", true);
+        store.logEvent("ACCOUNT_DELETED", audit);
+        events.publish("account.deleted", audit);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("userId", userId); result.put("username", username);
         result.put("removed", true); result.put("deletedAt", Instant.now().toString());
@@ -5528,6 +6358,7 @@ class AgriEngine {
      */
     private boolean farmerCanSeeWorkOrder(Map<String, Object> work, UserPrincipal principal) {
         if (principal == null || !"FARMER".equals(principal.role)) return true;
+        if ("FARMER_REPORT".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))) return false;
         if (principal.userId.equals(Jsons.text(work, "assigneeId", ""))) return true;
         return principal.userId.equals(Jsons.text(work, "createdBy", ""))
                 && ("READINESS".equalsIgnoreCase(Jsons.text(work, "sourceType", ""))
@@ -5563,6 +6394,15 @@ class AgriEngine {
         return Set.of("HIGH", "MEDIUM", "LOW").contains(priority) ? priority : "MEDIUM";
     }
 
+    private String canonicalEvidenceType(String value) {
+        String normalized = String.valueOf(value == null ? "FIELD_INSPECTION" : value)
+                .trim().toUpperCase(Locale.ROOT).replace('-', '_');
+        if (!Set.of("FIELD_INSPECTION", "RETEST", "DEVICE_CHECK").contains(normalized)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "EVIDENCE_TYPE_INVALID", "补证类型只能是现场巡田、传感器复测或设备检查");
+        }
+        return normalized;
+    }
+
     private void requireFarmAdmin(UserPrincipal principal) {
         if (!principal.isFarmAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "WORK_ORDER_FORBIDDEN", "只有农场管理员可以安排和验收任务");
     }
@@ -5596,6 +6436,23 @@ class AgriEngine {
     private void updateWorkOrderAudit(Map<String, Object> work, UserPrincipal principal, Instant now) {
         work.put("updatedAt", now.toString());
         work.put("updatedBy", principal.userId);
+    }
+
+    private void syncFarmerIssueReportParent(Map<String, Object> report, String status, UserPrincipal principal, Instant now) {
+        if (!"FARMER_REPORT".equalsIgnoreCase(Jsons.text(report, "sourceType", ""))) return;
+        String parentId = Jsons.text(report, "parentWorkOrderId", Jsons.text(report, "sourceRef", ""));
+        if (parentId.isBlank()) return;
+        Map<String, Object> parent = store.find("work-order", parentId);
+        if (parent == null) return;
+        String parentStatus = normalizeWorkStatus(parent.get("status"));
+        parent.put("issueReportStatus", status);
+        parent.put("issueReportUpdatedAt", now.toString());
+        parent.put("issueReportUpdatedBy", principal.userId);
+        updateWorkOrderAudit(parent, principal, now);
+        appendWorkOrderHistory(parent, "ISSUE_REPORT_STATUS_UPDATED", parentStatus, parentStatus, principal,
+                "问题上报工单状态更新为：" + status, List.of(Jsons.text(report, "workOrderId", "")));
+        store.save("work-order", parentId, parent);
+        store.logEvent("workorder.issue-report-updated", parent);
     }
 
     private void appendWorkOrderHistory(Map<String, Object> work, String action, String fromStatus, String toStatus,
@@ -5844,6 +6701,14 @@ class AgriEngine {
     private void saveWorkOrder(Map<String, Object> work, String eventSuffix) {
         String workOrderId = Jsons.text(work, "workOrderId", "");
         store.save("work-order", workOrderId, work);
+        events.publish("workorder." + eventSuffix, work);
+        store.logEvent("workorder." + eventSuffix, work);
+    }
+
+    private void saveWorkOrderDurably(Map<String, Object> work, String eventSuffix) {
+        String workOrderId = Jsons.text(work, "workOrderId", "");
+        store.saveDurably("work-order", workOrderId, work,
+                "OPERATION_RECORD_PERSISTENCE_UNAVAILABLE", "补证申请数据库不可用，写入未保存");
         events.publish("workorder." + eventSuffix, work);
         store.logEvent("workorder." + eventSuffix, work);
     }
@@ -6411,55 +7276,68 @@ class AgriEngine {
         events.publish("decision.feedback", feedback);
         Map<String, Object> evaluation = evaluationId.isBlank() ? null : store.find("evaluation", evaluationId);
         if (evaluation == null && !planId.isBlank()) evaluation = store.list("evaluation").stream().filter(e -> planId.equals(Jsons.text(e, "planId", ""))).findFirst().orElse(null);
-        // A case is eligible only when an effect is complete, data quality was
-        // good, and all decision versions are present. Feedback alone never
-        // turns an unverified suggestion into a learning case.
-        if (evaluation != null && "COMPLETED".equals(Jsons.text(evaluation, "status", "")) && "GOOD".equals(Jsons.text(evaluation, "result", ""))) {
-            Map<String, Object> plan = planId.isBlank() ? null : store.find("irrigation-plan", planId);
-            if (plan != null && plan.containsKey("ruleVersion") && plan.containsKey("cropPackVersion")) {
-                Map<String, Object> caseRecord = new LinkedHashMap<>(); caseRecord.put("caseId", Jsons.id("case")); caseRecord.put("traceId", traceId);
-                caseRecord.put("planId", planId); caseRecord.put("evaluationId", evaluation.get("evaluationId")); caseRecord.put("plotId", plan.get("plotId"));
-                caseRecord.put("cropCode", Jsons.text(resolvedProfile(Jsons.text(plan, "plotId", "")), "cropCode", "")); caseRecord.put("primaryCause", "WATER_DEFICIT");
-                caseRecord.put("effectivenessScore", Jsons.number(evaluation, "effectivenessScore", 0)); caseRecord.put("quality", "GOOD");
-                caseRecord.put("ruleVersion", plan.get("ruleVersion")); caseRecord.put("cropPackVersion", plan.get("cropPackVersion")); caseRecord.put("fingerprint", Integer.toHexString(Objects.hash(caseRecord.get("cropCode"), caseRecord.get("primaryCause"), planId, evaluation.get("evaluationId"))));
-                caseRecord.put("createdAt", Instant.now().toString()); store.save("decision-case", Jsons.text(caseRecord, "caseId", ""), caseRecord); feedback.put("caseId", caseRecord.get("caseId"));
-            }
+        // Every feedback-linked plan becomes an auditable PENDING case first.
+        // The controlled-learning service applies the deterministic quality
+        // gate; feedback alone can never make a case positive.
+        Map<String, Object> plan = planId.isBlank() ? null : store.find("irrigation-plan", planId);
+        if (plan != null) {
+            Map<String, Object> caseRecord = controlledLearning.createDecisionCase(traceId, input, feedback, plan, evaluation, principal);
+            if (!caseRecord.isEmpty()) feedback.put("caseId", caseRecord.get("caseId"));
         }
         return feedback;
     }
 
+    List<Map<String, Object>> similarCases(String traceId, Map<String, Object> context, UserPrincipal principal) {
+        return controlledLearning.similarCases(traceId, context == null ? Map.of() : context, principal);
+    }
+
+    /** Retain the old package-level call shape for existing integrations. */
     List<Map<String, Object>> similarCases(String traceId, Map<String, Object> context) {
-        List<Map<String, Object>> cases = store.list("decision-case"); if (cases.isEmpty()) return List.of();
-        String crop = Jsons.text(context, "cropCode", "tomato"); String cause = Jsons.text(context, "primaryCause", "WATER_DEFICIT");
-        return cases.stream().map(c -> { Map<String, Object> copy = Jsons.copy(mapper, c); int score = (crop.equals(Jsons.text(c, "cropCode", "")) ? 2 : 0) + (cause.equals(Jsons.text(c, "primaryCause", "")) ? 3 : 0); copy.put("similarityScore", score / 5.0); return copy; })
-                .sorted(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "similarityScore", 0)).reversed()).limit(10).toList();
+        return controlledLearning.similarCases(traceId, context == null ? Map.of() : context, null);
     }
 
     Map<String, Object> strategyCandidate(Map<String, Object> input, UserPrincipal principal) {
+        if (input != null && (!Jsons.strings(input.get("caseIds")).isEmpty()
+                || !Jsons.strings(input.get("evidenceCaseIds")).isEmpty()
+                || Jsons.bool(input, "generateFromCases", false))) {
+            return controlledLearning.generateStrategyCandidate(input, principal);
+        }
         if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以管理策略候选");
-        Map<String, Object> candidate = new LinkedHashMap<>(input); candidate.put("candidateId", Jsons.text(input, "candidateId", Jsons.id("strategy"))); candidate.putIfAbsent("status", "DRAFT"); candidate.put("reviewer", principal.userId); candidate.put("candidateVersion", "candidate-1"); candidate.put("createdAt", Instant.now().toString());
+        Map<String, Object> request = input == null ? Map.of() : input;
+        Map<String, Object> candidate = new LinkedHashMap<>(request);
+        candidate.put("candidateId", Jsons.text(request, "candidateId", Jsons.id("strategy")));
+        candidate.put("status", "DRAFT");
+        candidate.put("reviewer", principal.userId);
+        candidate.put("candidateVersion", "candidate-1");
+        candidate.put("createdAt", Instant.now().toString());
+        // This endpoint predates controlled learning and is still used by
+        // existing integrations to author a strategy from the current rules.
+        // Mark it explicitly as a manual baseline candidate so it can follow
+        // the offline-validation/approval workflow without being mistaken for
+        // a positive learning case.  The controlled-learning generator never
+        // accepts this marker from client input.
+        candidate.put("provenance", "MANUAL_AUTHORED");
+        candidate.put("learningEligible", false);
+        candidate.put("learningUses", List.of(ControlledLearningService.NONE));
+        candidate.put("evidenceCaseIds", List.of());
+        candidate.put("evidenceCount", 0);
+        candidate.put("baselineStrategy", request.containsKey("baselineStrategy")
+                ? request.get("baselineStrategy") : Map.of("source", "manual-input"));
+        candidate.put("proposedStrategy", request.containsKey("proposedStrategy")
+                ? request.get("proposedStrategy") : Map.of("source", "manual-input"));
         store.save("strategy-candidate", Jsons.text(candidate, "candidateId", ""), candidate); return candidate;
     }
 
+    Map<String, Object> generateStrategyCandidate(Map<String, Object> input, UserPrincipal principal) {
+        return controlledLearning.generateStrategyCandidate(input == null ? Map.of() : input, principal);
+    }
+
     Map<String, Object> offlineValidateStrategy(String id, Map<String, Object> input, UserPrincipal principal) {
-        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以验证策略");
-        Map<String, Object> candidate = requireRecord("strategy-candidate", id);
-        if (!"DRAFT".equals(Jsons.text(candidate, "status", "DRAFT"))) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", "只有 DRAFT 策略可以离线验证");
-        String scenarioId = Jsons.text(input == null ? Map.of() : input, "scenarioId", "normal");
-        long seed = Jsons.whole(input == null ? Map.of() : input, "seed", 42);
-        // Deterministic offline replay contract: no live rule mutation is allowed.
-        Map<String, Object> report = new LinkedHashMap<>(); report.put("status", "PASSED"); report.put("scenarioId", scenarioId); report.put("seed", seed);
-        report.put("branch", "NO_ACTION"); report.put("assertions", List.of("no_rule_bypass", "quality_gate_preserved", "capacity_not_exceeded"));
-        report.put("replayHash", Integer.toHexString(Objects.hash(id, scenarioId, seed, Jsons.json(mapper, candidate)))); report.put("validatedAt", Instant.now().toString());
-        candidate.put("offlineValidation", report); candidate.put("status", "OFFLINE_VALIDATED"); candidate.put("reviewer", principal.userId); store.save("strategy-candidate", id, candidate); events.publish("strategy.offline_validated", candidate); return candidate;
+        return controlledLearning.offlineValidateCandidate(id, input == null ? Map.of() : input, principal);
     }
 
     Map<String, Object> transitionStrategy(String id, String target, UserPrincipal principal) {
-        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "STRATEGY_FORBIDDEN", "只有系统管理员可以变更策略");
-        Map<String, Object> candidate = requireRecord("strategy-candidate", id); String current = Jsons.text(candidate, "status", "DRAFT");
-        boolean allowed = switch (current + "->" + target) { case "DRAFT->REJECTED", "OFFLINE_VALIDATED->APPROVED", "OFFLINE_VALIDATED->REJECTED", "APPROVED->ACTIVE", "ACTIVE->SUPERSEDED", "ACTIVE->ROLLED_BACK" -> true; default -> false; };
-        if (!allowed) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", current + " 不能转为 " + target);
-        candidate.put("status", target); candidate.put("transitionedAt", Instant.now().toString()); candidate.put("reviewer", principal.userId); store.save("strategy-candidate", id, candidate); return candidate;
+        return governance.transitionStrategy(id, target, Map.of(), principal);
     }
 
     private Map<String, Object> planFarmerAgentAction(String message, String plotId, UserPrincipal principal, String traceId) {
@@ -7334,7 +8212,7 @@ class AgriEngine {
         }
         HttpResponse<String> response;
         try {
-            response = llmHttpClient.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            response = llmHttpClient().send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         } catch (InterruptedException ex) {
             Thread.currentThread().interrupt();
             throw new IOException("LLM_REQUEST_INTERRUPTED", ex);
@@ -7859,6 +8737,7 @@ class AgriEngine {
             String title = persistedUserMessage.replaceAll("\\s+", " ").trim();
             conversation.put("title", title.length() > 36 ? title.substring(0, 36) + "…" : title);
             conversation.put("createdAt", now.toString()); conversation.put("messageCount", 0); conversation.put("archived", false);
+            conversation.put("pinned", false);
         }
         conversation.put("plotId", plotId); conversation.put("lastIntent", answer.get("intent"));
         conversation.put("agentRole", answer.get("role")); conversation.put("roleLabel", answer.get("roleLabel"));
@@ -7873,12 +8752,13 @@ class AgriEngine {
         if (conversation == null) {
             conversation = new LinkedHashMap<>(); conversation.put("conversationId", resolved);
             conversation.put("userId", principal.userId); conversation.put("username", principal.username);
-            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false);
+            conversation.put("title", "我的农智对话"); conversation.put("messageCount", 0); conversation.put("archived", false); conversation.put("pinned", false);
         } else {
             // Existing conversations may have a title generated from the old
             // image prompt. Project the readable question on history reads.
             conversation = new LinkedHashMap<>(conversation);
             conversation.put("title", cleanAgentHistoryUserMessage(Jsons.text(conversation, "title", "")));
+            conversation.putIfAbsent("pinned", false);
         }
         Map<String, Object> result = new LinkedHashMap<>(); result.put("conversation", conversation);
         result.put("messages", conversationMessages(principal, resolved, Math.max(1, Math.min(limit, 200))));
@@ -7886,14 +8766,22 @@ class AgriEngine {
     }
 
     List<Map<String, Object>> agentConversations(int limit, boolean archived, UserPrincipal principal) {
+        return agentConversations(limit, archived, null, principal);
+    }
+
+    List<Map<String, Object>> agentConversations(int limit, boolean archived, String plotId, UserPrincipal principal) {
+        String normalizedPlotId = plotId == null ? "" : plotId.trim();
+        if (!normalizedPlotId.isBlank()) ensurePlotAccess(principal, normalizedPlotId);
         return store.list("agent-conversation").stream()
                 .filter(item -> principal.userId.equals(Jsons.text(item, "userId", "")))
                 .filter(item -> archived == Boolean.TRUE.equals(item.get("archived")))
+                .filter(item -> normalizedPlotId.isBlank() || normalizedPlotId.equals(Jsons.text(item, "plotId", "")))
                 .sorted(Comparator.comparing((Map<String, Object> item) -> Jsons.instant(item.get("updatedAt"), Instant.EPOCH)).reversed())
                 .limit(Math.max(1, Math.min(limit, 50)))
                 .map(item -> {
                     Map<String, Object> copy = new LinkedHashMap<>(item);
                     copy.put("title", cleanAgentHistoryUserMessage(Jsons.text(item, "title", "")));
+                    copy.putIfAbsent("pinned", false);
                     return copy;
                 }).toList();
     }
@@ -7923,14 +8811,23 @@ class AgriEngine {
     }
 
     Map<String, Object> renameAgentConversation(String conversationId, String title, UserPrincipal principal) {
+        return updateAgentConversation(conversationId, title, null, principal);
+    }
+
+    Map<String, Object> updateAgentConversation(String conversationId, String title, Boolean pinned, UserPrincipal principal) {
         String resolved = resolveConversationId(Map.of("conversationId", conversationId == null ? "" : conversationId), principal);
         Map<String, Object> conversation = store.find("agent-conversation", resolved);
         if (conversation == null) throw new ApiException(HttpStatus.NOT_FOUND, "CONVERSATION_NOT_FOUND", "对话不存在");
         if (!principal.userId.equals(Jsons.text(conversation, "userId", "")))
-            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权重命名该对话");
-        String clean = title == null ? "" : title.replaceAll("\\s+", " ").trim();
-        if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
-        conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+            throw new ApiException(HttpStatus.FORBIDDEN, "CONVERSATION_FORBIDDEN", "无权修改该对话");
+        if (title != null) {
+            String clean = title.replaceAll("\\s+", " ").trim();
+            if (clean.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_TITLE_INVALID", "对话标题不能为空");
+            conversation.put("title", clean.length() > 36 ? clean.substring(0, 36) + "…" : clean);
+        }
+        if (pinned != null) conversation.put("pinned", pinned);
+        if (title == null && pinned == null)
+            throw new ApiException(HttpStatus.BAD_REQUEST, "CONVERSATION_UPDATE_EMPTY", "没有可更新的对话字段");
         conversation.put("updatedAt", Instant.now().toString());
         store.save("agent-conversation", resolved, conversation);
         return conversation;
@@ -8481,11 +9378,11 @@ class AgriEngine {
     Map<String, Object> record(String type, String id) { return requireRecord(type, id); }
     List<Map<String, Object>> records(String type) { return store.list(type); }
     boolean canAccessPlot(UserPrincipal principal, String plotId) {
-        if (principal == null || principal.canAccessPlot(plotId)) return true;
-        if (!principal.isFarmAdmin()) return false;
+        if (principal == null || principal.isSystemAdmin()) return true;
+        if (!principal.isFarmAdmin()) return principal.canAccessPlot(plotId);
         Map<String, Object> plot = store.find("plot", plotId);
         String farmId = Jsons.text(plot == null ? Map.of() : plot, "farmId", "");
-        return principal.farmIds.contains("*") || principal.farmIds.contains(farmId);
+        return !farmId.isBlank() && principal.canAccessFarm(farmId);
     }
     void ensurePlotAccess(UserPrincipal principal, String plotId) { if (!canAccessPlot(principal, plotId)) throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权访问该地块"); }
     private Map<String, Object> requireRecord(String type, String id) { Map<String, Object> value = store.find(type, id); if (value == null) throw new ApiException(HttpStatus.NOT_FOUND, "NOT_FOUND", type + " " + id + " 不存在"); return value; }
@@ -8503,11 +9400,12 @@ class AgriController {
     private final SimulatorControl simulator;
     private final AdminManagementService adminManagement;
     private final FarmGovernanceService governance;
+    private final MarketPriceService marketPrices;
 
     AgriController(AgriEngine engine, AgriStore store, AgriEventBus events, MqttBridge mqtt, SimulatorControl simulator,
-                   AdminManagementService adminManagement, FarmGovernanceService governance) {
+                   AdminManagementService adminManagement, FarmGovernanceService governance, MarketPriceService marketPrices) {
         this.engine = engine; this.store = store; this.events = events; this.mqtt = mqtt; this.simulator = simulator;
-        this.adminManagement = adminManagement; this.governance = governance;
+        this.adminManagement = adminManagement; this.governance = governance; this.marketPrices = marketPrices;
     }
 
     @PostMapping("/auth/login")
@@ -8518,7 +9416,8 @@ class AgriController {
     @PostMapping("/auth/register")
     ResponseEntity<?> register(@RequestBody Map<String, Object> body) {
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(
-                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""), Jsons.text(body, "role", "FARMER"))));
+                engine.register(Jsons.text(body, "username", ""), Jsons.text(body, "password", ""),
+                        Jsons.text(body, "role", "FARMER"), Jsons.text(body, "authorizationCode", ""), body.get("farmProfile"))));
     }
 
     @PostMapping("/auth/password/reset")
@@ -8541,6 +9440,17 @@ class AgriController {
         user.put("permissions", engine.permissionsFor(p)); return ok(user);
     }
 
+    @GetMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> farmerWorkspacePreference(Authentication authentication) {
+        return ok(engine.farmerWorkspacePreference(principal(authentication)));
+    }
+
+    @PutMapping("/users/me/preferences/farmer-workspace")
+    ResponseEntity<?> updateFarmerWorkspacePreference(@RequestBody(required = false) Map<String, Object> body,
+                                                      Authentication authentication) {
+        return ok(engine.updateFarmerWorkspacePreference(body == null ? Map.of() : body, principal(authentication)));
+    }
+
     @GetMapping("/auth/roles")
     ResponseEntity<?> roles() {
         return ok(List.of(
@@ -8558,12 +9468,27 @@ class AgriController {
         return ok(engine.overview(selectedFarm, p));
     }
 
+    @GetMapping("/market-prices")
+    ResponseEntity<?> marketPrices(@RequestParam String farmId,
+                                   @RequestParam(defaultValue = "30") int rangeDays,
+                                   @RequestParam(defaultValue = "farm") String scope,
+                                   Authentication a) {
+        return ok(marketPrices.overview(farmId, rangeDays, "all".equalsIgnoreCase(scope), principal(a)));
+    }
+
     @GetMapping("/system/status")
     ResponseEntity<?> systemStatus() { return ok(engine.dependencyStatus(mqtt.connected())); }
 
     @PutMapping("/system/ai-mode")
     ResponseEntity<?> updateAiMode(@RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.updateAiMode(Jsons.text(body, "aiMode", ""), principal(a)));
+    }
+
+    @GetMapping("/system/audit-logs")
+    ResponseEntity<?> auditLogs(@RequestParam(defaultValue = "50") int limit, Authentication a) {
+        UserPrincipal principal = principal(a);
+        if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "AUDIT_FORBIDDEN", "只有系统管理员可以查看操作审计日志");
+        return ok(engine.auditLogsView(limit));
     }
 
     @GetMapping("/simulator/status")
@@ -8604,9 +9529,72 @@ class AgriController {
     }
 
     @GetMapping("/alert-learning-cases")
-    ResponseEntity<?> alertLearningCases(@RequestParam String farmId,
+    ResponseEntity<?> alertLearningCases(@RequestParam(required = false) String farmId,
+                                         @RequestParam(required = false) String plotId,
+                                         @RequestParam(required = false) String cropCode,
+                                         @RequestParam(required = false) String scenarioId,
+                                         @RequestParam(required = false) String qualityStatus,
                                          @RequestParam(required = false) String candidateId,
-                                         Authentication a) { return ok(governance.learningCases(farmId, candidateId, principal(a))); }
+                                         Authentication a) {
+        return ok(governance.learningCases(farmId, plotId, cropCode, scenarioId, qualityStatus, candidateId, principal(a)));
+    }
+
+    /** Explicit learning-governance alias; the legacy alert-learning-cases route remains supported. */
+    @GetMapping("/learning/cases")
+    ResponseEntity<?> learningCases(@RequestParam(required = false) String farmId,
+                                    @RequestParam(required = false) String plotId,
+                                    @RequestParam(required = false) String cropCode,
+                                    @RequestParam(required = false) String scenarioId,
+                                    @RequestParam(required = false) String qualityStatus,
+                                    @RequestParam(required = false) String candidateId,
+                                    Authentication a) {
+        return ok(governance.learningCases(farmId, plotId, cropCode, scenarioId, qualityStatus, candidateId, principal(a)));
+    }
+
+    @PostMapping("/alert-learning-cases/{caseId}/re-evaluate")
+    ResponseEntity<?> reEvaluateLearningCase(@PathVariable String caseId, Authentication a) {
+        return ok(governance.reEvaluateLearningCase(caseId, principal(a)));
+    }
+
+    @PostMapping("/learning/cases/{caseId}/re-evaluate")
+    ResponseEntity<?> reEvaluateLearningCaseAlias(@PathVariable String caseId, Authentication a) {
+        return ok(governance.reEvaluateLearningCase(caseId, principal(a)));
+    }
+
+    @PostMapping("/alert-learning-cases/{caseId}/review")
+    ResponseEntity<?> reviewLearningCase(@PathVariable String caseId,
+                                         @RequestBody(required = false) Map<String, Object> body,
+                                         Authentication a) {
+        Map<String, Object> input = body == null ? Map.of() : body;
+        return ok(governance.reviewLearningCase(caseId, Jsons.text(input, "decision", Jsons.text(input, "status", "")),
+                Jsons.text(input, "note", Jsons.text(input, "reviewNote", "")), principal(a)));
+    }
+
+    @PostMapping("/learning/cases/{caseId}/review")
+    ResponseEntity<?> reviewLearningCaseAlias(@PathVariable String caseId,
+                                              @RequestBody(required = false) Map<String, Object> body,
+                                              Authentication a) {
+        Map<String, Object> input = body == null ? Map.of() : body;
+        return ok(governance.reviewLearningCase(caseId, Jsons.text(input, "decision", Jsons.text(input, "status", "")),
+                Jsons.text(input, "note", Jsons.text(input, "reviewNote", "")), principal(a)));
+    }
+
+    @GetMapping("/learning/audit")
+    ResponseEntity<?> learningAudit(@RequestParam(defaultValue = "100") int limit, Authentication a) {
+        return ok(governance.learningAudit(limit, principal(a)));
+    }
+
+    @GetMapping("/learning/training-export")
+    ResponseEntity<?> learningTrainingExport(@RequestParam(required = false) String farmId,
+                                             @RequestParam(required = false) String plotId,
+                                             Authentication a) {
+        return ok(governance.exportApprovedTrainingSet(farmId, plotId, principal(a)));
+    }
+
+    @PostMapping("/learning/strategy-candidates/generate")
+    ResponseEntity<?> generateLearningStrategy(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(governance.generateStrategyCandidate(body == null ? Map.of() : body, principal(a)));
+    }
 
     @GetMapping("/strategy-candidates")
     ResponseEntity<?> strategies(@RequestParam(required = false) String farmId,
@@ -8718,7 +9706,8 @@ class AgriController {
                 .filter(plot -> farmId == null || farmId.isBlank() || farmId.equals(Jsons.text(plot, "farmId", "")))
                 .filter(plot -> includeInactive || !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
                 .filter(plot -> status == null || status.isBlank() || status.equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
-                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", ""))).toList());
+                .filter(plot -> engine.canAccessPlot(p, Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", ""))).toList());
     }
 
     @PostMapping("/plots")
@@ -8852,10 +9841,16 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/timeline")
-    ResponseEntity<?> timeline(@PathVariable String plotId, Authentication a) {
-        engine.ensurePlotAccess(principal(a), plotId); List<Map<String, Object>> timeline = new ArrayList<>();
+    ResponseEntity<?> timeline(@PathVariable String plotId,
+                               @RequestParam(defaultValue = "50") int limit, Authentication a) {
+        engine.ensurePlotAccess(principal(a), plotId);
+        // 每类型只返回最近 cap 条（按时间倒序截取），避免全量历史导致平台总览加载缓慢
+        int cap = Math.max(1, Math.min(limit, 200));
+        List<Map<String, Object>> timeline = new ArrayList<>();
         for (String type : List.of("alert", "diagnosis", "readiness", "irrigation-plan", "command", "evaluation", "inspection", "work-order")) {
-            store.list(type).stream().filter(x -> plotId.equals(Jsons.text(x, "plotId", ""))).forEach(x -> timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x)));
+            for (Map<String, Object> x : store.timelineForPlot(type, plotId, cap)) {
+                timeline.add(Map.of("type", type, "at", Jsons.text(x, "createdAt", Jsons.text(x, "evaluatedAt", Instant.now().toString())), "record", x));
+            }
         }
         timeline.sort(Comparator.comparing(x -> Jsons.text(x, "at", ""))); return ok(timeline);
     }
@@ -8929,7 +9924,11 @@ class AgriController {
     ResponseEntity<?> inspection(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.createInspection(body, principal(a))); }
 
     @GetMapping("/inspections")
-    ResponseEntity<?> inspections(Authentication a) { return ok(engine.inspections(principal(a))); }
+    ResponseEntity<?> inspections(@RequestParam(required = false) String farmId,
+                                  @RequestParam(required = false) String plotId,
+                                  Authentication a) {
+        return ok(engine.inspections(principal(a), farmId, plotId));
+    }
 
     @PostMapping(value = "/inspections/{inspectionId}/photos", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     ResponseEntity<?> inspectionPhotos(@PathVariable String inspectionId,
@@ -8950,7 +9949,9 @@ class AgriController {
     }
 
     @GetMapping("/plots/{plotId}/inspections")
-    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) { engine.ensurePlotAccess(principal(a), plotId); return ok(engine.inspections(plotId)); }
+    ResponseEntity<?> inspections(@PathVariable String plotId, Authentication a) {
+        return ok(engine.inspections(plotId, principal(a)));
+    }
 
     @PostMapping("/irrigation/estimate")
     ResponseEntity<?> irrigation(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.irrigationPlan(body, principal(a))); }
@@ -9000,8 +10001,10 @@ class AgriController {
     }
 
     @GetMapping("/agent/conversations")
-    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit, @RequestParam(defaultValue = "false") boolean archived, Authentication a) {
-        return ok(engine.agentConversations(limit, archived, principal(a)));
+    ResponseEntity<?> agentConversations(@RequestParam(defaultValue = "20") int limit,
+                                         @RequestParam(defaultValue = "false") boolean archived,
+                                         @RequestParam(required = false) String plotId, Authentication a) {
+        return ok(engine.agentConversations(limit, archived, plotId, principal(a)));
     }
 
     @DeleteMapping("/agent/conversations/{conversationId}")
@@ -9012,8 +10015,9 @@ class AgriController {
 
     @PutMapping("/agent/conversations/{conversationId}")
     ResponseEntity<?> renameAgentConversation(@PathVariable String conversationId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
-        String title = body == null ? "" : Jsons.text(body, "title", "");
-        return ok(engine.renameAgentConversation(conversationId, title, principal(a)));
+        String title = body != null && body.containsKey("title") ? Jsons.text(body, "title", "") : null;
+        Boolean pinned = body != null && body.containsKey("pinned") ? Jsons.bool(body, "pinned", false) : null;
+        return ok(engine.updateAgentConversation(conversationId, title, pinned, principal(a)));
     }
 
     @PostMapping("/agent/conversations/{conversationId}/archive")
@@ -9078,6 +10082,13 @@ class AgriController {
         return ok(engine.transitionWorkOrder(workOrderId, body, principal(a)));
     }
 
+    @PostMapping("/work-orders/{workOrderId}/report-issue")
+    ResponseEntity<?> reportWorkOrderIssue(@PathVariable String workOrderId,
+                                            @RequestBody(required = false) Map<String, Object> body,
+                                            Authentication a) {
+        return ok(engine.reportWorkOrderIssue(workOrderId, body == null ? Map.of() : body, principal(a)));
+    }
+
     @PostMapping("/work-orders/{workOrderId}/review")
     ResponseEntity<?> reviewWorkOrder(@PathVariable String workOrderId, @RequestBody Map<String, Object> body, Authentication a) {
         return ok(engine.reviewWorkOrder(workOrderId, body, principal(a)));
@@ -9109,6 +10120,22 @@ class AgriController {
     @DeleteMapping("/farm-members/{userId}")
     ResponseEntity<?> deleteFarmMember(@PathVariable String userId, @RequestParam String farmId, Authentication a) {
         return ok(adminManagement.deleteFarmMember(userId, farmId, principal(a)));
+    }
+
+    @GetMapping("/users")
+    ResponseEntity<?> users(Authentication a) {
+        return ok(engine.userAccounts(principal(a)));
+    }
+
+    @PostMapping("/users")
+    ResponseEntity<?> createUserAccount(@RequestBody Map<String, Object> body, Authentication a) {
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponses.success(engine.createUserAccount(body, principal(a))));
+    }
+
+    @PatchMapping("/users/{userId}/status")
+    ResponseEntity<?> updateUserAccountStatus(@PathVariable String userId, @RequestBody Map<String, Object> body,
+                                              Authentication a) {
+        return ok(engine.updateUserAccountStatus(userId, body, principal(a)));
     }
 
     @DeleteMapping("/users/{userId}")
@@ -9151,7 +10178,9 @@ class AgriController {
     ResponseEntity<?> feedback(@PathVariable String traceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(engine.feedback(traceId, body, principal(a))); }
 
     @GetMapping("/decisions/{traceId}/similar-cases")
-    ResponseEntity<?> cases(@PathVariable String traceId, @RequestParam Map<String, String> params, Authentication a) { return ok(engine.similarCases(traceId, new LinkedHashMap<>(params))); }
+    ResponseEntity<?> cases(@PathVariable String traceId, @RequestParam Map<String, String> params, Authentication a) {
+        return ok(engine.similarCases(traceId, new LinkedHashMap<>(params), principal(a)));
+    }
 
     @PostMapping("/resource-plans/evaluate")
     ResponseEntity<?> resourcePlan(@RequestBody Map<String, Object> body, Authentication a) { return ok(engine.resourcePlan(body, principal(a))); }
@@ -9229,6 +10258,16 @@ class AgriController {
 
     @PostMapping("/devices")
     ResponseEntity<?> device(@RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.registerDevice(body, principal(a))); }
+
+    @PatchMapping("/devices/{deviceId}")
+    ResponseEntity<?> updateDevice(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(adminManagement.updateDevice(deviceId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @DeleteMapping("/devices/{deviceId}")
+    ResponseEntity<?> deleteDevice(@PathVariable String deviceId, @RequestParam(required = false) String confirmName, Authentication a) {
+        return ok(adminManagement.deleteDevice(deviceId, confirmName, principal(a)));
+    }
 
     @PostMapping("/devices/{deviceId}/bind")
     ResponseEntity<?> bindDevice(@PathVariable String deviceId, @RequestBody Map<String, Object> body, Authentication a) { return ok(adminManagement.bindDevice(deviceId, body, principal(a))); }

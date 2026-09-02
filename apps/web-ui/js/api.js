@@ -6,12 +6,13 @@
  * the backend is online, authentication and API failures are surfaced to the
  * UI instead of being silently presented as real data.
  */
-import { MOCK_DATA } from './mock-data.js?v=20260901-v592-main-merge-v1';
-import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v592-main-merge-v1';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v592-main-merge-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
+import { canExecuteIrrigation, isPublicRole, normalizeRole, presentRoleUser, roleCan } from './roles.js?v=20260901-v593-market-v3';
+import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
 
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
+let demoWorkOrderSequence = 0;
 // A stalled browser connection must not keep a role workspace's bootstrap
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
@@ -643,6 +644,104 @@ function normalizeFarmMember(item, sourceMode) {
   };
 }
 
+function normalizeUserAccount(item, sourceMode = 'ACCOUNT') {
+  const role = String(item?.role || '').trim().toUpperCase();
+  const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
+  const enabled = typeof item?.enabled === 'boolean'
+    ? item.enabled
+    : String(item?.status || 'ACTIVE').trim().toUpperCase() !== 'INACTIVE';
+  return {
+    userId: String(item?.userId || '').trim(),
+    username: String(item?.username || '').trim(),
+    role,
+    roleLabel: String(item?.roleLabel || roleLabels[role] || role).trim(),
+    farmIds: Array.isArray(item?.farmIds) ? [...item.farmIds] : [],
+    plotIds: Array.isArray(item?.plotIds) ? [...item.plotIds] : [],
+    enabled,
+    status: enabled ? 'ACTIVE' : 'INACTIVE',
+    createdAt: String(item?.createdAt || '').trim(),
+    updatedAt: String(item?.updatedAt || '').trim(),
+    sourceMode
+  };
+}
+
+function farmerWorkspacePreferenceStorageKey(user) {
+  const identity = String(user?.userId || user?.id || user?.username || 'anonymous').trim() || 'anonymous';
+  return `agriloop_demo_farmer_workspace_preference:${identity}`;
+}
+
+const DEMO_MARKET_CATALOG = Object.freeze([
+  { cropCode: 'tomato', cropName: '番茄', marketVarietyName: '西红柿', emoji: '🍅', base: 4.8 },
+  { cropCode: 'corn', cropName: '玉米', marketVarietyName: '鲜食玉米', emoji: '🌽', base: 3.6 },
+  { cropCode: 'cucumber', cropName: '黄瓜', marketVarietyName: '黄瓜', emoji: '🥒', base: 3.9 },
+  { cropCode: 'eggplant', cropName: '茄子', marketVarietyName: '茄子', emoji: '🍆', base: 4.2 },
+  { cropCode: 'lettuce', cropName: '生菜', marketVarietyName: '生菜', emoji: '🥬', base: 5.6 },
+  { cropCode: 'pepper', cropName: '辣椒', marketVarietyName: '青椒', emoji: '🌶️', base: 5.1 },
+  { cropCode: 'rice', cropName: '水稻', marketVarietyName: '大米', emoji: '🌾', base: 4.7 },
+  { cropCode: 'strawberry', cropName: '草莓', marketVarietyName: '草莓', emoji: '🍓', base: 14.8 },
+  { cropCode: 'sunflower', cropName: '向日葵', marketVarietyName: '葵花籽', emoji: '🌻', base: 8.4 }
+]);
+
+function roundedMarketNumber(value) { return Math.round(Number(value || 0) * 100) / 100; }
+function chinaMarketDateKey(value) { return new Date(new Date(value).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10); }
+
+export function buildDemoMarketOverview(plots = [], { farmId = 'farm-demo', rangeDays = 30, scope = 'farm' } = {}) {
+  const normalizedRange = Number(rangeDays) <= 7 ? 7 : Number(rangeDays) <= 30 ? 30 : 90;
+  const farmCropCodes = [...new Set((plots || [])
+    .filter(plot => (plot.farmId || farmId) === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
+    .map(plot => String(plot.cropCode || '').toLowerCase()).filter(Boolean))];
+  const catalog = String(scope || 'farm').toLowerCase() === 'all'
+    ? DEMO_MARKET_CATALOG
+    : DEMO_MARKET_CATALOG.filter(item => farmCropCodes.includes(item.cropCode));
+  const todayKey = chinaMarketDateKey(new Date());
+  const today = new Date(`${todayKey}T12:00:00Z`);
+  const crops = catalog.map((item, cropIndex) => {
+    const phase = item.cropCode.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) % 17;
+    const history = Array.from({ length: normalizedRange }, (_, index) => {
+      const date = new Date(today); date.setUTCDate(today.getUTCDate() - (normalizedRange - index - 1));
+      const wave = Math.sin((index + phase) / 4.2) * item.base * .075;
+      const drift = (index - normalizedRange / 2) * item.base * .0009 * ((cropIndex % 3) - 1);
+      const price = roundedMarketNumber(Math.max(.5, item.base + wave + drift));
+      return { date: date.toISOString().slice(0, 10), price, minPrice: roundedMarketNumber(price * .88), maxPrice: roundedMarketNumber(price * 1.14), marketCount: 3, priceBasis: 'PREFERRED_MARKET' };
+    });
+    const latest = history.at(-1); const previous = history.at(-2);
+    const change = roundedMarketNumber(latest.price - previous.price);
+    const changePct = roundedMarketNumber(change / previous.price * 100);
+    const lastSeven = history.slice(-7); const movingAverage7 = roundedMarketNumber(lastSeven.reduce((sum, point) => sum + point.price, 0) / lastSeven.length);
+    const observationTone = changePct >= 1 && latest.price > movingAverage7 ? 'STRONG' : changePct <= -1 && latest.price < movingAverage7 ? 'WEAK' : 'RANGE';
+    const observation = observationTone === 'STRONG'
+      ? ['价格偏强', '可优先向高价市场分批询价，但不要仅凭单日上涨决定全部出货。']
+      : observationTone === 'WEAK'
+        ? ['价格回落', '可优先核对已有订单与耐储性，避免仅凭短期下跌集中出货。']
+        : ['价格震荡', '可采用分批销售，并同步比较采购报价、品质等级、物流和采收窗口。'];
+    return {
+      ...item, inFarm: farmCropCodes.includes(item.cropCode), available: true, status: 'DEMO', quoteDate: latest.date,
+      latestPrice: latest.price, unit: '元/公斤', change, changePct,
+      sevenDayChangePct: roundedMarketNumber((lastSeven.at(-1).price - lastSeven[0].price) / lastSeven[0].price * 100),
+      movingAverage7, minPrice: latest.minPrice, maxPrice: latest.maxPrice, marketCount: 3,
+      priceBasis: 'PREFERRED_MARKET', preferredMarket: '重庆双福国际农贸城', history, historyDays: history.length,
+      requestedRangeDays: normalizedRange,
+      marketQuotes: [
+        { marketName: '重庆双福国际农贸城', price: latest.price, unit: '元/公斤', preferred: true },
+        { marketName: '潼南农副产品批发市场', price: roundedMarketNumber(latest.price * .92), unit: '元/公斤', preferred: false },
+        { marketName: '西三街农副水产品市场', price: roundedMarketNumber(latest.price * 1.08), unit: '元/公斤', preferred: false }
+      ],
+      salesObservation: { tone: observationTone, label: observation[0], message: observation[1], basis: '演示日价与7日简单移动平均', actionable: true }
+    };
+  });
+  return {
+    farmId, scope: String(scope).toLowerCase() === 'all' ? 'ALL_CATALOG' : 'FARM_CROPS', rangeDays: normalizedRange,
+    sourceStatus: 'DEMO', asOf: todayKey, generatedAt: new Date().toISOString(),
+    historyPersistence: 'DEMO', farmCropCodes, availableCropCount: crops.length, totalCropCount: crops.length,
+    source: {
+      provider: 'DEMO', name: '本地演示行情', url: '', cadence: 'DAILY', provinceCode: '500000', provinceName: '重庆市',
+      preferredMarket: '重庆双福国际农贸城', unit: '元/公斤', method: '固定算法生成，仅用于界面展示',
+      disclaimer: '当前为演示行情，不是真实市场价格，不得用于销售决策。'
+    },
+    crops
+  };
+}
+
 export class ApiError extends Error {
   constructor(message, { status = 0, code = 'API_ERROR', payload = null, details = {}, isNetworkError = false, cause } = {}) {
     super(message, cause ? { cause } : undefined);
@@ -675,6 +774,7 @@ export class ApiService {
     this.demoWorkOrders = new Map((MOCK_DATA.workOrders || []).map((item) => [item.workOrderId, cloneWorkOrder(item)]));
     this.demoAlerts = new Map((MOCK_DATA.alerts || []).map((item) => [item.alertId || item.id, { ...item }]));
     this.demoInspections = new Map((MOCK_DATA.inspections || []).map((item) => [item.inspectionId, { ...item }]));
+    this._demoHydrateOperationRecords();
     this.demoPlots = new Map((MOCK_DATA.plots || []).map((item) => {
       const type = plotFacilityType(item);
       return [item.plotId, { ...item, facilityType: type, facilityLabel: facilityLabel(type), farmId: item.farmId || 'farm-demo', status: item.status || 'ACTIVE', sourceMode: 'SIMULATED' }];
@@ -776,6 +876,10 @@ export class ApiService {
       ...member,
       farmIds: member.farmIds || ['farm-demo']
     }, 'SIMULATED')]));
+    this.demoUserAccounts = new Map((MOCK_DATA.adminUsers || []).map(account => [account.userId, normalizeUserAccount({
+      ...account,
+      farmIds: account.farmIds || (account.role === 'SYSTEM_ADMIN' ? ['*'] : ['farm-demo'])
+    }, 'SIMULATED')]));
   }
 
   readStoredUser() {
@@ -843,10 +947,17 @@ export class ApiService {
     }
   }
 
-  async register({ username, password, role }) {
+  async register({ username, password, role, authorizationCode = '', farmProfile }) {
+    const payload = { username, password, role, authorizationCode };
+    if (role === 'FARM_ADMIN') {
+      payload.farmProfile = {
+        name: String(farmProfile?.name || '').trim(),
+        region: String(farmProfile?.region || '').trim()
+      };
+    }
     const resp = await this._fetch('/api/v1/auth/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password, role })
+      body: JSON.stringify(payload)
     }, { auth: false });
     const session = resp?.data || resp;
     if (!session?.accessToken || !session?.user?.username || !session?.user?.role || !session?.recoveryCode) {
@@ -1117,6 +1228,19 @@ export class ApiService {
     };
   }
 
+  async getMarketPrices({ farmId = '', rangeDays = 30, scope = 'farm' } = {}) {
+    const selectedFarm = farmId || 'farm-demo';
+    const selectedScope = String(scope || 'farm').toLowerCase() === 'all' ? 'all' : 'farm';
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ farmId: selectedFarm, rangeDays: String(rangeDays), scope: selectedScope });
+      const resp = await this._fetch(`/api/v1/market-prices?${query}`);
+      const result = resp?.data || resp;
+      if (result && Array.isArray(result.crops) && result.source) return result;
+      throw new ApiError('后端返回了无效的市场行情数据', { code: 'MARKET_PRICES_INVALID', payload: resp });
+    }
+    return buildDemoMarketOverview(Array.from(this.demoPlots.values()), { farmId: selectedFarm, rangeDays, scope: selectedScope });
+  }
+
   async getSystemStatus() {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch('/api/v1/system/status');
@@ -1140,6 +1264,16 @@ export class ApiService {
     this.demoAiMode = aiMode || 'full';
     this.persistDemoAiMode(this.demoAiMode);
     return { aiMode: this.demoAiMode, changed: true, sourceMode: 'SIMULATED' };
+  }
+
+  // 操作审计日志（系统管理员，live 版从后端 event_log 拉取）
+  async getAuditLogs(limit = 50) {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/system/audit-logs?limit=${limit}`);
+      if (Array.isArray(resp?.data)) return resp.data;
+      throw new ApiError('后端返回了无效的审计日志', { code: 'AUDIT_LOGS_INVALID', payload: resp });
+    }
+    return [];
   }
 
   async getPlotTimeline(plotId) {
@@ -1294,6 +1428,44 @@ export class ApiService {
       .filter(plot => filters.includeInactive || String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE')
       .filter(plot => !filters.status || String(plot.status || 'ACTIVE').toUpperCase() === String(filters.status).toUpperCase())
       .map(plot => ({ ...plot }));
+  }
+
+  async getFarmerWorkspacePreference() {
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace');
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序配置', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const storage = browserStorage('localStorage');
+    try {
+      const raw = storage?.getItem(farmerWorkspacePreferenceStorageKey(this.user));
+      const saved = raw ? JSON.parse(raw) : null;
+      if (saved && Array.isArray(saved.plotOrder)) return saved;
+    } catch { /* malformed demo preference falls back to the deterministic order */ }
+    return { scope: 'FARMER_WORKSPACE', plotOrder: [], revision: 0, updatedAt: null };
+  }
+
+  async saveFarmerWorkspacePreference(plotOrder = [], expectedRevision = 0) {
+    const normalizedOrder = Array.from(new Set((Array.isArray(plotOrder) ? plotOrder : [])
+      .map((plotId) => String(plotId ?? '').trim())
+      .filter(Boolean)));
+    const revision = Number.isFinite(Number(expectedRevision)) ? Number(expectedRevision) : 0;
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch('/api/v1/users/me/preferences/farmer-workspace', {
+        method: 'PUT',
+        body: JSON.stringify({ plotOrder: normalizedOrder, expectedRevision: revision })
+      });
+      if (resp?.data && Array.isArray(resp.data.plotOrder)) return resp.data;
+      throw new ApiError('后端返回了无效的农户地块顺序保存结果', { code: 'FARMER_WORKSPACE_PREFERENCE_INVALID', payload: resp });
+    }
+    const saved = {
+      scope: 'FARMER_WORKSPACE',
+      plotOrder: normalizedOrder,
+      revision: revision + 1,
+      updatedAt: new Date().toISOString()
+    };
+    browserStorage('localStorage')?.setItem(farmerWorkspacePreferenceStorageKey(this.user), JSON.stringify(saved));
+    return saved;
   }
 
   async createPlot(input = {}) {
@@ -1744,6 +1916,7 @@ export class ApiService {
     return Array.from(this.demoWorkOrders.values())
       .filter(item => !farmId || item.farmId === farmId || (!item.farmId && farmId === 'farm-demo'))
       .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT')
       .map(cloneWorkOrder);
   }
 
@@ -1760,7 +1933,9 @@ export class ApiService {
     }
     const currentActorId = this._demoActorId();
     return Array.from(this.demoWorkOrders.values())
-      .filter((item) => this.user?.role !== 'FARMER' || item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))
+      .filter((item) => this.user?.role !== 'FARMER'
+        || (String(item.sourceType || '').toUpperCase() !== 'FARMER_REPORT'
+          && (item.assigneeId === currentActorId || (item.createdBy === currentActorId && (String(item.sourceType || '').toUpperCase() === 'READINESS' || String(item.actionType || '').toUpperCase() === 'INSPECTION')))))
       .filter((item) => !filters.farmId || item.farmId === filters.farmId || (!item.farmId && filters.farmId === 'farm-demo'))
       .filter((item) => !filters.plotId || item.plotId === filters.plotId)
       .filter((item) => !filters.status || normalizeWorkOrderStatus(item.status) === normalizeWorkOrderStatus(filters.status))
@@ -1776,7 +1951,11 @@ export class ApiService {
       });
       return response?.data || response;
     }
-    const workOrderId = workOrder.workOrderId || `wo-demo-${Date.now()}`;
+    const requestedWorkOrderId = String(workOrder.workOrderId || '').trim();
+    let workOrderId = requestedWorkOrderId || `wo-demo-${Date.now()}`;
+    while (!requestedWorkOrderId && this.demoWorkOrders.has(workOrderId)) {
+      workOrderId = `wo-demo-${Date.now()}-${++demoWorkOrderSequence}`;
+    }
     const now = new Date().toISOString();
     const actionType = normalizeWorkActionType(workOrder.actionType);
     const saved = cloneWorkOrder({
@@ -1806,10 +1985,76 @@ export class ApiService {
       }]
     });
     this.demoWorkOrders.set(workOrderId, saved);
+    this._demoSaveOperationRecords();
     return cloneWorkOrder(saved);
   }
 
   async createWorkOrder(workOrder) { return this.saveWorkOrder(workOrder); }
+
+  async reportWorkOrderIssue(workOrderId, input = {}) {
+    const body = input && typeof input === 'object' ? input : {};
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/work-orders/${encodeURIComponent(workOrderId)}/report-issue`, {
+        method: 'POST',
+        body: JSON.stringify(body)
+      });
+      return response?.data || response;
+    }
+    const work = this._demoWorkOrder(workOrderId);
+    this._requireDemoAssignee(work);
+    const current = normalizeWorkOrderStatus(work.status);
+    if (TERMINAL_WORK_ORDER_STATUSES.has(current)) throw new ApiError('已结束的任务不能上报新问题', { status: 409, code: 'WORK_ORDER_TERMINAL' });
+    const description = String(body.description || body.issueDescription || body.note || '').trim();
+    if (description.length < 2) throw new ApiError('请具体描述遇到的问题', { status: 400, code: 'ISSUE_DESCRIPTION_REQUIRED' });
+    if (description.length > 1000) throw new ApiError('问题描述不能超过 1000 个字', { status: 400, code: 'ISSUE_DESCRIPTION_TOO_LONG' });
+    const reporterId = this._demoActorId();
+    const existing = Array.from(this.demoWorkOrders.values()).find((item) =>
+      String(item.sourceType || '').toUpperCase() === 'FARMER_REPORT'
+      && String(item.sourceRef || '') === String(workOrderId)
+      && String(item.reporterId || item.createdBy || '') === reporterId
+      && !['DONE', 'CANCELLED', 'REJECTED'].includes(normalizeWorkOrderStatus(item.status))
+    );
+    if (existing) {
+      return {
+        ...cloneWorkOrder(existing),
+        reused: true,
+        sourceWorkOrderId: workOrderId,
+        originalWorkOrder: cloneWorkOrder(work)
+      };
+    }
+    const report = await this.saveWorkOrder({
+      farmId: work.farmId || 'farm-demo',
+      plotId: work.plotId,
+      sourceType: 'FARMER_REPORT',
+      sourceRef: workOrderId,
+      parentWorkOrderId: workOrderId,
+      title: `农户问题上报：${work.title || '农务任务'}`,
+      reason: description,
+      description,
+      issueDescription: description,
+      reporterId,
+      reporterName: this.user?.displayName || this.user?.username || reporterId,
+      reporterRole: 'FARMER',
+      actionType: 'INSPECTION',
+      priority: body.priority || 'HIGH',
+      status: 'OPEN',
+      provenance: 'USER_PROVIDED',
+      sourceMode: 'SIMULATION'
+    });
+    const updatedOriginal = this._saveDemoTransition(work, {
+      issueReportId: report.workOrderId,
+      issueReportStatus: 'OPEN',
+      issueReportDescription: description,
+      issueReportedAt: new Date().toISOString(),
+      issueReportedBy: reporterId
+    }, 'ISSUE_REPORTED', description);
+    return {
+      ...report,
+      reused: false,
+      sourceWorkOrderId: workOrderId,
+      originalWorkOrder: updatedOriginal
+    };
+  }
 
   async assignWorkOrder(workOrderId, input = {}) {
     if (this.sessionMode === 'live') {
@@ -1943,13 +2188,13 @@ export class ApiService {
       const response = await this._fetch(`/api/v1/farm-members?farmId=${encodeURIComponent(farmId)}`);
       if (Array.isArray(response?.data)) {
         const members = response.data.map((member) => normalizeFarmMember(member, 'ACCOUNT'));
-        const invalid = members.find((member) => !member.userId || !member.username || !['FARMER', 'FARM_ADMIN'].includes(member.role));
+        const invalid = members.find((member) => !member.userId || !member.username || member.role !== 'FARMER');
         if (!invalid) return members;
       }
       throw new ApiError('后端返回了无效的成员数据', { code: 'FARM_MEMBERS_INVALID', payload: response });
     }
     return Array.from(this.demoFarmMembers.values())
-      .filter(member => !farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId))
+      .filter(member => member.role === 'FARMER' && (!farmId || member.farmIds.includes('*') || member.farmIds.includes(farmId)))
       .map(member => ({ ...member, plotIds: [...member.plotIds], farmIds: [...member.farmIds] }));
   }
 
@@ -1969,6 +2214,8 @@ export class ApiService {
     const preserved = current.plotIds.filter(plotId => !farmPlotIds.has(plotId));
     const updated = { ...current, plotIds: [...new Set([...preserved, ...plotIds])], sourceMode: 'SIMULATED' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, plotIds: updated.plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds] };
   }
 
@@ -1984,14 +2231,15 @@ export class ApiService {
       throw new ApiError('后端返回了无效的成员新增结果', { code: 'FARM_MEMBER_CREATE_INVALID', payload: response });
     }
     const normalized = String(username || '').trim().toLowerCase();
+    if (String(role || 'FARMER').toUpperCase() !== 'FARMER') throw new ApiError('农场成员接口只能创建种植农户账号', { status: 403, code: 'MEMBER_ROLE_FORBIDDEN' });
     if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'MEMBER_USERNAME_INVALID' });
     if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'MEMBER_PASSWORD_WEAK' });
-    if ([...this.demoFarmMembers.values()].some(member => member.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
+    if ([...this.demoUserAccounts.values()].some(account => account.username.toLowerCase() === normalized)) throw new ApiError('该成员账号已存在', { status: 409, code: 'MEMBER_EXISTS' });
     const farmPlotIds = new Set([...this.demoPlots.values()].filter(plot => plot.farmId === farmId && String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE').map(plot => plot.plotId));
     if (plotIds.some(plotId => !farmPlotIds.has(plotId))) throw new ApiError('只能分配当前农场正在使用的地块', { status: 403, code: 'MEMBER_SCOPE_FORBIDDEN' });
     const userId = `user-demo-${Date.now().toString(36)}`;
-    const memberRole = String(role || 'FARMER').toUpperCase();
-    const memberRoleLabel = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' }[memberRole] || '种植农户';
+    const memberRole = 'FARMER';
+    const memberRoleLabel = '种植农户';
     const member = normalizeFarmMember({
       userId,
       username: normalized,
@@ -1999,10 +2247,11 @@ export class ApiService {
       role: memberRole,
       roleLabel: memberRoleLabel,
       farmIds: [farmId],
-      plotIds: memberRole === 'SYSTEM_ADMIN' ? ['*'] : plotIds,
+      plotIds,
       status: 'ACTIVE'
     }, 'SIMULATED');
     this.demoFarmMembers.set(userId, member);
+    this.demoUserAccounts.set(userId, normalizeUserAccount({ ...member, enabled: true, createdAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...member, farmIds: [...member.farmIds], plotIds: [...member.plotIds], recoveryCode: 'DEMO-ONLY-ONCE' };
   }
 
@@ -2021,6 +2270,8 @@ export class ApiService {
     if (current.role !== 'FARMER') throw new ApiError('这里只能启用或停用种植农户', { status: 403, code: 'MEMBER_ROLE_IMMUTABLE' });
     const updated = { ...current, status: nextEnabled ? 'ACTIVE' : 'INACTIVE' };
     this.demoFarmMembers.set(userId, updated);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, enabled: nextEnabled, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { ...updated, plotIds: [...updated.plotIds], farmIds: [...updated.farmIds] };
   }
 
@@ -2037,6 +2288,8 @@ export class ApiService {
     const plotIds = member.plotIds.filter(id => !farmPlotIds.has(id));
     if (farmIds.length) this.demoFarmMembers.set(userId, { ...member, farmIds, plotIds });
     else this.demoFarmMembers.delete(userId);
+    const account = this.demoUserAccounts.get(userId);
+    if (account) this.demoUserAccounts.set(userId, normalizeUserAccount({ ...account, farmIds, plotIds, updatedAt: new Date().toISOString() }, 'SIMULATED'));
     return { userId, username: member.username, farmId, removed: true, sourceMode: 'SIMULATED' };
   }
 
@@ -2046,8 +2299,86 @@ export class ApiService {
       if (response?.data?.removed) return response.data;
       throw new ApiError('后端返回了无效的账号删除结果', { code: 'ACCOUNT_DELETE_INVALID', payload: response });
     }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能删除', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    this.demoUserAccounts.delete(userId);
     this.demoFarmMembers.delete(userId);
     return { userId, removed: true, sourceMode: 'SIMULATED' };
+  }
+
+  async getUserAccounts() {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users');
+      if (!Array.isArray(response?.data)) throw new ApiError('后端返回了无效的账号列表', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      const users = response.data.map((account) => normalizeUserAccount(account, 'ACCOUNT'));
+      if (users.some((account) => !account.userId || !account.username || !['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(account.role))) {
+        throw new ApiError('后端返回了无效的账号数据', { code: 'USER_ACCOUNTS_INVALID', payload: response });
+      }
+      return users;
+    }
+    return [...this.demoUserAccounts.values()].map((account) => normalizeUserAccount(account, 'SIMULATED'));
+  }
+
+  async createUserAccount({ username, password, role = 'FARMER', farmId = '', plotIds = [], authorizationCode = '' } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch('/api/v1/users', {
+        method: 'POST',
+        body: JSON.stringify({ username, password, role, farmId, plotIds, authorizationCode })
+      });
+      if (!response?.data?.userId || !response?.data?.recoveryCode) {
+        throw new ApiError('后端返回了无效的账号创建结果', { code: 'USER_ACCOUNT_CREATE_INVALID', payload: response });
+      }
+      return { ...normalizeUserAccount(response.data, 'ACCOUNT'), recoveryCode: response.data.recoveryCode };
+    }
+    const normalized = String(username || '').trim().toLowerCase();
+    const normalizedRole = String(role || 'FARMER').trim().toUpperCase();
+    if (!/^[a-z0-9][a-z0-9._-]{3,31}$/i.test(normalized)) throw new ApiError('账号需为 4～32 位字母、数字、点、下划线或短横线', { status: 400, code: 'ACCOUNT_USERNAME_INVALID' });
+    if (String(password || '').length < 8 || !/[A-Za-z]/.test(password) || !/\d/.test(password)) throw new ApiError('初始密码至少 8 位，并同时包含字母和数字', { status: 400, code: 'ACCOUNT_PASSWORD_WEAK' });
+    if (!['FARMER', 'FARM_ADMIN', 'SYSTEM_ADMIN'].includes(normalizedRole)) throw new ApiError('请选择有效的账号身份', { status: 400, code: 'ACCOUNT_ROLE_INVALID' });
+    if (normalizedRole === 'SYSTEM_ADMIN' && !String(authorizationCode || '').trim()) throw new ApiError('创建系统管理员必须填写服务端授权码', { status: 403, code: 'SYSTEM_ADMIN_AUTHORIZATION_INVALID' });
+    if ([...this.demoUserAccounts.values()].some((account) => account.username.toLowerCase() === normalized)) throw new ApiError('该账号已存在', { status: 409, code: 'ACCOUNT_EXISTS' });
+    if (normalizedRole !== 'SYSTEM_ADMIN' && !(MOCK_DATA.farms || []).some((farm) => farm.farmId === farmId)) throw new ApiError('请选择有效的账号所属农场', { status: 404, code: 'FARM_NOT_FOUND' });
+    const availablePlots = [...this.demoPlots.values()].filter((plot) => plot.farmId === farmId).map((plot) => plot.plotId);
+    if (normalizedRole === 'FARMER' && plotIds.some((plotId) => !availablePlots.includes(plotId))) throw new ApiError('只能分配账号所属农场内的地块', { status: 403, code: 'ACCOUNT_SCOPE_FORBIDDEN' });
+    const scopedPlots = normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : normalizedRole === 'FARM_ADMIN' ? availablePlots : [...plotIds];
+    const account = normalizeUserAccount({
+      userId: `user-demo-${Date.now().toString(36)}`,
+      username: normalized,
+      role: normalizedRole,
+      farmIds: normalizedRole === 'SYSTEM_ADMIN' ? ['*'] : [farmId],
+      plotIds: scopedPlots,
+      enabled: true,
+      createdAt: new Date().toISOString()
+    }, 'SIMULATED');
+    this.demoUserAccounts.set(account.userId, account);
+    if (normalizedRole === 'FARMER') {
+      this.demoFarmMembers.set(account.userId, normalizeFarmMember({
+        ...account,
+        displayName: normalized,
+        status: 'ACTIVE'
+      }, 'SIMULATED'));
+    }
+    return { ...account, recoveryCode: 'DEMO-ONLY-ONCE' };
+  }
+
+  async updateUserAccountStatus(userId, { enabled } = {}) {
+    if (this.sessionMode === 'live') {
+      const response = await this._fetch(`/api/v1/users/${encodeURIComponent(userId)}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify({ enabled: Boolean(enabled) })
+      });
+      if (response?.data?.userId) return normalizeUserAccount(response.data, 'ACCOUNT');
+      throw new ApiError('后端返回了无效的账号状态结果', { code: 'USER_ACCOUNT_STATUS_INVALID', payload: response });
+    }
+    const account = this.demoUserAccounts.get(userId);
+    if (!account) throw new ApiError('账号不存在', { status: 404, code: 'ACCOUNT_NOT_FOUND' });
+    if (account.role === 'SYSTEM_ADMIN') throw new ApiError('系统管理员账号受永久保护，不能停用或启用', { status: 403, code: 'ACCOUNT_SYSTEM_ADMIN_PROTECTED' });
+    const updated = normalizeUserAccount({ ...account, enabled: Boolean(enabled), updatedAt: new Date().toISOString() }, 'SIMULATED');
+    this.demoUserAccounts.set(userId, updated);
+    const member = this.demoFarmMembers.get(userId);
+    if (member) this.demoFarmMembers.set(userId, normalizeFarmMember({ ...member, status: updated.status }, 'SIMULATED'));
+    return updated;
   }
 
   _demoActorId() {
@@ -2230,16 +2561,29 @@ export class ApiService {
     return saved;
   }
 
-  async getInspections(plotId = '') {
+  async getInspections(scope = '') {
+    const filters = typeof scope === 'string' ? { plotId: scope } : (scope || {});
+    const farmId = String(filters.farmId || '').trim();
+    const plotId = String(filters.plotId || '').trim();
     if (this.sessionMode === 'live') {
-      const path = plotId
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (plotId) query.set('plotId', plotId);
+      const path = plotId && !farmId
         ? `/api/v1/plots/${encodeURIComponent(plotId)}/inspections`
-        : '/api/v1/inspections';
+        : `/api/v1/inspections${query.size ? `?${query.toString()}` : ''}`;
       const response = await this._fetch(path);
       if (Array.isArray(response?.data)) return response.data;
       throw new ApiError('后端返回了无效的巡田记录', { code: 'INSPECTIONS_INVALID', payload: response });
     }
-    return Array.from(this.demoInspections.values()).filter(item => !plotId || item.plotId === plotId).map(item => ({ ...item }));
+    const actorId = this._demoActorId();
+    const compatibleActorIds = new Set([actorId, this.user?.username === 'farmer' ? 'demo-farmer' : '']);
+    return Array.from(this.demoInspections.values())
+      .filter(item => !farmId || (item.farmId || this.demoPlots.get(item.plotId)?.farmId || 'farm-demo') === farmId)
+      .filter(item => !plotId || item.plotId === plotId)
+      .filter(item => this.user?.role !== 'FARMER' || compatibleActorIds.has(item.operatorId)
+        || (item.workOrderId && this.demoWorkOrders.get(item.workOrderId)?.assigneeId === actorId))
+      .map(item => ({ ...item }));
   }
 
   async createInspection(inspection, files = []) {
@@ -2252,14 +2596,22 @@ export class ApiService {
       const saved = response?.data || response;
       if (!saved?.inspectionId) throw new ApiError('巡田记录保存失败', { code: 'INSPECTION_CREATE_INVALID', payload: response });
       if (!uploads.length) return saved;
-      return this.uploadInspectionPhotos(saved.inspectionId, uploads);
+      try {
+        const uploaded = await this.uploadInspectionPhotos(saved.inspectionId, uploads);
+        return { ...saved, ...(uploaded || {}) };
+      } catch (error) {
+        return {
+          ...saved,
+          photoUploadError: error?.message || '照片上传失败'
+        };
+      }
     }
     const now = new Date().toISOString();
     const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
     const saved = {
       ...inspection,
       inspectionId: `ins-demo-${Date.now()}`,
-      operatorId: this.user?.userId || 'demo-farmer',
+      operatorId: this._demoActorId(),
       operatorName: this.user?.username || 'demo',
       operatorRole: this.user?.role || 'FARMER',
       observedAt: inspection.observedAt || now,
@@ -2288,6 +2640,7 @@ export class ApiService {
       }];
       this.demoWorkOrders.set(saved.workOrderId, cloneWorkOrder({ ...work, evidenceRefs, history, updatedAt: now }));
     }
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2308,6 +2661,7 @@ export class ApiService {
     const photos = [...(current.photos || []), ...(await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index))))];
     const saved = { ...current, photos, updatedAt: new Date().toISOString(), revision: Number(current.revision || 1) + 1 };
     this.demoInspections.set(inspectionId, saved);
+    this._demoSaveOperationRecords();
     return { ...saved };
   }
 
@@ -2495,6 +2849,53 @@ export class ApiService {
   _demoWorkspaceStorageKey() {
     const userId = this.user?.userId || this.user?.username || 'demo';
     return `agriloop-workspace-session:${String(userId).replace(/[^A-Za-z0-9_-]/g, '-')}`;
+  }
+
+  _demoOperationRecordsStorageKey() {
+    return 'agriloop-demo-operation-records:v1';
+  }
+
+  _demoOperationRecordStorages() {
+    return [...new Set([
+      browserStorage('localStorage'),
+      this._demoSessionStorage()
+    ].filter(Boolean))];
+  }
+
+  _demoHydrateOperationRecords() {
+    try {
+      const storages = this._demoOperationRecordStorages();
+      let raw = null;
+      for (const storage of storages) {
+        raw = storage.getItem(this._demoOperationRecordsStorageKey());
+        if (raw) break;
+      }
+      if (!raw) return;
+      const parsed = raw ? JSON.parse(raw) : {};
+      (Array.isArray(parsed?.workOrders) ? parsed.workOrders : []).forEach((item) => {
+        if (item?.workOrderId) this.demoWorkOrders.set(item.workOrderId, cloneWorkOrder(item));
+      });
+      (Array.isArray(parsed?.inspections) ? parsed.inspections : []).forEach((item) => {
+        if (item?.inspectionId) this.demoInspections.set(item.inspectionId, { ...item });
+      });
+    } catch {
+      // Demo operation history is optional; malformed local data must not
+      // block the workspace from opening.
+    }
+  }
+
+  _demoSaveOperationRecords() {
+    try {
+      const payload = JSON.stringify({
+        workOrders: [...this.demoWorkOrders.values()],
+        inspections: [...this.demoInspections.values()]
+      });
+      this._demoOperationRecordStorages().forEach((storage) => {
+        try { storage.setItem(this._demoOperationRecordsStorageKey(), payload); } catch { /* try the next storage */ }
+      });
+    } catch {
+      // Demo storage is optional; the current page still keeps in-memory data.
+    }
   }
 
   _demoResetWorkspaceState() {
@@ -2722,7 +3123,7 @@ export class ApiService {
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
     const existing = current.conversations.find((item) => item.conversationId === conversationId);
     const conversation = {
-      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
+      ...(existing || {}), conversationId, title: existing?.title || cleanPersistedAgentUserText(message).replace(/\s+/g, ' ').trim().slice(0, 36), plotId: plotId || existing?.plotId || '', agentRole: role, roleLabel: response?.roleLabel || roleProfile.label, roleProfile, pinned: existing?.pinned === true, archived: existing?.archived === true, messageCount: Number(existing?.messageCount || 0) + 2, createdAt: existing?.createdAt || now, updatedAt: now, lastMessageAt: now
     };
     current.conversations = [conversation, ...current.conversations.filter((item) => item.conversationId !== conversationId)];
     this._writeDemoAgentSession(current);
@@ -2755,13 +3156,17 @@ export class ApiService {
   }
 
   async getAgentConversations(limit = 20) {
-    const archived = Boolean(arguments[1]);
+    const options = arguments[1];
+    const normalized = typeof options === 'boolean' ? { archived: options } : (options || {});
+    const archived = Boolean(normalized.archived);
+    const plotId = String(normalized.plotId || '').trim();
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
       const profile = demoAgentRoleProfile(role);
       return session.conversations
         .filter((item) => Boolean(item.archived) === Boolean(archived))
+        .filter((item) => !plotId || String(item.plotId || '') === plotId)
         .slice(0, Math.max(1, Math.min(Number(limit) || 20, 50))).map((item) => ({
         ...item,
         title: cleanPersistedAgentUserText(item.title, agentRolePresentation(role).historyItemFallback),
@@ -2771,7 +3176,9 @@ export class ApiService {
       }));
     }
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
-    const resp = await this._fetch(`/api/v1/agent/conversations?limit=${bounded}&archived=${archived ? 'true' : 'false'}`);
+    const query = new URLSearchParams({ limit: String(bounded), archived: archived ? 'true' : 'false' });
+    if (plotId) query.set('plotId', plotId);
+    const resp = await this._fetch(`/api/v1/agent/conversations?${query}`);
     if (Array.isArray(resp?.data)) {
       return resp.data.map((item) => item && typeof item === 'object'
         ? { ...item, title: cleanPersistedAgentUserText(item.title, '') }
@@ -2833,6 +3240,25 @@ export class ApiService {
       this._writeDemoAgentSession(session);
     }
     return { conversationId, title: clean, sourceMode: 'SIMULATED' };
+  }
+
+  async setAgentConversationPinned(conversationId, pinned = true) {
+    if (!conversationId) throw new ApiError('缺少对话编号', { status: 400, code: 'CONVERSATION_ID_REQUIRED' });
+    const desired = Boolean(pinned);
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/agent/conversations/${encodeURIComponent(conversationId)}`, {
+        method: 'PUT',
+        body: JSON.stringify({ pinned: desired })
+      });
+      return resp?.data || resp;
+    }
+    const session = this._readDemoAgentSession();
+    const conversation = session.conversations.find((item) => item.conversationId === conversationId);
+    if (conversation) {
+      conversation.pinned = desired;
+      this._writeDemoAgentSession(session);
+    }
+    return { conversationId, pinned: desired, sourceMode: 'SIMULATED' };
   }
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
@@ -3522,17 +3948,15 @@ export class ApiService {
       });
       return resp?.data || resp;
     }
-    return {
+    return this.createWorkOrder({
       ...input,
-      workOrderId: `wo-evidence-${Date.now()}`,
       sourceType: 'READINESS',
       sourceRef: readinessId,
       actionType: input.actionType || 'INSPECTION',
       status: 'OPEN',
       priority: input.priority || 'HIGH',
-      provenance: 'SIMULATED',
-      createdAt: new Date().toISOString()
-    };
+      provenance: 'SIMULATED'
+    });
   }
 
   async getAgentRun(traceId) {
@@ -4660,6 +5084,42 @@ export class ApiService {
     return { ...device };
   }
 
+  async updateDevice(deviceId, input = {}) {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    const payload = { name: String(input.name || '').trim(), type: String(input.type || '').trim() };
+    if (!payload.name || !payload.type) throw new ApiError('请填写设备名称并选择设备类型', { status: 400, code: 'DEVICE_FIELDS_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) });
+      if (resp?.data?.deviceId === id) return resp.data;
+      throw new ApiError('后端返回了无效的设备更新结果', { code: 'DEVICE_UPDATE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    const saved = { ...device, ...payload, updatedAt: new Date().toISOString(), sourceMode: device.sourceMode || 'SIMULATION' };
+    this.demoDevices.set(id, saved);
+    return { ...saved };
+  }
+
+  async deleteDevice(deviceId, confirmName = '') {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams({ confirmName: String(confirmName || '') });
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}?${query}`, { method: 'DELETE' });
+      if (resp?.data?.deviceId === id && resp?.data?.deleted) return resp.data;
+      throw new ApiError('后端返回了无效的设备删除结果', { code: 'DEVICE_DELETE_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device) throw new ApiError('没有找到该设备', { status: 404, code: 'DEVICE_NOT_FOUND' });
+    if (String(device.status || '').toUpperCase() !== 'OFFLINE') throw new ApiError('请先关闭设备，再执行永久删除', { status: 409, code: 'DEVICE_MUST_BE_OFFLINE' });
+    if (device.plotId || String(device.bindingState || '').toUpperCase() === 'BOUND') throw new ApiError('请先解除设备与地块的绑定', { status: 409, code: 'DEVICE_MUST_BE_UNBOUND' });
+    if (String(device.controlStatus || '').toUpperCase() === 'PENDING') throw new ApiError('请等待设备控制回执完成后再删除', { status: 409, code: 'DEVICE_CONTROL_PENDING' });
+    if (String(confirmName).trim() !== String(device.name || id).trim()) throw new ApiError('请输入完整设备名称进行确认', { status: 400, code: 'DEVICE_CONFIRMATION_MISMATCH' });
+    this.demoDevices.delete(id);
+    return { deviceId: id, name: device.name || id, deleted: true, deletedAt: new Date().toISOString(), sourceMode: 'SIMULATED' };
+  }
+
   async bindDevice(deviceId, plotId) {
     if (this.sessionMode === 'live') {
       const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(deviceId)}/bind`, { method: 'POST', body: JSON.stringify({ plotId }) });
@@ -4959,10 +5419,78 @@ export class ApiService {
     return JSON.parse(JSON.stringify(saved));
   }
 
-  async getAlertLearningCases(farmId, candidateId = '') {
-    if (!farmId) return [];
-    if (this.sessionMode === 'live') { const query = new URLSearchParams({ farmId }); if (candidateId) query.set('candidateId', candidateId); const resp = await this._fetch(`/api/v1/alert-learning-cases?${query}`); return resp?.data || []; }
+  async getAlertLearningCases(farmId = '', candidateId = '', filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      if (farmId) query.set('farmId', farmId);
+      if (candidateId) query.set('candidateId', candidateId);
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/alert-learning-cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
     return [];
+  }
+
+  async getLearningCases(filters = {}) {
+    if (this.sessionMode === 'live') {
+      const query = new URLSearchParams();
+      Object.entries(filters || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') query.set(key, String(value));
+      });
+      const resp = await this._fetch(`/api/v1/learning/cases${query.toString() ? `?${query}` : ''}`);
+      const data = resp?.data ?? resp;
+      if (Array.isArray(data)) return data;
+      throw new ApiError('后端返回了无效的学习案例', { code: 'LEARNING_CASES_INVALID', payload: resp });
+    }
+    return [];
+  }
+
+  async reevaluateLearningCase(caseId) {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return {};
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/re-evaluate`, { method: 'POST', body: JSON.stringify({}) });
+    return resp?.data || resp;
+  }
+
+  async reviewLearningCase(caseId, decision, note = '') {
+    if (!caseId) throw new ApiError('缺少学习案例编号', { status: 400, code: 'LEARNING_CASE_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { caseId, qualityStatus: String(decision || 'REJECTED').toUpperCase(), reviewNote: note };
+    const resp = await this._fetch(`/api/v1/alert-learning-cases/${encodeURIComponent(caseId)}/review`, {
+      method: 'POST', body: JSON.stringify({ decision, note })
+    });
+    return resp?.data || resp;
+  }
+
+  async generateLearningStrategyCandidate(input = {}) {
+    if (this.sessionMode !== 'live') return { ...input, status: 'DRAFT', sourceMode: 'SIMULATED' };
+    const resp = await this._fetch('/api/v1/learning/strategy-candidates/generate', { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async offlineValidateLearningCandidate(candidateId, input = {}) {
+    if (!candidateId) throw new ApiError('缺少策略候选编号', { status: 400, code: 'STRATEGY_ID_REQUIRED' });
+    if (this.sessionMode !== 'live') return { candidateId, status: 'OFFLINE_VALIDATED', offlineValidation: { status: 'PASSED', seed: Number(input.seed || 42) } };
+    const resp = await this._fetch(`/api/v1/strategy-candidates/${encodeURIComponent(candidateId)}/offline-validate`, { method: 'POST', body: JSON.stringify(input || {}) });
+    return resp?.data || resp;
+  }
+
+  async exportApprovedTrainingSet(filters = {}) {
+    if (this.sessionMode !== 'live') return { format: 'agriloop-controlled-learning-v1', caseCount: 0, cases: [], modelUpdate: 'NOT_PERFORMED' };
+    const query = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') query.set(key, String(value)); });
+    const resp = await this._fetch(`/api/v1/learning/training-export${query.toString() ? `?${query}` : ''}`);
+    return resp?.data || resp;
+  }
+
+  async getLearningAudit(limit = 100) {
+    if (this.sessionMode !== 'live') return [];
+    const resp = await this._fetch(`/api/v1/learning/audit?limit=${Math.max(1, Math.min(200, Number(limit) || 100))}`);
+    const data = resp?.data ?? resp;
+    return Array.isArray(data) ? data : [];
   }
 
   async createFarmCropPack(farmId, input) {

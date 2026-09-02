@@ -936,6 +936,7 @@ export function mergePlotTelemetryWindow(plot = {}, points = []) {
 export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   const plotId = text(work.plotId || work.plot_id, '');
   const plot = plotMap.get(plotId) || {};
+  const workOrderId = text(work.workOrderId || work.workItemId || work.id, '');
   const rawStatus = text(work.status, 'OPEN').trim().toUpperCase();
   let status = normalizeWorkStatus(rawStatus);
   // Keep farmer-facing "not started" distinct from admin "unassigned".
@@ -954,8 +955,8 @@ export function normalizeFarmerTask(work = {}, plotMap = new Map()) {
   })[actionType] || '农务作业');
   return {
     ...work,
-    id: text(work.workOrderId || work.workItemId || work.id, `work-${createdAt || Date.now()}`),
-    workOrderId: work.workOrderId || null,
+    id: workOrderId || `work-${createdAt || Date.now()}`,
+    workOrderId: workOrderId || null,
     title: text(work.title, '未命名农务任务'),
     reason: text(work.reason, '暂无执行说明'),
     instruction: text(work.instruction || work.description, ''),
@@ -1188,20 +1189,24 @@ export function buildLiveFeedItems({ alerts = [], workOrders = [], inspections =
     });
   });
   asArray(workOrders).forEach((order) => {
-    const title = text(order.title, '未命名任务');
-    const summary = `${text(order.reason, '暂无说明')} · ${workStatusLabel(order.status)}`;
+    const isFarmerIssueReport = String(order.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+    const title = text(order.title, isFarmerIssueReport ? '农户问题上报' : '未命名任务');
+    const reason = text(order.issueDescription || order.description || order.reason, '暂无说明');
+    const summary = isFarmerIssueReport
+      ? `${reason} · 上报人：${text(order.reporterName || order.reporterId, '农户')} · ${workStatusLabel(order.status)}`
+      : `${reason} · ${workStatusLabel(order.status)}`;
     items.push({
       id: `work:${text(order.workOrderId || order.id, Date.now())}`,
       type: 'WORK_ORDER',
-      category: '农务工单',
-      categoryLabel: '农务工单',
+      category: isFarmerIssueReport ? '农户问题上报' : '农务工单',
+      categoryLabel: isFarmerIssueReport ? '农户问题上报' : '农务工单',
       title,
       titleLabel: displayText(title),
       summary,
       summaryLabel: displayText(summary),
       timestamp: relativeTime(order.updatedAt || order.createdAt),
       timestampIso: order.updatedAt || order.createdAt || null,
-      badge: { color: 'green' },
+      badge: { color: isFarmerIssueReport ? 'amber' : 'green' },
       actions: [],
       dataOrigin: 'BACKEND'
     });

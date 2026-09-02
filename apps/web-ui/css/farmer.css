@@ -1465,6 +1465,7 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.farmer-task-report-status { flex-basis: 100%; display: flex; align-items: center; gap: 5px; margin: -2px 0 0; color: var(--g-warning); font-size: 12px; }
 
 /* 个人中心 */
 .farmer-profile-layout {
@@ -1724,6 +1725,9 @@
   gap: 12px;
 }
 .farmer-plot-grid-page { margin-bottom: 20px; }
+.farmer-plot-grid-page.is-reordering {
+  user-select: none;
+}
 .farmer-plot-overview-card {
   display: flex;
   flex-direction: column;
@@ -1739,6 +1743,26 @@
   text-align: left;
   cursor: pointer;
   transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.farmer-plot-grid-page .farmer-plot-overview-card {
+  touch-action: pan-y;
+}
+.farmer-plot-grid-page.is-reordering .farmer-plot-overview-card {
+  touch-action: none;
+  cursor: grab;
+}
+.farmer-plot-overview-card.is-dragging {
+  position: relative;
+  z-index: 2;
+  opacity: .78;
+  cursor: grabbing;
+  transform: scale(1.02) rotate(0.4deg);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--g-success) 20%, transparent);
+}
+.farmer-plot-overview-card.is-drop-target {
+  border-color: var(--g-success);
+  outline: 2px dashed color-mix(in srgb, var(--g-success) 55%, transparent);
+  outline-offset: 3px;
 }
 .farmer-plot-overview-card:hover,
 .farmer-plot-overview-card.selected {
@@ -1793,6 +1817,20 @@
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
 .farmer-plot-status.warn { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-plot-drag-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: .78;
+}
+.farmer-plot-drag-hint > span {
+  font-size: 17px;
+  line-height: .7;
+  letter-spacing: -2px;
+}
 .farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
 .farmer-plot-overview-meta {
   color: var(--g-text-secondary);
@@ -1893,6 +1931,10 @@
 .farmer-plot-overview-metric dd.metric-WARN { color: var(--g-warning); }
 .farmer-plot-overview-metric dd.metric-NORMAL { color: var(--g-success); }
 .farmer-plot-overview-metric dd.metric-ALERT { color: var(--g-danger); }
+.farmer-plot-overview-metric dd.metric-UNAVAILABLE {
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-weight: 500;
+}
 @media (max-width: 480px) {
   .farmer-plot-overview-metrics { grid-template-columns: 1fr; }
 }
@@ -2058,12 +2100,19 @@
 .farmer-record-item strong { font-size: 13px; }
 .farmer-record-item p { margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-record-item time { color: var(--g-text-secondary); font-size: 11px; white-space: nowrap; }
+.farmer-operation-load-error { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border)); border-radius: var(--g-radius); color: var(--g-danger); background: var(--g-danger-bg); font-size: 12px; line-height: 1.45; }
+.farmer-operation-load-error > span { flex: 1 1 auto; }
+.farmer-operation-load-error .g-btn { flex: 0 0 auto; }
 .farmer-form-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
 .farmer-form-card { width: min(560px, 100%); max-height: 90vh; overflow-y: auto; display: grid; gap: 14px; padding: 22px; border-radius: var(--g-radius-lg); background: var(--g-bg-surface); box-shadow: var(--g-shadow-3); }
+.farmer-form-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.farmer-form-header h3 { margin: 4px 0; color: var(--g-text-primary); }
+.farmer-form-header p { margin: 0; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-card > label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .farmer-form-grid label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+.farmer-form-hint { margin: 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.6; }
 .farmer-form-error { padding: 9px 11px; color: var(--g-danger); background: var(--g-danger-bg); border-radius: var(--g-radius); font-size: 13px; }
 .farmer-security-panel { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 20px; }
 
@@ -3034,6 +3083,31 @@
   border-radius: 12px;
   background: var(--g-bg);
 }
+.farmer-cm-documents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.farmer-cm-documents h4 {
+  flex: 0 0 100%;
+}
+.farmer-cm-documents > span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 6px;
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .farmer-cm-metrics {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3556,6 +3630,28 @@
 #farmer_app .farmer-sidebar {
   box-shadow: 10px 0 36px rgba(24, 67, 45, .12), inset -1px 0 0 rgba(255, 255, 255, .36);
 }
+
+/* Shared appearance-center controls for the standalone farmer shell. */
+.farmer-settings-preset-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-preset { position: relative; display: grid; grid-template-rows: 30px auto; gap: 6px; min-width: 0; padding: 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; }
+.farmer-settings-preset:hover, .farmer-settings-preset.active { border-color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-preset > .ph { position: absolute; top: 6px; right: 6px; color: var(--g-primary); font-size: 14px; }
+.farmer-settings-preset-preview { display: grid; grid-template-columns: 9px 1fr; grid-template-rows: 6px 1fr; gap: 3px; overflow: hidden; padding: 4px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); }
+.farmer-settings-preset-preview i { grid-row: 1 / 3; border-radius: 2px; background: var(--g-border); }
+.farmer-settings-preset-preview b { border-radius: 2px; background: var(--g-bg-subtle); }
+.farmer-settings-preset-preview em { border-radius: 2px; background: var(--g-primary); }
+.farmer-settings-preset > span:last-of-type { display: grid; gap: 2px; min-width: 0; }
+.farmer-settings-preset strong, .farmer-settings-preset small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-settings-preset strong { font-size: 10px; }
+.farmer-settings-preset small { color: var(--g-text-secondary); font-size: 9px; }
+.farmer-settings-custom-accent input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.farmer-settings-custom-accent .ph { margin-left: auto; font-size: 14px; }
+.farmer-settings-preview { display: grid; gap: 7px; }
+.farmer-settings-preview-frame { display: grid; grid-template-columns: 34px 1fr; height: 54px; overflow: hidden; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
+.farmer-settings-preview-frame > div { background: var(--g-bg-subtle); }
+.farmer-settings-preview-frame section { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 10px; align-items: center; }
+.farmer-settings-preview-frame section i { display: block; height: 24px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-primary-bg); }
+@media (max-width: 900px) { .farmer-settings-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 [data-theme="dark"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
   background: rgba(17, 35, 28, .48);

@@ -1,0 +1,79 @@
+<view class="page assistant-page">
+  <view class="assistant-header">
+    <view class="assistant-heading">
+      <view class="assistant-mark">✦</view>
+      <view class="assistant-heading-copy"><view class="assistant-title">{{presentation.assistantName}}</view><view class="assistant-subtitle">{{presentation.scopeLabel}}</view></view>
+    </view>
+    <view class="chip chip-{{serviceStatus === 'READY' ? 'online' : serviceStatus === 'CONNECTING' ? 'medium' : 'offline'}}">{{serviceStatusLabel}}</view>
+  </view>
+
+  <view wx:if="{{plots.length}}" class="context-card card">
+    <view class="context-label">当前地块</view>
+    <picker mode="selector" range="{{plots}}" range-key="name" value="{{selectedPlotIndex}}" bindchange="onPlotChange">
+      <view class="context-value">{{selectedPlotName}} <text class="picker-arrow">⌄</text></view>
+    </picker>
+  </view>
+  <view wx:else class="context-card card"><view class="context-label">当前范围</view><view class="context-value">{{presentation.scopeLabel}}</view></view>
+
+  <scroll-view class="conversation-scroll" scroll-x="true" show-scrollbar="false">
+    <view class="conversation-row">
+      <button class="new-conversation" bindtap="newConversation">＋ 新对话</button>
+      <button wx:for="{{conversations}}" wx:key="conversationId" class="conversation-button {{item.conversationId === conversationId ? 'active' : ''}}" data-id="{{item.conversationId}}" bindtap="selectConversation">
+        <text class="conversation-title">{{item.title}}</text><text class="conversation-meta">{{item.updatedLabel}}</text>
+      </button>
+    </view>
+  </scroll-view>
+
+  <scroll-view class="message-scroll" scroll-y="true" scroll-into-view="{{scrollIntoView}}" scroll-with-animation="true" enable-back-to-top="true">
+    <view wx:if="{{loadingHistory}}" class="loading message-loading">正在读取对话…</view>
+    <view wx:elif="{{!messages.length}}" class="empty-chat">
+      <view class="empty-greeting">{{presentation.emptyGreeting}}</view>
+      <view class="empty-copy">{{presentation.emptyCopy}}</view>
+      <view class="shortcut-grid">
+        <button wx:for="{{presentation.shortcuts}}" wx:key="question" class="shortcut-button" data-question="{{item.question}}" bindtap="sendShortcut">{{item.label}}</button>
+      </view>
+    </view>
+    <block wx:else>
+      <view wx:for="{{messages}}" wx:for-index="messageIndex" wx:key="messageId" id="{{item.domId}}" class="message-row message-{{item.role}}">
+        <view class="message-bubble">
+          <view wx:if="{{item.role === 'assistant'}}" class="message-meta"><text>{{item.intentLabel}}</text><text wx:if="{{item.sourceLabel}}">{{item.sourceLabel}}</text></view>
+          <rich-text nodes="{{item.nodes}}" class="message-content"></rich-text>
+          <view wx:if="{{item.imageCount}}" class="image-note">已附 {{item.imageCount}} 张原图</view>
+          <view wx:if="{{item.role === 'assistant' && item.facts.length}}" class="facts-block">
+            <view class="sub-block-title">{{presentation.factsTitle}}</view>
+            <view class="facts-grid"><view wx:for="{{item.facts}}" wx:key="label" class="fact-item"><text class="fact-label">{{item.label}}</text><text class="fact-value">{{item.value}}</text></view></view>
+          </view>
+          <view wx:if="{{item.role === 'assistant' && item.recommendations.length}}" class="recommendations-block">
+            <view class="sub-block-title">{{presentation.recommendationsTitle}}</view>
+            <view wx:for="{{item.recommendations}}" wx:key="*this" class="recommendation-row"><text class="recommendation-dot">·</text><text>{{item}}</text></view>
+          </view>
+          <view wx:if="{{item.role === 'assistant' && item.actionProposal}}" class="action-card action-{{item.actionProposal.statusTone}}">
+            <view class="action-head"><text class="sub-block-title">受控操作预览</text><text class="chip chip-{{item.actionProposal.status === 'SUCCEEDED' ? 'online' : item.actionProposal.status === 'AWAITING_CONFIRMATION' ? 'medium' : item.actionProposal.status === 'CANCELED' ? 'low' : 'offline'}}">{{item.actionProposal.statusLabel}}</text></view>
+            <view class="action-summary">{{item.actionProposal.summary}}</view>
+            <view class="action-argument">{{item.actionProposal.argumentSummary}}</view>
+            <view wx:if="{{item.actionProposal.expiresLabel && item.actionProposal.status === 'AWAITING_CONFIRMATION'}}" class="tiny">确认截止 {{item.actionProposal.expiresLabel}}</view>
+            <view wx:if="{{item.actionProposal.resultLabel}}" class="tiny">结果：{{item.actionProposal.resultLabel}}</view>
+            <view wx:if="{{item.actionProposal.error}}" class="action-error">{{item.actionProposal.error}}</view>
+            <view wx:if="{{item.actionProposal.status === 'AWAITING_CONFIRMATION'}}" class="action-buttons"><button class="ghost action-button" data-id="{{item.actionProposal.actionId}}" catchtap="cancelAction" disabled="{{actionBusy === item.actionProposal.actionId}}">取消</button><button class="primary action-button" data-id="{{item.actionProposal.actionId}}" catchtap="confirmAction" loading="{{actionBusy === item.actionProposal.actionId}}">确认执行</button></view>
+          </view>
+          <view wx:if="{{item.role === 'assistant' && (item.evidence.length || item.recommendations.length || item.traceId)}}" class="details-toggle" data-index="{{messageIndex}}" catchtap="toggleDetails">{{item.detailsOpen ? '收起依据与记录' : presentation.evidenceTitle}}<text>{{item.detailsOpen ? '⌃' : '⌄'}}</text></view>
+          <view wx:if="{{item.role === 'assistant' && item.detailsOpen}}" class="details-block">
+            <view wx:if="{{item.evidence.length}}"><view wx:for="{{item.evidence}}" wx:key="id" class="evidence-row"><view class="evidence-main"><text>{{item.label}}</text><text class="tiny">{{item.detail}}</text></view><text class="chip chip-low">{{item.provenance}}</text></view></view>
+            <view wx:if="{{item.traceId}}" class="trace-row">记录编号：{{item.traceId}}</view>
+          </view>
+          <view class="message-time">{{item.timeLabel}}</view>
+        </view>
+      </view>
+    </block>
+    <view wx:if="{{sending}}" class="typing-row"><view class="typing-dot"></view><text>{{presentation.typing}}</text></view>
+  </scroll-view>
+
+  <view wx:if="{{error}}" class="assistant-error">{{error}}</view>
+  <view class="composer card">
+    <scroll-view wx:if="{{imageItems.length}}" class="image-scroll" scroll-x="true" show-scrollbar="false">
+      <view class="image-row"><view wx:for="{{imageItems}}" wx:for-index="imageIndex" wx:key="id" class="image-item"><image src="{{item.path}}" mode="aspectFill"></image><view class="image-remove" data-index="{{imageIndex}}" catchtap="removeImage">×</view><view class="image-size">{{item.sizeLabel}}</view></view></view>
+    </scroll-view>
+    <textarea class="composer-input" value="{{input}}" maxlength="4000" auto-height="true" cursor-spacing="12" confirm-type="send" placeholder="{{presentation.placeholder}}" placeholder-class="placeholder" bindinput="onInput" bindconfirm="onInputConfirm"></textarea>
+    <view class="composer-footer"><view class="composer-left"><button class="icon-button" aria-label="上传原图" bindtap="chooseImage">＋<text>图片</text></button><text class="composer-hint">原图直传，不压缩</text></view><button class="primary send-button" bindtap="sendMessage" loading="{{sending}}" disabled="{{sending}}">发送</button></view>
+  </view>
+</view>

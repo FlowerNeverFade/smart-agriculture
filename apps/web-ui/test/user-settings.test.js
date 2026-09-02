@@ -58,6 +58,39 @@ test('三个工作台隐藏地块背景选项且外观切换静默生效', () =>
   }
 });
 
+test('三种角色入口都加载统一工作台主题桥接', () => {
+  const sharedCss = readFileSync(new URL('../css/modules/workspace-settings-shared.css', import.meta.url), 'utf8');
+  assert.match(sharedCss, /html\[data-workspace-preset\] :is\(#app, #farmer_app\)/);
+  assert.match(sharedCss, /--g-bg-base:\s*var\(--workspace-bg-base\)/);
+  assert.match(sharedCss, /--g-primary:\s*var\(--workspace-primary\)/);
+  assert.match(sharedCss, /data-surface-style="glass-latest"/);
+  for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
+    const html = readFileSync(new URL(page, import.meta.url), 'utf8');
+    assert.match(html, /workspace-settings-shared\.css\?v=[^"']+/);
+  }
+});
+
+test('三种角色复用同一工作台设置视图和同一配置控制器', () => {
+  const shared = readFileSync(new URL('../js/modules/workspace-settings.js', import.meta.url), 'utf8');
+  const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
+  const farmerSource = readFileSync(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const sysadminSource = readFileSync(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const farmerHtml = readFileSync(new URL('../farmer.html', import.meta.url), 'utf8');
+  assert.match(shared, /export function createWorkspaceSettingsController/);
+  assert.match(shared, /export function createWorkspaceSettingsView/);
+  assert.match(shared, /const WORKSPACE_SETTINGS_TEMPLATE/);
+  for (const source of [appSource, farmerSource, sysadminSource]) {
+    assert.match(source, /createWorkspaceSettingsView/);
+    assert.doesNotMatch(source, /template:\s*['"]#tmpl-settings['"]/);
+  }
+  assert.match(farmerHtml, /<workspace-settings-view/);
+  assert.match(farmerHtml, /:user-settings="user_settings"/);
+  assert.doesNotMatch(farmerHtml, /farmer-settings-(grid|choice|preset)/);
+  assert.match(shared, /主题与颜色/);
+  assert.match(shared, /卡片风格/);
+  assert.match(shared, /刷新与提示/);
+});
+
 test('工作台设置按账号隔离，并支持主题预设与安全自选色', () => {
   const data = new Map();
   const storage = { getItem: key => data.get(key) ?? null, setItem: (key, value) => data.set(key, String(value)) };

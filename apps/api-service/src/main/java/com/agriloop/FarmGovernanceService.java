@@ -22,12 +22,15 @@ class FarmGovernanceService {
     private final AgriEventBus events;
     private final ObjectMapper mapper;
     private final CropPackCatalog cropPackCatalog;
+    private final ControlledLearningService controlledLearning;
 
-    FarmGovernanceService(AgriStore store, AgriEventBus events, ObjectMapper mapper, CropPackCatalog cropPackCatalog) {
+    FarmGovernanceService(AgriStore store, AgriEventBus events, ObjectMapper mapper, CropPackCatalog cropPackCatalog,
+                          ControlledLearningService controlledLearning) {
         this.store = store;
         this.events = events;
         this.mapper = mapper;
         this.cropPackCatalog = cropPackCatalog;
+        this.controlledLearning = controlledLearning;
     }
 
     List<Map<String, Object>> ruleSets(String farmId, UserPrincipal principal) {
@@ -91,12 +94,36 @@ class FarmGovernanceService {
     }
 
     List<Map<String, Object>> learningCases(String farmId, String candidateId, UserPrincipal principal) {
-        requireFarm(principal, farmId);
-        return store.list("alert-learning-case").stream()
-                .filter(c -> farmId.equals(Jsons.text(c, "farmId", "")))
-                .filter(c -> candidateId == null || candidateId.isBlank() || candidateId.equals(Jsons.text(c, "candidateId", "")))
-                .sorted(Comparator.comparing(c -> Jsons.text(c, "createdAt", ""), Comparator.reverseOrder()))
-                .map(c -> Jsons.copy(mapper, c)).toList();
+        return controlledLearning.listCases(farmId, candidateId, principal);
+    }
+
+    List<Map<String, Object>> learningCases(String farmId, String plotId, String cropCode, String scenarioId,
+                                             String qualityStatus, String candidateId, UserPrincipal principal) {
+        return controlledLearning.listCases(farmId, plotId, cropCode, scenarioId, qualityStatus, candidateId, principal);
+    }
+
+    Map<String, Object> reEvaluateLearningCase(String caseId, UserPrincipal principal) {
+        return controlledLearning.reEvaluate(caseId, principal);
+    }
+
+    Map<String, Object> reviewLearningCase(String caseId, String decision, String note, UserPrincipal principal) {
+        return controlledLearning.review(caseId, decision, note, principal);
+    }
+
+    Map<String, Object> generateStrategyCandidate(Map<String, Object> input, UserPrincipal principal) {
+        return controlledLearning.generateStrategyCandidate(input, principal);
+    }
+
+    Map<String, Object> offlineValidateLearningCandidate(String id, Map<String, Object> input, UserPrincipal principal) {
+        return controlledLearning.offlineValidateCandidate(id, input, principal);
+    }
+
+    Map<String, Object> exportApprovedTrainingSet(String farmId, String plotId, UserPrincipal principal) {
+        return controlledLearning.exportApprovedTrainingSet(farmId, plotId, principal);
+    }
+
+    List<Map<String, Object>> learningAudit(int limit, UserPrincipal principal) {
+        return controlledLearning.audit(limit, principal);
     }
 
     List<Map<String, Object>> strategyCandidates(String farmId, String status, UserPrincipal principal) {
@@ -125,13 +152,15 @@ class FarmGovernanceService {
         Map<String, Object> candidate = requireCandidate(id);
         requireFarm(principal, Jsons.text(candidate, "farmId", ""));
         if (!principal.isFarmAdmin() && !principal.isSystemAdmin()) throw forbidden("只有农场管理员可以启用策略候选");
-        long expected = Jsons.whole(input, "expectedRevision", Jsons.whole(candidate, "revision", 1));
+        Map<String, Object> request = input == null ? Map.of() : input;
+        long expected = Jsons.whole(request, "expectedRevision", Jsons.whole(candidate, "revision", 1));
         if (expected != Jsons.whole(candidate, "revision", 1)) throw conflict("STRATEGY_VERSION_CONFLICT", "策略候选已更新，请刷新后重试");
-        String key = Jsons.text(input, "idempotencyKey", "");
+        String key = Jsons.text(request, "idempotencyKey", "");
         if (!key.isBlank()) { Map<String, Object> prior = store.find("governance-idempotency", key); if (prior != null) return prior; }
-        if (!"OFFLINE_VALIDATED".equals(Jsons.text(candidate, "status", "")) && !"APPROVED".equals(Jsons.text(candidate, "status", ""))) {
-            throw conflict("STRATEGY_TRANSITION_INVALID", "只有已通过离线验证的候选可以启用");
-        }
+        if (!"APPROVED".equals(Jsons.text(candidate, "status", ""))) throw conflict("STRATEGY_TRANSITION_INVALID", "只有已批准的候选可以启用，请先完成人工批准");
+        Map<String, Object> validation = Jsons.map(mapper, candidate.get("offlineValidation"));
+        if (!"PASSED".equalsIgnoreCase(Jsons.text(validation, "status", ""))) throw conflict("STRATEGY_OFFLINE_VALIDATION_REQUIRED", "策略候选必须先通过离线验证");
+        if (!isManualBaselineCandidate(candidate) && !evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
         String signature = Jsons.text(candidate, "signature", "");
         for (Map<String, Object> old : store.list("strategy-candidate")) {
             if (id.equals(Jsons.text(old, "candidateId", ""))) continue;
@@ -140,7 +169,7 @@ class FarmGovernanceService {
                 old.put("status", "SUPERSEDED"); old.put("supersededAt", Instant.now().toString()); store.save("strategy-candidate", Jsons.text(old, "candidateId", ""), old);
             }
         }
-        candidate.put("status", "ACTIVE"); candidate.put("revision", expected + 1); candidate.put("approvedBy", principal.userId); candidate.put("activatedBy", principal.userId); candidate.put("activatedAt", Instant.now().toString());
+        candidate.put("status", "ACTIVE"); candidate.put("revision", expected + 1); candidate.put("activatedBy", principal.userId); candidate.put("activatedAt", Instant.now().toString());
         store.save("strategy-candidate", id, candidate); events.publish("strategy.candidate.activated", candidate); store.logEvent("strategy.candidate.activated", candidate);
         if (!key.isBlank()) store.save("governance-idempotency", key, candidate);
         return candidate;
@@ -158,42 +187,45 @@ class FarmGovernanceService {
             default -> false;
         };
         if (!allowed) throw conflict("STRATEGY_TRANSITION_INVALID", current + " 不能转为 " + target);
-        long expected = Jsons.whole(input == null ? Map.of() : input, "expectedRevision", Jsons.whole(candidate, "revision", 1));
+        Map<String, Object> request = input == null ? Map.of() : input;
+        long expected = Jsons.whole(request, "expectedRevision", Jsons.whole(candidate, "revision", 1));
         if (expected != Jsons.whole(candidate, "revision", 1)) throw conflict("STRATEGY_VERSION_CONFLICT", "策略候选已更新，请刷新后重试");
+        if ("APPROVED".equals(target)) {
+            Map<String, Object> validation = Jsons.map(mapper, candidate.get("offlineValidation"));
+            if (!"PASSED".equalsIgnoreCase(Jsons.text(validation, "status", ""))) throw conflict("STRATEGY_OFFLINE_VALIDATION_REQUIRED", "只有离线验证通过的候选可以批准");
+            if (!isManualBaselineCandidate(candidate) && !evidenceCasesStillQualified(candidate)) throw conflict("STRATEGY_EVIDENCE_STALE", "策略引用案例已不再全部合格，请重新生成或验证候选");
+            candidate.put("approvedBy", principal.userId);
+            candidate.put("approvedAt", Instant.now().toString());
+        }
         candidate.put("status", target); candidate.put("revision", expected + 1); candidate.put("transitionedBy", principal.userId); candidate.put("transitionedAt", Instant.now().toString());
-        store.save("strategy-candidate", id, candidate); events.publish("strategy.candidate.transitioned", candidate); return candidate;
+        if ("ROLLED_BACK".equals(target)) {
+            candidate.put("rolledBackBy", principal.userId);
+            candidate.put("rolledBackAt", Instant.now().toString());
+        }
+        store.save("strategy-candidate", id, candidate); events.publish("strategy.candidate.transitioned", candidate); store.logEvent("strategy.candidate.transitioned", candidate); return candidate;
+    }
+
+    private boolean evidenceCasesStillQualified(Map<String, Object> candidate) {
+        List<String> ids = Jsons.strings(candidate.get("evidenceCaseIds"));
+        if (ids.isEmpty()) return false;
+        for (String id : ids) {
+            Map<String, Object> row = store.find("decision-case", id);
+            if (row == null) row = store.find("alert-learning-case", id);
+            if (row == null || !"QUALIFIED".equalsIgnoreCase(Jsons.text(row, "qualityStatus", ""))
+                    || !Jsons.strings(row.get("learningUses")).contains("POSITIVE_RETRIEVAL")
+                    || !Jsons.strings(row.get("excludedReason")).isEmpty()) return false;
+        }
+        return true;
+    }
+
+    private boolean isManualBaselineCandidate(Map<String, Object> candidate) {
+        return "MANUAL_AUTHORED".equalsIgnoreCase(Jsons.text(candidate, "provenance", ""))
+                && !Jsons.bool(candidate, "learningEligible", true)
+                && Jsons.strings(candidate.get("evidenceCaseIds")).isEmpty();
     }
 
     Map<String, Object> recordAlertOutcome(Map<String, Object> alert, Map<String, Object> outcome, UserPrincipal principal) {
-        if (alert == null) return Map.of();
-        String plotId = Jsons.text(alert, "plotId", ""); Map<String, Object> plot = store.find("plot", plotId);
-        String farmId = Jsons.text(alert, "farmId", plot == null ? "" : Jsons.text(plot, "farmId", ""));
-        if (farmId.isBlank() || !principal.canAccessFarm(farmId)) return Map.of();
-        String alertId = Jsons.text(alert, "alertId", ""); String result = Jsons.text(outcome, "verificationResult", Jsons.text(outcome, "result", Jsons.text(alert, "status", "CLOSED")));
-        String action = Jsons.text(outcome, "resolutionAction", result);
-        String cause = Jsons.text(outcome, "primaryCause", Jsons.text(alert, "primaryCause", Jsons.text(alert, "type", "UNKNOWN")));
-        String crop = Jsons.text(plot == null ? Map.of() : plot, "cropCode", ""); String stage = Jsons.text(plot == null ? Map.of() : plot, "stageCode", "");
-        String signature = String.join("|", farmId, crop, stage, Jsons.text(alert, "alertType", Jsons.text(alert, "type", "UNKNOWN")), cause, action);
-        if (store.list("alert-learning-case").stream().anyMatch(c -> alertId.equals(Jsons.text(c, "alertId", "")) && signature.equals(Jsons.text(c, "signature", "")))) return Map.of("duplicate", true);
-        String quality = Jsons.text(outcome, "dataQuality", Jsons.text(alert, "dataQuality", "GOOD")).toUpperCase(Locale.ROOT);
-        boolean complete = !alertId.isBlank() && !crop.isBlank() && !cause.isBlank() && !action.isBlank();
-        Map<String, Object> record = new LinkedHashMap<>(); record.put("caseId", Jsons.id("alert-case")); record.put("alertId", alertId); record.put("farmId", farmId); record.put("plotId", plotId); record.put("cropCode", crop); record.put("stageCode", stage);
-        record.put("alertType", Jsons.text(alert, "alertType", Jsons.text(alert, "type", "UNKNOWN"))); record.put("primaryCause", cause); record.put("resolutionAction", action); record.put("result", result); record.put("quality", quality); record.put("eligibility", complete && Set.of("GOOD", "PASS", "HIGH").contains(quality) ? "QUALIFIED" : "INCOMPLETE"); record.put("signature", signature); record.put("createdAt", Instant.now().toString()); record.put("evidence", outcome.getOrDefault("evidenceRefs", alert.getOrDefault("evidenceRefs", List.of()))); record.put("actorId", principal.userId);
-        store.save("alert-learning-case", Jsons.text(record, "caseId", ""), record); events.publish("alert.learning.case.created", record); store.logEvent("alert.learning.case.created", record);
-        if ("QUALIFIED".equals(record.get("eligibility"))) maybeGenerateCandidate(record);
-        return record;
-    }
-
-    private void maybeGenerateCandidate(Map<String, Object> record) {
-        String signature = Jsons.text(record, "signature", ""); String farmId = Jsons.text(record, "farmId", "");
-        List<Map<String, Object>> cases = store.list("alert-learning-case").stream().filter(c -> "QUALIFIED".equals(Jsons.text(c, "eligibility", "")) && signature.equals(Jsons.text(c, "signature", ""))).toList();
-        if (cases.size() < 2) return;
-        long success = cases.stream().filter(c -> Set.of("CLEARED_NORMAL", "CLOSED", "RESOLVED", "SUCCESS", "GOOD").contains(Jsons.text(c, "result", "").toUpperCase(Locale.ROOT))).count();
-        double consistency = cases.isEmpty() ? 0 : (double) success / cases.size(); if (consistency < .8) return;
-        Map<String, Object> existing = store.list("strategy-candidate").stream().filter(c -> farmId.equals(Jsons.text(c, "farmId", "")) && signature.equals(Jsons.text(c, "signature", "")) && !"REJECTED".equals(Jsons.text(c, "status", ""))).findFirst().orElse(null);
-        if (existing != null) return;
-        Map<String, Object> candidate = new LinkedHashMap<>(); candidate.put("candidateId", Jsons.id("strategy")); candidate.put("farmId", farmId); candidate.put("scope", "FARM"); candidate.put("signature", signature); candidate.put("status", "OFFLINE_VALIDATED"); candidate.put("revision", 1); candidate.put("evidenceCaseIds", cases.stream().map(c -> Jsons.text(c, "caseId", "")).toList()); candidate.put("evidenceCount", cases.size()); candidate.put("consistency", consistency); candidate.put("offlineValidation", Map.of("status", "PASSED", "replayHash", Integer.toHexString(Objects.hash(signature, cases.size())), "validatedAt", Instant.now().toString())); candidate.put("createdAt", Instant.now().toString()); candidate.put("provenance", "DETERMINISTIC_REPLAY");
-        store.save("strategy-candidate", Jsons.text(candidate, "candidateId", ""), candidate); events.publish("strategy.candidate.created", candidate); store.logEvent("strategy.candidate.created", candidate);
+        return controlledLearning.createAlertCase(alert, outcome == null ? Map.of() : outcome, principal);
     }
 
     List<Map<String, Object>> farmCropPacks(String farmId, boolean includeDrafts) {

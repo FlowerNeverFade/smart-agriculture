@@ -1,0 +1,58 @@
+.page-intro { margin: 6rpx 0 24rpx; }
+.intro-meta { margin-top: 8rpx; color: #8b998f; font-size: 22rpx; }
+.farm-picker { display: flex; align-items: center; justify-content: space-between; padding-top: 18rpx; padding-bottom: 18rpx; }
+.picker-label { color: #77877c; font-size: 24rpx; }
+.farm-picker-value { color: #1c6d4b; font-size: 26rpx; font-weight: 600; }
+.picker-arrow { margin-left: 8rpx; color: #6d8175; font-size: 30rpx; }
+.filter-scroll { width: 100%; margin: 2rpx 0 22rpx; white-space: nowrap; }
+.filter-row { display: inline-flex; gap: 12rpx; }
+.filter-button { flex: 0 0 auto; min-width: 130rpx; padding: 0 20rpx; color: #65786c !important; background: #eaf1eb !important; font-size: 23rpx; line-height: 62rpx; }
+.filter-button.active { color: #fff !important; background: #197a55 !important; }
+.retry-button { display: block; width: 220rpx; margin: 18rpx 0 0; font-size: 24rpx; line-height: 64rpx; }
+.notice-box { margin: 14rpx 0; padding: 14rpx 18rpx; border-radius: 10rpx; color: #806329; background: #fff7df; font-size: 23rpx; }
+.task-card { padding: 22rpx; }
+.task-card.selected { border-color: #62a27e; box-shadow: 0 8rpx 24rpx rgba(34,111,72,.12); }
+.task-head, .task-info, .task-foot, .alert-head { display: flex; align-items: center; justify-content: space-between; gap: 12rpx; }
+.task-head { align-items: flex-start; }
+.task-main { min-width: 0; flex: 1; }
+.task-title { color: #203a2c; font-size: 29rpx; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-sub, .task-info, .task-foot { margin-top: 6rpx; color: #788a7e; font-size: 22rpx; }
+.task-info { justify-content: flex-start; flex-wrap: wrap; gap: 8rpx 18rpx; margin-top: 18rpx; color: #667b6c; }
+.task-reason { margin-top: 14rpx; color: #63776a; font-size: 24rpx; line-height: 1.55; }
+.task-foot { margin-top: 16rpx; }
+.task-detail { margin-top: 4rpx; }
+.detail-divider { height: 1rpx; margin: 20rpx 0 16rpx; background: #edf1ed; }
+.detail-label, .result-label { color: #4c6656; font-size: 23rpx; font-weight: 600; }
+.result-box { display: flex; flex-direction: column; gap: 6rpx; margin-top: 12rpx; padding: 14rpx; border-radius: 10rpx; color: #536c5b; background: #f5f9f5; font-size: 23rpx; line-height: 1.5; }
+.history-list { margin-top: 16rpx; }
+.history-row { display: flex; align-items: flex-start; gap: 12rpx; padding: 8rpx 0; }
+.history-dot { width: 12rpx; height: 12rpx; flex: 0 0 12rpx; margin-top: 8rpx; border-radius: 50%; background: #6aa17f; }
+.history-copy { min-width: 0; color: #586f60; font-size: 22rpx; line-height: 1.5; }
+.detail-actions { display: flex; flex-wrap: wrap; gap: 12rpx; margin-top: 18rpx; }
+.action-button { min-width: 170rpx; font-size: 23rpx; line-height: 62rpx; }
+.detail-note { margin-top: 16rpx; padding: 12rpx 14rpx; border-radius: 10rpx; color: #7b887f; background: #f3f6f3; font-size: 22rpx; line-height: 1.5; }
+.link-button { padding: 0; color: #1c7651 !important; background: transparent !important; font-size: 23rpx; line-height: 44rpx; }
+.plot-link { margin-top: 8rpx; }
+.alert-card { padding: 22rpx; }
+.alert-title { min-width: 0; color: #304739; font-size: 27rpx; font-weight: 600; }
+.alert-dot { display: inline-block; width: 12rpx; height: 12rpx; margin-right: 10rpx; border-radius: 50%; background: #8eaa9b; }
+.alert-dot.alert-bad { background: #d55e51; }
+.alert-dot.alert-medium { background: #d4a03e; }
+.alert-plot { margin-top: 10rpx; color: #778a7d; font-size: 22rpx; }
+.alert-message { margin-top: 12rpx; color: #607568; font-size: 24rpx; line-height: 1.55; }
+.modal-mask { position: fixed; z-index: 20; top: 0; right: 0; bottom: 0; left: 0; display: flex; align-items: flex-end; padding: 28rpx; background: rgba(20, 38, 28, .38); }
+.modal-card { width: 100%; padding: 28rpx; border-radius: 22rpx 22rpx 12rpx 12rpx; background: #fff; box-shadow: 0 -8rpx 32rpx rgba(24, 53, 37, .16); }
+.modal-title { color: #203a2c; font-size: 32rpx; font-weight: 700; }
+.modal-sub { margin-top: 8rpx; color: #77877c; font-size: 23rpx; }
+.modal-textarea { width: 100%; height: 190rpx; margin-top: 22rpx; padding: 16rpx; border: 1rpx solid #dce7df; border-radius: 12rpx; color: #263c30; background: #f9fbf9; font-size: 25rpx; line-height: 1.5; }
+.issue-textarea { height: 170rpx; }
+.field-label { margin: 20rpx 0 10rpx; color: #4d6356; font-size: 24rpx; }
+.picker-field { height: 76rpx; padding: 0 20rpx; border: 1rpx solid #dce7df; border-radius: 12rpx; color: #263c30; background: #f9fbf9; font-size: 26rpx; line-height: 76rpx; }
+.modal-actions { display: flex; gap: 14rpx; margin-top: 24rpx; }
+.modal-button { flex: 1; font-size: 25rpx; line-height: 70rpx; }
+.placeholder { color: #a2afa6; }
+
+@media (max-width: 380px) {
+  .task-title { font-size: 27rpx; }
+  .action-button { min-width: 145rpx; padding: 0 14rpx; }
+}

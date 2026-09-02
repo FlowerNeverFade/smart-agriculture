@@ -87,6 +87,85 @@ test('demo sessions remain explicitly local and switching sessions clears live h
   assert.ok(farms.every((farm) => farm.sourceMode === 'SIMULATED'));
 });
 
+test('巡田读取兼容按地块调用并在正式集合调用中携带农场和地块筛选', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'live';
+  service.token = 'formal-test-token';
+  service.isLive = true;
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url) => {
+    requests.push(String(url));
+    return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  };
+  try {
+    await service.getInspections('plot-a01');
+    await service.getInspections({ farmId: 'farm-demo', plotId: 'plot-a01' });
+    assert.match(requests[0], /\/api\/v1\/plots\/plot-a01\/inspections$/);
+    assert.match(requests[1], /\/api\/v1\/inspections\?farmId=farm-demo&plotId=plot-a01$/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('演示巡田和补证记录按当前农户可见并在重读后保留补证类型', async () => {
+  const service = new ApiService();
+  service.sessionMode = 'demo';
+  service.user = { userId: 'visibility-farmer', username: 'visibility.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const own = await service.createInspection({ farmId: 'farm-demo', plotId: 'plot-a01', notes: '本人现场观察' });
+  const request = await service.createDecisionEvidenceRequest('readiness-demo', {
+    farmId: 'farm-demo', plotId: 'plot-a01', reason: '需要复测', evidenceType: 'RETEST'
+  });
+  assert.equal((await service.getInspections()).some(item => item.inspectionId === own.inspectionId), true);
+  assert.equal((await service.getWorkOrders()).find(item => item.workOrderId === request.workOrderId)?.evidenceType, 'RETEST');
+  service.user = { userId: 'visibility-other', username: 'visibility.other', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  assert.equal((await service.getInspections()).some(item => item.inspectionId === own.inspectionId), false);
+  assert.equal((await service.getWorkOrders()).some(item => item.workOrderId === request.workOrderId), false);
+});
+
+test('演示操作记录跨服务实例保留并供农场管理员读取', async () => {
+  storage.clear();
+  agentSessionStorage.clear();
+  const farmer = new ApiService();
+  farmer.sessionMode = 'demo';
+  farmer.user = { userId: 'persisted-farmer', username: 'persisted.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+  const inspection = await farmer.createInspection({ farmId: 'farm-demo', plotId: 'plot-a01', notes: '跨页面保留的巡田记录' });
+  const request = await farmer.createDecisionEvidenceRequest('readiness-persisted', {
+    farmId: 'farm-demo', plotId: 'plot-a01', reason: '跨页面保留的复测申请', evidenceType: 'RETEST'
+  });
+
+  const reloadedFarmer = new ApiService();
+  reloadedFarmer.sessionMode = 'demo';
+  reloadedFarmer.user = farmer.user;
+  assert.equal((await reloadedFarmer.getInspections()).some(item => item.inspectionId === inspection.inspectionId), true);
+  assert.equal((await reloadedFarmer.getWorkOrders()).some(item => item.workOrderId === request.workOrderId), true);
+
+  const admin = new ApiService();
+  admin.sessionMode = 'demo';
+  admin.user = { userId: 'persisted-admin', username: 'persisted.admin', role: 'FARM_ADMIN', farmIds: ['farm-demo'], plotIds: ['*'] };
+  assert.equal((await admin.getInspections({ farmId: 'farm-demo' })).some(item => item.inspectionId === inspection.inspectionId), true);
+  assert.equal((await admin.getWorkOrders({ farmId: 'farm-demo' })).some(item => item.workOrderId === request.workOrderId), true);
+
+  storage.clear();
+  agentSessionStorage.clear();
+});
+
+test('farmer workspace plot order is isolated by account and survives a reread', async () => {
+  const service = new ApiService();
+  const userId = `plot-order-${Date.now()}`;
+  service.sessionMode = 'demo';
+  service.user = { userId, username: `${userId}.farmer`, role: 'FARMER' };
+
+  const initial = await service.getFarmerWorkspacePreference();
+  assert.deepEqual(initial.plotOrder, []);
+  const saved = await service.saveFarmerWorkspacePreference(['plot-b02', 'plot-a01'], initial.revision);
+  assert.equal(saved.revision, 1);
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, ['plot-b02', 'plot-a01']);
+
+  service.user = { userId: `${userId}-other`, username: `${userId}-other.farmer`, role: 'FARMER' };
+  assert.deepEqual((await service.getFarmerWorkspacePreference()).plotOrder, []);
+});
+
 test('demo resource collaboration persists one shared request lifecycle and enforces participants', async () => {
   const service = new ApiService();
   service.sessionMode = 'demo';

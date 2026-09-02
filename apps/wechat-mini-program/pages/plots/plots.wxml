@@ -1,0 +1,70 @@
+<view class="page plots-page">
+  <view class="page-intro">
+    <view class="section-title">地块状态</view>
+    <view class="muted">查看当前权限范围内的实时指标和风险趋势</view>
+  </view>
+
+  <view wx:if="{{farms.length > 1}}" class="farm-picker card">
+    <text class="picker-label">当前农场</text>
+    <picker mode="selector" range="{{farms}}" range-key="name" value="{{farmIndex}}" bindchange="onFarmChange">
+      <view class="farm-picker-value">{{farms[farmIndex].name}} <text class="picker-arrow">⌄</text></view>
+    </picker>
+  </view>
+
+  <view wx:if="{{loading && !loaded}}" class="loading">正在读取地块数据…</view>
+  <view wx:if="{{error && !loaded}}" class="error-box">{{error}}<button class="secondary retry-button" bindtap="reload">重新加载</button></view>
+
+  <block wx:if="{{loaded}}">
+    <view wx:if="{{plots.length}}">
+      <view wx:for="{{plots}}" wx:key="plotId" class="plot-list-card card {{item.plotId === selectedPlotId ? 'selected' : ''}}" data-id="{{item.plotId}}" bindtap="selectPlot">
+        <view class="plot-list-head">
+          <view>
+            <view class="plot-name">{{item.name}}</view>
+            <view class="plot-sub">{{item.cropName}} · {{item.facilityLabel}}</view>
+          </view>
+          <view class="chip chip-{{item.deviceTone}}">{{item.deviceStatusLabel}}</view>
+        </view>
+        <view class="plot-list-metrics">
+          <view><text class="metric-key">湿度</text><text class="metric-number">{{item.moisture}}</text></view>
+          <view><text class="metric-key">温度</text><text class="metric-number">{{item.temperature}}</text></view>
+          <view><text class="metric-key">水位</text><text class="metric-number">{{item.waterLevel}}</text></view>
+        </view>
+      </view>
+    </view>
+    <view wx:else class="card empty">当前范围还没有可显示的地块</view>
+
+    <view wx:if="{{selectedPlot}}" class="detail-card card">
+      <view class="detail-head">
+        <view>
+          <view class="section-title">{{selectedPlot.name}}</view>
+          <view class="muted">{{selectedPlot.cropName}} · {{selectedPlot.stageLabel}} · {{selectedPlot.scenarioLabel}}</view>
+        </view>
+        <button class="secondary small-button" bindtap="askAssistant">问助手</button>
+      </view>
+      <view class="detail-device"><text>设备：{{selectedPlot.deviceLabel}}</text><text class="muted">{{selectedPlot.lastSeenLabel}}</text></view>
+      <view class="metric-tabs">
+        <button wx:for="{{metricOptions}}" wx:key="code" class="metric-tab {{item.active ? 'active' : ''}}" data-code="{{item.code}}" bindtap="onMetricChange">{{item.label}}</button>
+      </view>
+      <view class="metric-current">
+        <view class="current-label">{{selectedMetricLabel}}</view>
+        <view class="current-value">{{selectedMetricValue}}</view>
+        <view class="tiny">最近 24 条读数 · {{selectedPlot.deviceStatusLabel}}</view>
+      </view>
+      <view class="telemetry-list" wx:if="{{telemetry.length}}">
+        <view wx:for="{{telemetry}}" wx:key="index" class="telemetry-row">
+          <text>{{item.timeLabel}}</text><text class="telemetry-value">{{item.valueLabel}}</text><text class="tiny">{{item.quality}}</text>
+        </view>
+      </view>
+      <view wx:else class="empty detail-empty">暂无该指标的历史读数</view>
+
+      <view class="forecast-box" wx:if="{{forecast.available}}">
+        <view class="forecast-head"><text class="forecast-title">风险趋势</text><text class="chip chip-{{forecast.tone}}">{{forecast.statusLabel}}</text></view>
+        <view class="forecast-summary">{{forecast.summary}}</view>
+        <view class="forecast-points" wx:if="{{forecast.points.length}}">
+          <view wx:for="{{forecast.points}}" wx:key="index" class="forecast-point"><text>{{item.timeLabel}}</text><text>{{item.valueLabel}}</text></view>
+        </view>
+      </view>
+      <view class="forecast-box unavailable" wx:else><text class="forecast-title">风险趋势</text><text class="muted">{{forecast.summary}}</text></view>
+    </view>
+  </block>
+</view>

@@ -9,8 +9,10 @@ import org.springframework.test.context.ActiveProfiles;
 
 import java.util.Map;
 import java.util.List;
+import java.util.LinkedHashMap;
 import java.util.Set;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -25,9 +27,11 @@ class AgriApplicationTest {
     @Autowired AgriEventBus eventBus;
     @Autowired SimulationEngine simulationEngine;
     @Autowired SimulatorControl simulatorControl;
+    @Autowired AgriProperties properties;
 
     @AfterEach
     void stopInProcessSimulator() {
+        properties.setSystemAdminAuthorizationCode("");
         if (simulationEngine == null) return;
         simulationEngine.stop();
         simulationEngine.updateSettings(Map.of("sampleIntervalSeconds", 20, "timeScale", 144));
@@ -123,7 +127,7 @@ class AgriApplicationTest {
     }
 
     @Test
-    void accountRoleSelectionIsVerifiedAndAdminSelfRegistrationIsBlocked() {
+    void accountRoleSelectionAndControlledThreeRoleRegistrationAreEnforced() {
         assertThat(RolePolicy.canonical("FIELD_OPERATOR")).isEqualTo("FARMER");
         assertThat(RolePolicy.canonical("operator")).isEqualTo("FARMER");
         Map<String, Object> farmerLogin = engine.login("farmer", "demo123", "FARMER");
@@ -146,12 +150,256 @@ class AgriApplicationTest {
         assertThat(((Map<?, ?>) registration.get("user")).get("role")).isEqualTo("FARMER");
         assertThat(engine.login(username, "FieldPass2026", "FARMER")).containsKey("accessToken");
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("farmadmin" + System.nanoTime(), "AdminPass2026", "FARM_ADMIN"))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("admin" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
-                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_REQUIRES_ADMIN"));
+        String farmAdminUsername = "manager" + System.nanoTime();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(farmAdminUsername, "AdminPass2026", "FARM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_PROFILE_INVALID"));
+        Map<String, Object> farmAdminRegistration = engine.register(farmAdminUsername, "AdminPass2026", "FARM_ADMIN", "",
+                Map.of("name", "青禾家庭农场", "region", "重庆市 · 渝北区"));
+        Map<?, ?> registeredFarmAdmin = (Map<?, ?>) farmAdminRegistration.get("user");
+        assertThat(registeredFarmAdmin.get("role")).isEqualTo("FARM_ADMIN");
+        assertThat(Jsons.strings(registeredFarmAdmin.get("farmIds"))).singleElement().satisfies(farmId -> assertThat(farmId).startsWith("farm-"));
+        assertThat(Jsons.strings(registeredFarmAdmin.get("plotIds"))).isEmpty();
+        String registeredFarmId = Jsons.strings(registeredFarmAdmin.get("farmIds")).get(0);
+        assertThat(store.find("farm", registeredFarmId)).containsEntry("name", "青禾家庭农场")
+                .containsEntry("region", "重庆市 · 渝北区");
+        assertThat(store.list("plot")).noneMatch(plot -> registeredFarmId.equals(Jsons.text(plot, "farmId", "")));
+        int registeredFarmCount = store.list("farm").size();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(farmAdminUsername, "AdminPass2026", "FARM_ADMIN", "",
+                        Map.of("name", "不应创建的农场", "region", "重庆市 · 南岸区")))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_EXISTS"));
+        assertThat(store.list("farm")).hasSize(registeredFarmCount);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("platform" + System.nanoTime(), "AdminPass2026", "SYSTEM_ADMIN"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_CREATION_DISABLED"));
+        properties.setSystemAdminAuthorizationCode("server-only-auth-code");
+        String systemUsername = "platform" + System.nanoTime();
+        Map<String, Object> systemRegistration = engine.register(systemUsername, "AdminPass2026", "SYSTEM_ADMIN", "server-only-auth-code");
+        Map<?, ?> registeredSystemAdmin = (Map<?, ?>) systemRegistration.get("user");
+        assertThat(registeredSystemAdmin.get("role")).isEqualTo("SYSTEM_ADMIN");
+        assertThat(Jsons.strings(registeredSystemAdmin.get("farmIds"))).containsExactly("*");
+        assertThat(Jsons.strings(registeredSystemAdmin.get("plotIds"))).containsExactly("*");
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("other" + System.nanoTime(), "OtherPass2026", "UNKNOWN"))
                 .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_ROLE_INVALID"));
+    }
+
+    @Test
+    void selfRegisteredFarmAdminsCreateAndManageOnlyTheirOwnDurablePlots() {
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> firstRegistration = engine.register("ownera" + suffix, "StrongPass2026", "FARM_ADMIN", "",
+                Map.of("name", "东篱一号农场", "region", "重庆市 · 巴南区"));
+        Map<String, Object> secondRegistration = engine.register("ownerb" + suffix, "StrongPass2026", "FARM_ADMIN", "",
+                Map.of("name", "东篱二号农场", "region", "四川省 · 成都市"));
+        UserPrincipal first = jwtService.parse(String.valueOf(firstRegistration.get("accessToken")));
+        UserPrincipal second = jwtService.parse(String.valueOf(secondRegistration.get("accessToken")));
+        String firstFarmId = first.farmIds.iterator().next();
+        String secondFarmId = second.farmIds.iterator().next();
+
+        Map<String, Object> plot = adminManagement.createPlot(new LinkedHashMap<>(Map.of(
+                "farmId", firstFarmId,
+                "name", "南坡番茄田",
+                "cropCode", "tomato",
+                "cropName", "番茄",
+                "cropVariety", "千禧",
+                "stageCode", "vegetative",
+                "stageLabel", "营养生长期",
+                "facilityType", "OPEN_FIELD",
+                "growthCycleDays", 120,
+                "areaM2", 96.5
+        )), first);
+        String plotId = Jsons.text(plot, "plotId", "");
+
+        assertThat(first.plotIds).isEmpty();
+        assertThat(engine.canAccessPlot(first, plotId)).isTrue();
+        assertThat(engine.canAccessPlot(second, plotId)).isFalse();
+        assertThat(store.find("plot", plotId)).containsEntry("farmId", firstFarmId).containsEntry("createdBy", first.userId);
+        assertThat(store.list("device")).noneMatch(device -> firstFarmId.equals(Jsons.text(device, "farmId", "")));
+        assertThat(store.telemetry(plotId, null, Instant.EPOCH, Instant.now().plusSeconds(1), 10)).isEmpty();
+        assertThat(store.list("plot")).noneMatch(item -> secondFarmId.equals(Jsons.text(item, "farmId", "")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.updatePlot(plotId, Map.of("name", "越权修改"), second))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
+
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        assertThat(engine.userAccounts(systemAdmin)).filteredOn(account -> first.userId.equals(account.get("userId")))
+                .singleElement().satisfies(account -> assertThat(Jsons.strings(account.get("plotIds"))).containsExactly(plotId));
+    }
+
+    @Test
+    void farmWriteFailureRollsBackTheNewManagerAccount() throws Exception {
+        String suffix = String.valueOf(System.nanoTime());
+        String username = "rollback" + suffix;
+        String invalidFarmId = "f".repeat(121);
+        Map<String, Object> user = new LinkedHashMap<>(Map.of(
+                "userId", "user-rollback-" + suffix,
+                "username", username,
+                "passwordHash", "not-used-by-this-test",
+                "role", "FARM_ADMIN",
+                "farmIds", List.of(invalidFarmId),
+                "plotIds", List.of(),
+                "enabled", true,
+                "recoveryCodeHash", "not-used-by-this-test",
+                "credentialVersion", 1
+        ));
+        Map<String, Object> farm = Map.of(
+                "farmId", invalidFarmId,
+                "name", "事务回滚测试农场",
+                "region", "重庆市",
+                "ownerId", user.get("userId")
+        );
+
+        java.lang.reflect.Field ready = AgriStore.class.getDeclaredField("databaseReady");
+        ready.setAccessible(true);
+        boolean original = ready.getBoolean(store);
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> store.createUserWithFarmDurably(user, farm))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+        } finally {
+            ready.setBoolean(store, original);
+        }
+        assertThat(store.userByUsername(username)).isNull();
+        assertThat(store.find("farm", invalidFarmId)).isNull();
+    }
+
+    @Test
+    void systemAdminAuthorizationIsDisabledValidatedAndRateLimited() {
+        String disabledUser = "disabled" + System.nanoTime();
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(disabledUser, "StrongPass2026", "SYSTEM_ADMIN", "anything"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_CREATION_DISABLED"));
+
+        properties.setSystemAdminAuthorizationCode("correct-server-code");
+        String limitedUser = "limitedadmin" + System.nanoTime();
+        for (int attempt = 0; attempt < 4; attempt++) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "wrong-code"))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_INVALID"));
+        }
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "wrong-code"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register(limitedUser, "StrongPass2026", "SYSTEM_ADMIN", "correct-server-code"))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED"));
+    }
+
+    @Test
+    void globalAccountManagementScopesUsersAndProtectsEverySystemAdmin() {
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        UserPrincipal farmAdmin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+        properties.setSystemAdminAuthorizationCode("account-management-code");
+        String suffix = String.valueOf(System.nanoTime());
+
+        Map<String, Object> farmer = engine.createUserAccount(Map.of(
+                "username", "managedfarmer" + suffix, "password", "StrongPass2026", "role", "FARMER",
+                "farmId", "farm-demo", "plotIds", List.of("plot-a01")), systemAdmin);
+        Map<String, Object> manager = engine.createUserAccount(Map.of(
+                "username", "managedadmin" + suffix, "password", "StrongPass2026", "role", "FARM_ADMIN",
+                "farmId", "farm-demo"), systemAdmin);
+        Map<String, Object> protectedAdmin = engine.createUserAccount(Map.of(
+                "username", "managedsystem" + suffix, "password", "StrongPass2026", "role", "SYSTEM_ADMIN",
+                "authorizationCode", "account-management-code"), systemAdmin);
+
+        assertThat(Jsons.strings(farmer.get("plotIds"))).containsExactly("plot-a01");
+        assertThat(Jsons.strings(manager.get("plotIds"))).contains("plot-a01", "plot-a02", "plot-b01");
+        assertThat(Jsons.strings(protectedAdmin.get("farmIds"))).containsExactly("*");
+        assertThat(engine.userAccounts(systemAdmin)).filteredOn(account -> farmer.get("userId").equals(account.get("userId")))
+                .singleElement().satisfies(account -> assertThat(account).doesNotContainKeys("passwordHash", "recoveryCodeHash", "recoveryCode"));
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.userAccounts(farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_MANAGEMENT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createUserAccount(Map.of(
+                        "username", "forbidden" + suffix, "password", "StrongPass2026", "role", "FARM_ADMIN", "farmId", "farm-demo"), farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_MANAGEMENT_FORBIDDEN"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.createFarmMember(new java.util.LinkedHashMap<>(Map.of(
+                        "farmId", "farm-demo", "username", "elevated" + suffix, "password", "StrongPass2026", "role", "SYSTEM_ADMIN")), farmAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("MEMBER_ROLE_FORBIDDEN"));
+
+        String farmerId = Jsons.text(farmer, "userId", "");
+        assertThat(engine.updateUserAccountStatus(farmerId, Map.of("enabled", false), systemAdmin)).containsEntry("enabled", false);
+        assertThat(engine.updateUserAccountStatus(farmerId, Map.of("enabled", true), systemAdmin)).containsEntry("enabled", true);
+        String protectedId = Jsons.text(protectedAdmin, "userId", "");
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.updateUserAccountStatus(protectedId, Map.of("enabled", false), systemAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_SYSTEM_ADMIN_PROTECTED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.deleteAccount(protectedId, systemAdmin))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_SYSTEM_ADMIN_PROTECTED"));
+
+        assertThat(engine.deleteAccount(farmerId, systemAdmin)).containsEntry("removed", true);
+        assertThat(engine.deleteAccount(Jsons.text(manager, "userId", ""), systemAdmin)).containsEntry("removed", true);
+    }
+
+    @Test
+    void accountWritesFailClosedWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal systemAdmin = new UserPrincipal("user-system", "sysadmin", "SYSTEM_ADMIN", List.of("*"), List.of("*"));
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> account = engine.createUserAccount(Map.of(
+                "username", "durable" + suffix, "password", "StrongPass2026", "role", "FARMER",
+                "farmId", "farm-demo", "plotIds", List.of()), systemAdmin);
+        int farmCountBeforeFailure = store.list("farm").size();
+        String rejectedPlotId = "plot-offline-" + suffix;
+        java.lang.reflect.Field ready = AgriStore.class.getDeclaredField("databaseReady");
+        ready.setAccessible(true);
+        ready.setBoolean(store, false);
+        try {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("offline" + suffix, "StrongPass2026", "FARMER"))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.register("offlineadmin" + suffix, "StrongPass2026", "FARM_ADMIN", "",
+                            Map.of("name", "离线农场", "region", "重庆市 · 江北区")))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> adminManagement.createPlot(new LinkedHashMap<>(Map.of(
+                            "plotId", rejectedPlotId, "farmId", "farm-demo", "name", "离线地块", "cropCode", "tomato",
+                            "cropVariety", "千禧", "facilityType", "OPEN_FIELD", "growthCycleDays", 120, "areaM2", 80)),
+                    new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of())))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("PLOT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.updateUserAccountStatus(Jsons.text(account, "userId", ""), Map.of("enabled", false), systemAdmin))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.deleteAccount(Jsons.text(account, "userId", ""), systemAdmin))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ACCOUNT_PERSISTENCE_UNAVAILABLE"));
+        } finally {
+            ready.setBoolean(store, true);
+        }
+        assertThat(store.list("farm")).hasSize(farmCountBeforeFailure);
+        assertThat(store.find("plot", rejectedPlotId)).isNull();
+        assertThat(engine.deleteAccount(Jsons.text(account, "userId", ""), systemAdmin)).containsEntry("removed", true);
+    }
+
+    @Test
+    void farmerPlotOrderIsStableScopedAndOptimisticallyLocked() {
+        String suffix = String.valueOf(System.nanoTime());
+        String firstId = "plot-order-a-" + suffix;
+        String middleId = "plot-order-m-" + suffix;
+        String lastId = "plot-order-z-" + suffix;
+        List<String> plotIds = List.of(firstId, middleId, lastId);
+        plotIds.forEach(plotId -> store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", plotId, "status", "ACTIVE"))));
+        String userId = "farmer-plot-order-" + suffix;
+        UserPrincipal farmer = new UserPrincipal(userId, "plot-order-farmer", "FARMER", List.of("farm-demo"), plotIds);
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        try {
+            Map<String, Object> initial = responseData(controller.farmerWorkspacePreference(authentication));
+            assertThat(initial.get("revision")).isEqualTo(0L);
+            assertThat(initial.get("plotOrder")).isEqualTo(plotIds);
+
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> apiPlots = (List<Map<String, Object>>) ((Map<String, Object>) controller
+                    .plots(null, null, false, authentication).getBody()).get("data");
+            assertThat(apiPlots).extracting(plot -> plot.get("plotId")).containsExactly(firstId, middleId, lastId);
+
+            Map<String, Object> saved = responseData(controller.updateFarmerWorkspacePreference(Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), authentication));
+            assertThat(saved.get("revision")).isEqualTo(1L);
+            assertThat(saved.get("plotOrder")).isEqualTo(List.of(lastId, firstId, middleId));
+            assertThat(responseData(controller.farmerWorkspacePreference(authentication)).get("plotOrder"))
+                    .isEqualTo(List.of(lastId, firstId, middleId));
+
+            UserPrincipal otherFarmer = new UserPrincipal(userId + "-other", "plot-order-other", "FARMER",
+                    List.of("farm-demo"), List.of(firstId));
+            var otherAuthentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(otherFarmer, null, List.of());
+            assertThat(responseData(controller.farmerWorkspacePreference(otherAuthentication)).get("plotOrder"))
+                    .isEqualTo(List.of(firstId));
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmerWorkspacePreference(Map.of(
+                            "plotOrder", List.of(firstId, lastId), "expectedRevision", 0), authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
+                            .isEqualTo("FARMER_WORKSPACE_PREFERENCE_CONFLICT"));
+        } finally {
+            store.delete("user-preference", userId + ":FARMER_WORKSPACE");
+            plotIds.forEach(plotId -> store.delete("plot", plotId));
+        }
     }
 
     @Test
@@ -783,6 +1031,50 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerCanReportSpecificIssueOnceAndFarmAdminReceivesReport() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        String suffix = String.valueOf(System.nanoTime());
+        Map<String, Object> created = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "title", "问题上报闭环测试-" + suffix,
+                "reason", "执行后反馈异常", "actionType", "INSPECTION", "priority", "HIGH"), admin);
+        String workOrderId = String.valueOf(created.get("workOrderId"));
+        engine.assignWorkOrder(workOrderId, Map.of("assigneeId", "user-farmer"), admin);
+
+        Map<String, Object> report = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水", "priority", "HIGH"), farmer);
+        assertThat(report).containsEntry("sourceType", "FARMER_REPORT")
+                .containsEntry("sourceRef", workOrderId)
+                .containsEntry("reason", "北侧滴灌管接头持续漏水，无法按计划完成补水")
+                .containsEntry("reused", false)
+                .containsEntry("sourceWorkOrderId", workOrderId);
+        String reportId = String.valueOf(report.get("workOrderId"));
+        assertThat(store.find("work-order", workOrderId))
+                .containsEntry("issueReportId", reportId)
+                .containsEntry("issueReportStatus", "OPEN")
+                .containsEntry("issueReportDescription", "北侧滴灌管接头持续漏水，无法按计划完成补水");
+
+        Map<String, Object> repeated = engine.reportWorkOrderIssue(workOrderId,
+                Map.of("description", "北侧滴灌管接头持续漏水，无法按计划完成补水"), farmer);
+        assertThat(repeated).containsEntry("workOrderId", reportId).containsEntry("reused", true);
+        assertThat(store.list("work-order").stream()
+                .filter(item -> workOrderId.equals(Jsons.text(item, "sourceRef", "")))
+                .filter(item -> "FARMER_REPORT".equals(Jsons.text(item, "sourceType", "")))
+                .count()).isEqualTo(1);
+
+        assertThat(engine.workOrders(Map.of(), admin)).anyMatch(item -> reportId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).anyMatch(item -> workOrderId.equals(item.get("workOrderId")));
+        assertThat(engine.workOrders(Map.of(), farmer)).noneMatch(item -> reportId.equals(item.get("workOrderId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", "其他农户尝试上报"), otherFarmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("WORK_ORDER_ASSIGNEE_REQUIRED"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.reportWorkOrderIssue(workOrderId,
+                        Map.of("description", " "), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("ISSUE_DESCRIPTION_REQUIRED"));
+    }
+
+    @Test
     void overdueReassignmentRequiresAFutureRenewedDueAt() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> created = engine.createWorkOrder(Map.of(
@@ -886,6 +1178,33 @@ class AgriApplicationTest {
     }
 
     @Test
+    void inspectionVisibilityIsScopedByOperatorAssignmentFarmAndFilters() {
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+        UserPrincipal otherFarmer = new UserPrincipal("user-other", "other", "FARMER", List.of("farm-demo"), List.of("plot-a01", "plot-a02"));
+
+        Map<String, Object> adminRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().minusSeconds(20).toString(),
+                "soilSurface", "NORMAL", "notes", "管理员独立巡田-" + System.nanoTime())), admin);
+        Map<String, Object> farmerRecord = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", "plot-a02", "observedAt", Instant.now().minusSeconds(10).toString(),
+                "soilSurface", "DRY", "notes", "农户本人巡田-" + System.nanoTime())), farmer);
+
+        String adminInspectionId = String.valueOf(adminRecord.get("inspectionId"));
+        String farmerInspectionId = String.valueOf(farmerRecord.get("inspectionId"));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(farmer, "farm-demo", "")).noneMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(otherFarmer, "farm-demo", "")).noneMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "")).anyMatch(item -> adminInspectionId.equals(item.get("inspectionId")));
+        assertThat(engine.inspections(admin, "farm-demo", "plot-a02")).anyMatch(item -> farmerInspectionId.equals(item.get("inspectionId")));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.inspections(admin, "farm-other", ""))
+                .isInstanceOfSatisfying(ApiException.class, error -> {
+                    assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.FORBIDDEN);
+                    assertThat(error.code).isEqualTo("FARM_FORBIDDEN");
+                });
+    }
+
+    @Test
     void rejectedWorkOrderCanBeRestartedAndTerminalOrdersCannotMove() {
         UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("plot-a01"));
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
@@ -924,8 +1243,7 @@ class AgriApplicationTest {
 
         List<Map<String, Object>> members = engine.farmMembers("farm-demo", admin);
         assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-farmer").containsEntry("role", "FARMER"));
-        assertThat(members).anySatisfy(member -> assertThat(member).containsEntry("userId", "user-admin").containsEntry("role", "FARM_ADMIN"));
-        assertThat(members).noneSatisfy(member -> assertThat(member.get("role")).isEqualTo("SYSTEM_ADMIN"));
+        assertThat(members).allSatisfy(member -> assertThat(member.get("role")).isEqualTo("FARMER"));
         assertThat(members).allSatisfy(member -> {
             assertThat(member).containsOnlyKeys("userId", "username", "displayName", "role", "roleLabel", "farmIds", "plotIds", "status");
             assertThat(member.get("farmIds")).isEqualTo(List.of("farm-demo"));
@@ -1085,6 +1403,37 @@ class AgriApplicationTest {
     }
 
     @Test
+    void operationRecordsRejectWritesWhenPersistenceIsUnavailable() throws Exception {
+        UserPrincipal farmer = new UserPrincipal("farmer-operation-persistence", "farmer-operation-persistence", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        long inspectionsBefore = store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")));
+        long requestsBefore = store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")));
+        var databaseReady = AgriStore.class.getDeclaredField("databaseReady");
+        databaseReady.setAccessible(true);
+        boolean original = databaseReady.getBoolean(store);
+        try {
+            databaseReady.setBoolean(store, false);
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "observedAt", Instant.now().toString(),
+                            "soilSurface", "DRY", "notes", "数据库不可用时不应伪装成功")), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.createWorkOrder(Map.of(
+                            "farmId", "farm-demo", "plotId", "plot-a01", "sourceType", "READINESS",
+                            "actionType", "INSPECTION", "evidenceType", "RETEST", "reason", "数据库不可用时不应伪装成功"), farmer))
+                    .isInstanceOfSatisfying(ApiException.class, error -> {
+                        assertThat(error.status).isEqualTo(org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE);
+                        assertThat(error.code).isEqualTo("OPERATION_RECORD_PERSISTENCE_UNAVAILABLE");
+                    });
+            assertThat(store.countWhere("inspection", item -> "farmer-operation-persistence".equals(item.get("operatorId")))).isEqualTo(inspectionsBefore);
+            assertThat(store.countWhere("work-order", item -> "farmer-operation-persistence".equals(item.get("requesterId")))).isEqualTo(requestsBefore);
+        } finally {
+            databaseReady.setBoolean(store, original);
+        }
+    }
+
+    @Test
     void normalLightVariationIsNotMistakenForSensorDegradation() {
         engine.ingest(Map.of("eventId", "light-baseline-event", "plotId", "plot-a02", "deviceId", "mock-plot-a02",
                 "metric", "LIGHT", "value", 38_000.0, "unit", "lux", "scenarioId", "normal", "ts", Instant.now().toString()));
@@ -1220,8 +1569,8 @@ class AgriApplicationTest {
         List<?> farmerMessages = (List<?>) engine.agentHistory(farmerConversation, 20, farmer).get("messages");
         assertThat(farmerMessages).hasSize(2);
         assertThat(farmerMessages.toString()).contains("番茄现在需要关注什么").doesNotContain("今天有哪些农务");
-        assertThat(engine.agentConversations(20, false, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
-        assertThat(engine.agentConversations(20, false, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, null, farmer)).allMatch(item -> "user-farmer".equals(item.get("userId")));
+        assertThat(engine.agentConversations(20, false, null, secondFarmer)).allMatch(item -> "user-farmer-b".equals(item.get("userId")));
 
         org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.agentHistory(farmerConversation, 20, secondFarmer))
                 .isInstanceOf(ApiException.class);
@@ -1513,6 +1862,59 @@ class AgriApplicationTest {
                 Map.of("targetStatus", "ONLINE", "idempotencyKey", "test-online-" + deviceId), admin);
         assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
         assertThat(Jsons.map(new ObjectMapper(), online.get("device"))).containsEntry("status", "ONLINE");
+    }
+
+    @Test
+    void simulatedDeviceOnlineControlWinsOverOfflineScenarioAcrossTicks() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-device-recovery-" + suffix;
+        // Registered simulator ids are not required to use the historical
+        // mock-<plotId> convention. The engine must follow the bound record.
+        String deviceId = "002-" + suffix;
+        UserPrincipal admin = new UserPrincipal("user-admin-recovery-" + suffix, "admin-recovery-" + suffix,
+                "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        boolean simulatorWasRunning = "RUNNING".equals(String.valueOf(simulationEngine.status().get("status")));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "设备恢复测试田", "cropCode", "tomato", "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", "farm-demo", "plotId", plotId, "bindingState", "BOUND",
+                "sourceMode", "SIMULATION", "dataOrigin", "SIMULATOR", "status", "OFFLINE",
+                "desiredStatus", "OFFLINE", "controlStatus", "SUCCEEDED")));
+        try {
+            engine.updatePlotSimulation(plotId, Map.of("scenario", "DEVICE_OFFLINE"), admin);
+            simulationEngine.stop();
+            Map<String, Object> online = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "ONLINE", "idempotencyKey", "recovery-online-" + suffix), admin);
+            assertThat(online).containsEntry("commandStatus", "SUCCEEDED");
+            assertThat(Jsons.map(new ObjectMapper(), online.get("device")))
+                    .containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+
+            simulationEngine.tickOnce();
+            simulationEngine.tickOnce();
+            Map<String, Object> recovered = store.find("device", deviceId);
+            assertThat(recovered).containsEntry("status", "ONLINE").containsEntry("manualStatusOverride", "ONLINE");
+            List<Map<String, Object>> samples = store.telemetry(plotId, null, Instant.EPOCH, Instant.now().plus(1, ChronoUnit.DAYS), 1000);
+            assertThat(samples).isNotEmpty();
+            assertThat(samples).allSatisfy(sample -> assertThat(sample).containsEntry("deviceId", deviceId));
+
+            engine.markStaleDevicesOffline();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "ONLINE");
+
+            Map<String, Object> offline = engine.controlDevice(deviceId,
+                    Map.of("targetStatus", "OFFLINE", "idempotencyKey", "recovery-offline-" + suffix), admin);
+            assertThat(Jsons.map(new ObjectMapper(), offline.get("device")))
+                    .containsEntry("status", "OFFLINE").containsEntry("manualStatusOverride", "OFFLINE");
+            int telemetryBefore = store.telemetryCount(plotId);
+            simulationEngine.tickOnce();
+            assertThat(store.find("device", deviceId)).containsEntry("status", "OFFLINE");
+            assertThat(store.telemetryCount(plotId)).isEqualTo(telemetryBefore);
+        } finally {
+            store.delete("plot-simulation", plotId);
+            store.delete("device", deviceId);
+            store.delete("plot", plotId);
+            store.deleteSimulatedTelemetryForPlot(plotId);
+            if (simulatorWasRunning) simulationEngine.start(true);
+        }
     }
 
     @Test

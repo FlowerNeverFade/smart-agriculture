@@ -410,7 +410,9 @@ class CropPackCatalog {
                 } else {
                     String label = String.valueOf(value == null ? "" : value).trim();
                     if (label.isBlank()) continue;
-                    stage = index < existing.size() ? Jsons.copy(mapper, existing.get(index)) : new LinkedHashMap<>();
+                    stage = index < existing.size() && existing.get(index) instanceof Map<?, ?>
+                            ? Jsons.copy(mapper, existing.get(index))
+                            : new LinkedHashMap<>();
                     stage.put("label", label);
                 }
                 String label = Jsons.text(stage, "label", Jsons.text(stage, "code", "阶段 " + (index + 1))).trim();
