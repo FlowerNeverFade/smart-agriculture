@@ -1953,6 +1953,9 @@
   gap: 20px;
   margin-bottom: 20px;
 }
+/* 灌溉卡内已保留紧凑湿度趋势，避免重复大图拉出左侧空白列。 */
+.farmer-irrigation-advice-grid { grid-template-columns: minmax(0, 1fr); }
+.farmer-irrigation-advice-grid > .farmer-irrigation-card { min-width: 0; }
 .farmer-operation-subsystem-tabs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

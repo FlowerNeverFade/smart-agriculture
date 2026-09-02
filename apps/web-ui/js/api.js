@@ -4088,10 +4088,11 @@ export class ApiService {
       policyVersion: 'readiness-v2',
       evaluatedAt: new Date().toISOString()
     };
+    const manualAvailable = canControl && manualLimits.maxWaterLitre >= 0.1;
     const manualFallback = {
-      available: manualBlockedState && canControl && manualLimits.maxWaterLitre >= 0.1,
-      reasonCode: manualBlockedState ? (primary === 'SENSOR_DRIFT' ? 'DATA_CONFLICT' : 'SAFETY_GATE_BLOCKED') : 'NONE',
-      reason: manualBlockedState ? planWhy : '当前没有需要人工兜底的灌溉阻塞',
+      available: manualAvailable,
+      reasonCode: manualBlockedState ? (primary === 'SENSOR_DRIFT' ? 'DATA_CONFLICT' : 'SAFETY_GATE_BLOCKED') : 'MANUAL_OPERATOR_REQUEST',
+      reason: manualBlockedState ? planWhy : noAction ? '当前处方无自动灌溉建议，如现场需要可单独发起人工浇灌' : '当前操作人可按现场需要发起虚拟人工浇灌',
       bypassedGates: manualBlockedGates,
       virtualOnly: true,
       noCooldown: true,
@@ -4160,7 +4161,7 @@ export class ApiService {
   }
 
   _demoManualWaterLimits(plotId, plot = this.mockPlot(plotId)) {
-    const profile = MOCK_DATA.resourceProfile || {};
+    const profile = this.demoWaterProfile || MOCK_DATA.resourceProfile || {};
     const flow = Math.max(1, Number(profile.flowRateLitresPerMinute || 18));
     const dailyQuota = Math.max(0, Number(profile.dailyQuotaLitres || profile.capacityLitres || DEFAULT_RESERVOIR_LITRES));
     const balance = this.demoWaterBalance || {};
@@ -4771,6 +4772,19 @@ export class ApiService {
       }
       this.demoPlots.set(plotId, { ...demoPlot, metrics, updatedAt: new Date().toISOString() });
     }
+    // Keep the demo reservoir balance in step with normal farmer execution.
+    // Otherwise the next plot would see the old top-level balance while the
+    // command history made the per-plan limit appear exhausted.
+    if (['SUCCEEDED', 'PARTIAL'].includes(outcome) && actualWater > 0 && this.demoWaterBalance) {
+      this.demoWaterBalance.actualUsedLitres = Number((Number(this.demoWaterBalance.actualUsedLitres || 0) + actualWater).toFixed(1));
+      this.demoWaterBalance.usedLitres = this.demoWaterBalance.actualUsedLitres;
+      this.demoWaterBalance.remainingLitres = Number(Math.max(0,
+        Number(this.demoWaterBalance.dailyQuotaLitres || 0)
+          - Number(this.demoWaterBalance.reservedLitres || 0)
+          - this.demoWaterBalance.actualUsedLitres
+      ).toFixed(1));
+      this.demoWaterBalance.revision = Number(this.demoWaterBalance.revision || 0) + 1;
+    }
     this._demoSaveWorkspaceState();
     return command;
   }
@@ -4830,7 +4844,7 @@ export class ApiService {
 
   async executeManualIrrigation({ plotId, sourcePlanId, waterLitre, confirmed = false, idempotencyKey = '', source = 'farmer-manual-fallback', outcome = 'SUCCEEDED' } = {}) {
     if (!plotId) throw new ApiError('人工浇灌前必须明确地块', { status: 400, code: 'PLOT_CONTEXT_REQUIRED' });
-    if (!sourcePlanId) throw new ApiError('人工浇灌必须关联被阻塞的灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });
+    if (!sourcePlanId) throw new ApiError('人工浇灌必须关联当前灌溉处方', { status: 400, code: 'MANUAL_SOURCE_PLAN_REQUIRED' });
     if (!canExecuteIrrigation(this.user)) throw new ApiError('当前身份没有灌溉执行权限', { status: 403, code: 'CONTROL_FORBIDDEN' });
     if (confirmed !== true) throw new ApiError('人工浇灌需要当前操作人明确确认', { status: 409, code: 'CONFIRMATION_REQUIRED' });
     const key = idempotencyKey || `manual-irrigation-${sourcePlanId}-${Date.now()}`;
@@ -4859,7 +4873,7 @@ export class ApiService {
     }
     const plan = await this.estimateIrrigation({ plotId, diagnosisId: sourcePlan.diagnosisId, scenarioId: sourcePlan.simulation?.scenario || 'NORMAL', traceId: sourcePlan.traceId });
     const fallback = plan.manualFallback || {};
-    if (fallback.available !== true) throw new ApiError('当前地块不再处于可人工兜底的灌溉阻塞状态', { status: 409, code: 'MANUAL_FALLBACK_NOT_AVAILABLE' });
+    if (fallback.available !== true) throw new ApiError('当前地块人工浇灌暂不可提交，请检查权限和水量上限', { status: 409, code: 'MANUAL_FALLBACK_NOT_AVAILABLE' });
     const limits = this._demoManualWaterLimits(plotId, this.mockPlot(plotId));
     const maxWater = Number(limits.maxWaterLitre);
     if (Number.isFinite(maxWater) && numericWater > maxWater + 0.0001) {

@@ -2348,7 +2348,8 @@ const app = createApp({
       const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
       return plan?.manualFallback || null;
     });
-    const manual_irrigation_available = computed(() => manual_irrigation_fallback.value?.available === true && !advice_is_no_action.value);
+    // 人工浇灌入口始终保留；是否真的能提交由当前处方、权限和最新资源上限在打开/提交时校验。
+    const manual_irrigation_available = computed(() => Boolean(manual_irrigation_fallback.value));
     const manual_irrigation_limits = computed(() => manual_irrigation_fallback.value?.constraints || {
       minWaterLitre: 0.1,
       maxWaterLitre: 0,
@@ -4458,8 +4459,10 @@ const app = createApp({
     };
 
     const open_manual_irrigation = () => {
-      if (!manual_irrigation_available.value) {
-        show_toast('当前地块没有可用的人工浇灌兜底', 'error');
+      const plotId = advice_plot.value?.plotId;
+      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
+      if (!plotId || !plan?.planId) {
+        show_toast('当前地块处方尚未加载完成，请稍候重试', 'warning');
         return;
       }
       show_suggestion_flow.value = false;
@@ -4469,8 +4472,6 @@ const app = createApp({
       manual_irrigation_result.value = null;
       manual_irrigation_error.value = '';
       manual_irrigation_busy.value = false;
-      const plotId = advice_plot.value?.plotId;
-      const plan = irrigation_plan.value?.plotId === plotId ? irrigation_plan.value : advice_plan.value;
       manual_irrigation_idempotency_key.value = `manual-irrigation-${plan?.planId || plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       show_manual_irrigation.value = true;
     };
@@ -4487,8 +4488,8 @@ const app = createApp({
       const water = Number(manual_irrigation_water.value);
       const limits = manual_irrigation_limits.value;
       manual_irrigation_error.value = '';
-      if (!manual_irrigation_available.value || !plan?.planId || !plotId) {
-        manual_irrigation_error.value = '当前地块已不再处于可人工兜底状态，请刷新后重试';
+      if (!plan?.planId || !plotId) {
+        manual_irrigation_error.value = '当前地块处方尚未加载完成，请刷新后重试';
         return;
       }
       if (!Number.isFinite(water) || water < Number(limits.minWaterLitre || 0.1)) {
@@ -4500,7 +4501,7 @@ const app = createApp({
         return;
       }
       if (!manual_irrigation_confirmed.value) {
-        manual_irrigation_error.value = '请先确认地块、阻塞原因和本次水量';
+        manual_irrigation_error.value = '请先确认地块、当前湿度和本次水量';
         return;
       }
       manual_irrigation_busy.value = true;
