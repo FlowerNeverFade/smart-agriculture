@@ -1621,6 +1621,9 @@ class AgriEngine {
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
     private static final Set<String> DEVICE_CONTROL_TERMINAL = Set.of("SUCCEEDED", "FAILED", "TIMEOUT");
+    /** Terminal irrigation commands are already reflected in the daily balance and must not reserve reservoir capacity again. */
+    private static final Set<String> WATER_COMMAND_TERMINAL_STATUSES = Set.of(
+            "SUCCEEDED", "COMPLETED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED", "INCONCLUSIVE", "REJECTED", "EXPIRED");
     private static final Duration AGENT_ACTION_TTL = Duration.ofMinutes(10);
     private static final Set<String> AGENT_MUTATION_TOOLS = Set.of("create_plot", "update_plot", "set_plot_devices",
             "create_and_assign_work_order", "publish_alert_verification", "close_alert",
@@ -4548,8 +4551,7 @@ class AgriEngine {
             dailyRemaining = Math.max(0, Jsons.number(balance, "remainingLitres", dailyRemaining));
             double allocated = store.list("command").stream()
                     .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")))
-                    .filter(c -> !Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED")
-                            .contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
+                    .filter(c -> !WATER_COMMAND_TERMINAL_STATUSES.contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
                     .mapToDouble(c -> Jsons.number(c, "waterLitre", 0)).sum();
             capacityRemaining = Math.max(0, Jsons.number(resource, "capacityLitres", dailyRemaining) - allocated);
         } else {

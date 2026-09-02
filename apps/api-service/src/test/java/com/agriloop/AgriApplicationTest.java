@@ -674,6 +674,10 @@ class AgriApplicationTest {
                 "commandId", "historical-water-" + suffix, "plotId", plotId, "type", "IRRIGATION_START",
                 "status", "SUCCEEDED", "waterLitre", 115.0,
                 "ack", Map.of("status", "SUCCEEDED", "actualWaterLitre", 115.0, "receivedAt", Instant.now().toString()))));
+        store.save("command", "completed-water-" + suffix, new java.util.LinkedHashMap<>(Map.of(
+                "commandId", "completed-water-" + suffix, "plotId", plotId, "type", "IRRIGATION_START",
+                "status", "COMPLETED", "waterLitre", 115.0,
+                "ack", Map.of("status", "SUCCEEDED", "actualWaterLitre", 115.0, "receivedAt", Instant.now().toString()))));
         Instant observedAt = Instant.now();
         engine.ingest(Map.ofEntries(
                 Map.entry("eventId", "water-balance-soil-" + suffix), Map.entry("farmId", farmId),
