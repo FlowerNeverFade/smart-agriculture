@@ -81,7 +81,7 @@ test('逾期一键重新分配优先选择其他有权限且负载更低的在�
   assert.equal(choice.activeLoad, 0);
 });
 
-test('逾期一键处置强制排除原负责人，没有替代人选时不回退原负责人', () => {
+test('逾期一键重新分配强制排除原负责人，没有替代人选时不回退原负责人', () => {
   const order = { workOrderId: 'wo-overdue', farmId: 'farm-demo', plotId: 'plot-a01', assigneeId: 'farmer-old', status: 'IN_PROGRESS' };
   const members = [
     { userId: 'farmer-old', displayName: '原负责人', role: 'FARMER', status: 'ACTIVE', farmIds: ['farm-demo'], plotIds: ['plot-a01'] },
@@ -92,7 +92,7 @@ test('逾期一键处置强制排除原负责人，没有替代人选时不回�
   assert.equal(choice.member.userId, 'farmer-new');
   assert.notEqual(choice.member.userId, order.assigneeId);
   assert.equal(chooseWorkOrderAssignee(members.slice(0, 1), [order], order, 'farm-demo', true), null);
-  assert.match(WorkOrderLifecycleView.template, /都会转交给其他合适农户/);
+  assert.match(WorkOrderLifecycleView.template, /将逾期任务转交给其他合适农户/);
 });
 
 test('分配接口缺少字段时仍立即补齐进行中任务的负责人和状态', () => {
@@ -129,11 +129,11 @@ test('逾期处置生成未来时限并使任务离开逾期分区', () => {
   assert.equal(workOrderLane(saved, now), 'IN_PROGRESS');
 });
 
-test('逾期页提供全选、一键重新分配、一键处置和单任务人员处置', () => {
+test('逾期页提供全选、一键重新分配和单任务人员处置', () => {
   assert.match(WorkOrderLifecycleView.template, /逾期任务处置/);
   assert.match(WorkOrderLifecycleView.template, /全选当前任务/);
   assert.match(WorkOrderLifecycleView.template, /一键重新分配/);
-  assert.match(WorkOrderLifecycleView.template, /一键处置/);
+  assert.doesNotMatch(WorkOrderLifecycleView.template, /一键处置/);
   assert.match(WorkOrderLifecycleView.template, /选择人员处置/);
 });
 
