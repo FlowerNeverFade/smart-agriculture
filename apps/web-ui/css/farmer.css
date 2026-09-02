@@ -4431,3 +4431,27 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 .farmer-water-resource-stats small { color: var(--g-text-secondary); font-size: 11px; }
 .farmer-water-resource-stats strong { color: var(--g-text-primary); font-size: 14px; }
 .farmer-water-resource-stats .is-warning strong { color: var(--g-warning); }
+
+/* 桌面端收起农户导航时释放侧栏占位，让内容区完整扩展。 */
+@media (min-width: 761px) {
+  #farmer_app .farmer-sidebar.collapsed {
+    flex: 0 0 0;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    flex: 1 1 0%;
+    width: 0;
+    max-width: none;
+    min-width: 0;
+  }
+}

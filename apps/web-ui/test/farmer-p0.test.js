@@ -355,3 +355,18 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(api, /agriloop-workspace-session/);
   assert.match(api, /_demoSaveWorkspaceState/);
 });
+
+test('role shells constrain overflow and desktop farmer collapse releases the sidebar column', async () => {
+  const [sharedCss, farmerCss, farmerHtml] = await Promise.all([
+    readFile(new URL('../css/style.css', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8'),
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(sharedCss, /html\s*\{\s*overflow:\s*clip/);
+  assert.match(sharedCss, /\.g-body\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*clip/);
+  assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
+  assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
+  assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260902-v5912-release-v1/);
+});
