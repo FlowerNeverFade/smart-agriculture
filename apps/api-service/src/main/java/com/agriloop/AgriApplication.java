@@ -10351,7 +10351,11 @@ class AgriController {
     ResponseEntity<?> overview(@RequestParam(required = false) String farmId, Authentication a) {
         UserPrincipal p = principal(a);
         String selectedFarm = farmId == null || farmId.isBlank()
-                ? p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null) : farmId;
+                // A system administrator's default overview is platform-wide;
+                // an older JWT may still contain one explicit farmId, which
+                // must not silently hide newly registered farm regions.
+                ? (p.isSystemAdmin() ? null : p.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse(null))
+                : farmId;
         return ok(engine.overview(selectedFarm, p));
     }
 
@@ -11190,7 +11194,17 @@ class AgriController {
         if (Jsons.number(plot, "areaM2", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_AREA_INVALID", "地块面积必须大于 0");
         if (Jsons.whole(plot, "growthCycleDays", 0) <= 0) throw new ApiException(HttpStatus.BAD_REQUEST, "PLOT_GROWTH_CYCLE_INVALID", "生长周期必须大于 0 天");
     }
-    private List<Map<String, Object>> filterFarmScope(List<Map<String, Object>> farms, UserPrincipal p) { return farms.stream().filter(f -> p.farmIds.contains("*") || p.farmIds.contains(Jsons.text(f, "farmId", ""))).toList(); }
+    private List<Map<String, Object>> filterFarmScope(List<Map<String, Object>> farms, UserPrincipal p) {
+        // System administrators have a cross-farm read scope even when an
+        // older account record still carries a single farmId.  Keep the
+        // account's explicit scope for farm/farmer roles, but do not let stale
+        // claims hide farms from the platform-wide selector.
+        return farms.stream()
+                .filter(f -> p.isSystemAdmin()
+                        || p.farmIds.contains("*")
+                        || p.farmIds.contains(Jsons.text(f, "farmId", "")))
+                .toList();
+    }
     private UserPrincipal principal(Authentication a) { if (a == null || !(a.getPrincipal() instanceof UserPrincipal p)) throw new ApiException(HttpStatus.UNAUTHORIZED, "AUTH_REQUIRED", "需要登录"); return p; }
     private ResponseEntity<Map<String, Object>> ok(Object data) { return ResponseEntity.ok(ApiResponses.success(data)); }
     private ObjectMapper engineMapper() { try { return new ObjectMapper().registerModule(new JavaTimeModule()); } catch (Exception e) { return new ObjectMapper(); } }

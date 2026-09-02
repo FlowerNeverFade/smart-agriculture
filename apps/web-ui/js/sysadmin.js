@@ -570,6 +570,14 @@ const AdminOverviewView = {
     const toast = inject('toast');
     const showEvents = ref(true);
     const farmFilter = ref('all');
+    // The header selector is the platform-wide farm context for a system
+    // administrator.  Keep the overview's local filter in sync with it while
+    // preserving the explicit "全部农场" option inside the page.
+    watch(() => props.state?.adminContext?.farmId, (farmId) => {
+      if (props.state?.currentUser?.role !== 'SYSTEM_ADMIN') return;
+      const normalized = String(farmId || '').trim();
+      farmFilter.value = normalized || 'all';
+    }, { immediate: true });
     const statusFilter = ref('abnormal');
     const selectedPlot = ref(null);
     const showPlotModal = ref(false);
@@ -632,7 +640,12 @@ const AdminOverviewView = {
       showPlotModal.value = false;
     };
     const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
-      const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
+      // Older snapshots exposed only the display name in `farm`; newer live
+      // records also carry the stable farmId.  Match both so selecting a farm
+      // from the header never depends on a localized name.
+      const farmMatches = farmFilter.value === 'all'
+        || plot.farmId === farmFilter.value
+        || plot.farm === farmFilter.value;
       let statusMatches = true;
       if (statusFilter.value === 'abnormal') {
         statusMatches = plot.status !== 'HEALTHY';
@@ -781,6 +794,9 @@ const AdminResourcesView = {
   props: ['state', 'routeParams'],
   setup(props) {
     const farmFilter = ref(props.routeParams?.farmId || 'all');
+    watch(() => props.routeParams?.farmId, (farmId) => {
+      farmFilter.value = farmId || 'all';
+    }, { immediate: true });
     const statusFilter = ref('active');
     const activeRequestStatuses = new Set(['SUBMITTED', 'IN_REVIEW', 'PENDING_ACK', 'ACKNOWLEDGED', 'CONFLICT_REPORTED']);
     const farms = computed(() => props.state.farms || []);
@@ -1618,6 +1634,17 @@ const AdminSettingsView = {
       props.state.adminUsers = mapSystemMembers(accounts, props.state.farms || []);
       return props.state.adminUsers;
     };
+    const refreshFarmCatalog = async () => {
+      if (props.state?.sessionMode !== 'live') return props.state.farms || [];
+      try {
+        const farms = await api.getFarms();
+        props.state.farms = Array.isArray(farms) ? farms : props.state.farms;
+      } catch {
+        // Account creation already succeeded; a transient catalog refresh
+        // failure is picked up by the normal system-admin polling cycle.
+      }
+      return props.state.farms || [];
+    };
 
     const confirmUserAction = async () => {
       const action = pendingUserAction.value;
@@ -1672,6 +1699,7 @@ const AdminSettingsView = {
           plotIds: draft.role === 'FARMER' ? draft.plotIds : [],
           authorizationCode: draft.role === 'SYSTEM_ADMIN' ? draft.authorizationCode : ''
         });
+        await refreshFarmCatalog();
         await refreshUserAccounts();
         createdRecovery.value = {
           username: user.username,
@@ -2003,7 +2031,9 @@ const app = createApp({
     const selectedFarmId = computed({
       get: () => state.value.adminContext.farmId || state.value.farms[0]?.farmId || '',
       set: farmId => {
-        if (state.value.currentUser?.role === 'FARM_ADMIN') requestContextChange({ farmId, plotId: null, sessionMode: state.value.sessionMode });
+        if (['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role)) {
+          requestContextChange({ farmId, plotId: null, sessionMode: state.value.sessionMode });
+        }
         else state.value.adminContext = { ...state.value.adminContext, farmId };
       }
     });
@@ -2725,6 +2755,19 @@ const app = createApp({
         showToast('当前账户没有可用农场', 'error');
         return;
       }
+      // System administrators switch the read-only platform context without
+      // clearing the cross-farm snapshot or issuing farm-admin scoped calls.
+      // The selected id is persisted in the route so a refresh keeps the same
+      // farm, while the overview component reacts to adminContext directly.
+      if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
+        state.value.adminContext = { ...state.value.adminContext, farmId: selected, plotId, sessionMode };
+        if (options.updateRoute === false) return;
+        const params = { ...routeParams.value, farmId: selected };
+        delete params.view;
+        routeParams.value = params;
+        window.history.replaceState(null, '', routeHash(currentView.value, params));
+        return;
+      }
       const changed = selected !== state.value.adminContext.farmId;
       state.value.adminContext = { farmId: selected, plotId, sessionMode };
       if (changed) {
@@ -2764,7 +2807,9 @@ const app = createApp({
 
     const applyHashRoute = async () => {
       const route = parseHashRoute();
-      if (state.value.currentUser?.role === 'FARM_ADMIN' && route.params?.farmId && route.params.farmId !== state.value.adminContext.farmId) {
+      if (['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role)
+        && route.params?.farmId
+        && route.params.farmId !== state.value.adminContext.farmId) {
         await handleContextChanged({ farmId: route.params.farmId, plotId: route.params.plotId || null, sessionMode: state.value.sessionMode }, { updateRoute: false });
       }
       const legacyTarget = state.value.currentUser?.role === 'FARM_ADMIN'
@@ -2812,7 +2857,10 @@ const app = createApp({
         return;
       }
       const fallback = state.value.allowedViews[0] || 'dashboard';
-      window.history.replaceState(null, '', routeHash(fallback, state.value.currentUser?.role === 'FARM_ADMIN' ? { farmId: state.value.adminContext.farmId } : {}));
+      const fallbackParams = ['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role)
+        && state.value.adminContext.farmId
+        ? { farmId: state.value.adminContext.farmId } : {};
+      window.history.replaceState(null, '', routeHash(fallback, fallbackParams));
       currentView.value = fallback;
       routeParams.value = {};
     };
@@ -2822,7 +2870,8 @@ const app = createApp({
         showToast(`“${NAV_CATALOG.find((item) => item.id === viewId)?.label || viewId}”不在${currentRole.value?.label || '当前身份'}的权限范围内`, 'error');
         return;
       }
-      const nextParams = state.value.currentUser?.role === 'FARM_ADMIN'
+      const contextualRole = ['FARM_ADMIN', 'SYSTEM_ADMIN'].includes(state.value.currentUser?.role);
+      const nextParams = contextualRole && (params.farmId || state.value.adminContext.farmId)
         ? { ...params, farmId: params.farmId || state.value.adminContext.farmId }
         : { ...params };
       selectedPlotId.value = '';
@@ -2995,6 +3044,15 @@ const app = createApp({
       } else if (session.mode === 'live') {
         if (state.value.currentUser?.role === 'SYSTEM_ADMIN') {
           await refreshSystemAdminDataStaged();
+          const requestedFarm = initialRoute.params?.farmId || '';
+          if (requestedFarm && state.value.farms.some((farm) => farm.farmId === requestedFarm)) {
+            state.value.adminContext = {
+              ...state.value.adminContext,
+              farmId: requestedFarm,
+              plotId: initialRoute.params?.plotId || null,
+              sessionMode: state.value.sessionMode
+            };
+          }
           systemLastRefreshAt = Date.now();
         } else {
           const [farmsResult, overviewResult, plotsResult, workOrdersResult, alertsResult] = await Promise.allSettled([
