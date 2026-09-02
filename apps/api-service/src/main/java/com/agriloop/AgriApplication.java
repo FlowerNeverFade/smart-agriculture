@@ -796,61 +796,73 @@ class AgriStore {
                 .filter(id -> !id.isBlank())
                 .toList()));
         if (ids.isEmpty()) return Map.of();
-        String placeholders = String.join(",", Collections.nCopies(ids.size(), "?"));
-        String metrics = "'SOIL_MOISTURE','AIR_TEMPERATURE','AIR_HUMIDITY','LIGHT','CO2','PH',"
-                + "'WATER_LEVEL','RAINFALL','NITROGEN','PHOSPHORUS','POTASSIUM'";
-        String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
-        // One indexed query now supplies the latest value, fresh REAL
-        // override and quality-window count for every plot/metric. The former
-        // implementation issued three lateral queries per plot.
-        String sql = "WITH latest AS ("
-                + "SELECT DISTINCT ON (plot_id,metric) " + columns + " FROM telemetry "
-                + "WHERE plot_id IN (" + placeholders + ") AND metric IN (" + metrics + ") "
-                + "AND event_ts>=? AND event_ts<=? "
-                + "ORDER BY plot_id,metric,event_ts DESC,event_id DESC),"
-                + "active_real AS ("
-                + "SELECT DISTINCT ON (plot_id,metric) " + columns + " FROM telemetry "
-                + "WHERE plot_id IN (" + placeholders + ") AND metric IN (" + metrics + ") "
-                + "AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
-                + "ORDER BY plot_id,metric,event_ts DESC,event_id DESC),"
-                + "candidates AS ("
-                + "SELECT l.*,FALSE AS real_priority FROM latest l UNION ALL "
-                + "SELECT r.*,TRUE AS real_priority FROM active_real r),"
-                + "ranked AS ("
-                + "SELECT DISTINCT ON (plot_id,metric) * FROM candidates "
-                + "ORDER BY plot_id,metric,real_priority DESC,event_ts DESC,event_id DESC),"
-                + "recent AS ("
-                + "SELECT plot_id,metric,quality_status,ROW_NUMBER() OVER "
-                + "(PARTITION BY plot_id,metric ORDER BY event_ts DESC,event_id DESC) AS rn "
-                + "FROM telemetry WHERE plot_id IN (" + placeholders + ") AND metric IN (" + metrics + ") "
-                + "AND event_ts>=? AND event_ts<=?),"
-                + "valid_counts AS ("
-                + "SELECT plot_id,metric,COUNT(*) FILTER (WHERE quality_status<>'BAD') AS valid_count "
-                + "FROM recent WHERE rn<=120 GROUP BY plot_id,metric) "
-                + "SELECT ranked.*,COALESCE(valid_counts.valid_count,0) AS _validSamples "
-                + "FROM ranked LEFT JOIN valid_counts USING (plot_id,metric)";
-        List<Object> args = new ArrayList<>();
-        args.addAll(ids);
-        args.add(TimestampParser.sql(latestFrom));
-        args.add(TimestampParser.sql(to));
-        args.addAll(ids);
-        args.add(TimestampParser.sql(activeRealFrom));
-        args.add(TimestampParser.sql(to));
-        args.addAll(ids);
-        args.add(TimestampParser.sql(qualityFrom));
-        args.add(TimestampParser.sql(to));
         try {
             Map<String, Map<String, Map<String, Object>>> result = new LinkedHashMap<>();
-            jdbc.query(sql, (rs, rowNum) -> {
+            String plotValues = String.join(",", Collections.nCopies(ids.size(), "(?)"));
+            String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,"
+                    + "quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
+            String pairs = "(VALUES " + plotValues + ") p(plot_id) CROSS JOIN (VALUES "
+                    + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                    + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) m(metric)";
+            // Keep each probe bounded by the composite index.  The previous
+            // DISTINCT ON query sorted every matching row in a 48-hour window,
+            // which became several seconds once the telemetry table grew past
+            // six million records.
+            String latestSql = "SELECT p.plot_id,p.metric,l.* FROM " + pairs
+                    + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
+                    + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 1) l ON TRUE";
+            List<Object> latestArgs = new ArrayList<>(ids);
+            latestArgs.add(TimestampParser.sql(latestFrom));
+            latestArgs.add(TimestampParser.sql(to));
+            jdbc.query(latestSql, (rs, rowNum) -> {
                 Map<String, Object> event = readTelemetryRow(rs);
                 String plotId = Jsons.text(event, "plotId", "");
                 String metric = Jsons.text(event, "metric", "");
                 if (!plotId.isBlank() && !metric.isBlank()) {
-                    event.put("_validSamples", rs.getLong("_validSamples"));
                     result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
                 }
                 return event;
-            }, args.toArray());
+            }, latestArgs.toArray());
+
+            // A fresh REAL sample wins over simulation regardless of which
+            // source produced the newest event.  This is intentionally a
+            // separate indexed probe so a physical device never gets hidden
+            // by a high-frequency simulator stream.
+            String realSql = "SELECT p.plot_id,p.metric,l.* FROM " + pairs
+                    + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
+                    + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.source_mode='REAL' "
+                    + "AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 1) l ON TRUE";
+            List<Object> realArgs = new ArrayList<>(ids);
+            realArgs.add(TimestampParser.sql(activeRealFrom));
+            realArgs.add(TimestampParser.sql(to));
+            jdbc.query(realSql, (rs, rowNum) -> {
+                Map<String, Object> event = readTelemetryRow(rs);
+                String plotId = Jsons.text(event, "plotId", "");
+                String metric = Jsons.text(event, "metric", "");
+                if (!plotId.isBlank() && !metric.isBlank()) {
+                    result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
+                }
+                return event;
+            }, realArgs.toArray());
+
+            String qualitySql = "SELECT p.plot_id,p.metric,COALESCE(recent.valid_samples,0) AS valid_samples FROM " + pairs
+                    + " LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE sample.quality_status<>'BAD') AS valid_samples "
+                    + "FROM (SELECT t.quality_status FROM telemetry t WHERE t.plot_id=p.plot_id "
+                    + "AND t.metric=m.metric AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 120) sample) recent ON TRUE";
+            List<Object> qualityArgs = new ArrayList<>(ids);
+            qualityArgs.add(TimestampParser.sql(qualityFrom));
+            qualityArgs.add(TimestampParser.sql(to));
+            jdbc.query(qualitySql, (rs, rowNum) -> {
+                String plotId = rs.getString("plot_id");
+                String metric = rs.getString("metric");
+                Map<String, Object> event = result.getOrDefault(plotId, Map.of()).get(metric);
+                if (event != null) event.put("_validSamples", rs.getLong("valid_samples"));
+                return event;
+            }, qualityArgs.toArray());
+            result.values().forEach(byMetric -> byMetric.values().forEach(event -> event.putIfAbsent("_validSamples", 0L)));
             return result;
         } catch (Exception ignored) { return null; }
     }
