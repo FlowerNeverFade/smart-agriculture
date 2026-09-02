@@ -39,6 +39,7 @@ import {
   provenanceLabel,
   resourceTypeLabel,
   scenarioLabel,
+  simulationScenarioSummary,
   serviceNameLabel,
   serviceStatusLabel,
   modeLabel,
@@ -46,7 +47,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-ai-direct-v2';
+} from './live-data.js?v=20260902-scenario-summary-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -446,11 +447,11 @@ function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alert
   const simulatorSettings = simulator.settings && typeof simulator.settings === 'object' ? simulator.settings : simulator;
   const sampleIntervalSeconds = Number(simulator.sampleIntervalSeconds ?? simulatorSettings.sampleIntervalSeconds ?? 20);
   const timeScale = Number(simulator.timeScale ?? simulatorSettings.timeScale ?? DEFAULT_SIMULATION_TIME_SCALE);
-  const scenarios = [...new Set((overview.plots || [])
-    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
-    .filter(Boolean)
-    .map((scenario) => String(scenario).toUpperCase()))];
-  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
+  const scenario = simulationScenarioSummary({
+    plots,
+    overviewPlots: overview.plots,
+    simulator
+  });
   return {
     uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
@@ -938,10 +939,15 @@ const AdminSimulatorView = {
       const interval = Number.isFinite(rawInterval) ? Math.max(5, Math.min(60, Math.round(rawInterval))) : 20;
       const scale = Number.isFinite(rawScale) ? Math.max(1, Math.min(288, rawScale)) : DEFAULT_SIMULATION_TIME_SCALE;
       const statusCode = String(status.status || '').toUpperCase();
+      const scenario = simulationScenarioSummary({
+        plots: props.state.allPlots || props.state.plots,
+        overviewPlots: props.state.overview?.plots,
+        simulator: status
+      });
       props.state.adminOverview.simulator = {
         ...previous,
         running: statusCode ? statusCode === 'RUNNING' : status.running === true,
-        scenario: status.scenario || status.scenarioId || '',
+        scenario: scenario || previous.scenario || '',
         eventsEmitted: Number(status.eventsEmitted ?? status.eventCount ?? previous.eventsEmitted ?? 0),
         sampleIntervalSeconds: interval,
         timeScale: scale

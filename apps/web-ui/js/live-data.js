@@ -101,7 +101,15 @@ const SCENARIO_LABELS = Object.freeze({
   HEAVY_RAIN: '暴雨场景', HEAVYRAIN: '暴雨场景', STORM: '暴雨场景', RAIN: '暴雨场景',
   SENSOR_DRIFT: '传感器漂移', DEVICE_OFFLINE: '设备离线', OFFLINE: '设备离线',
   EVIDENCE_CONFLICT: '证据冲突',
-  MULTI_SCENARIO: '多场景'
+  MULTI_SCENARIO: '多场景',
+  PLOT_SCOPED: '按地块运行'
+});
+
+const SCENARIO_CODE_ALIASES = Object.freeze({
+  STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', RAIN: 'HEAVY_RAIN',
+  OFFLINE: 'DEVICE_OFFLINE', DEVICE_OFFLINE: 'DEVICE_OFFLINE',
+  SENSOR_DRIFT: 'SENSOR_DRIFT', NORMAL_RUN: 'NORMAL',
+  HEAT_WAVE: 'DROUGHT'
 });
 
 const PRIORITY_LABELS = Object.freeze({
@@ -220,6 +228,63 @@ export function scenarioLabel(value, fallback = '未设置') {
     return count ? `多场景（${count}）` : '多场景';
   }
   return fallback;
+}
+
+function normalizedScenarioCode(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const normalized = code(raw);
+  if (SCENARIO_CODE_ALIASES[normalized]) return SCENARIO_CODE_ALIASES[normalized];
+  if (SCENARIO_LABELS[normalized] && !normalized.startsWith('MULTI_SCENARIO')) return normalized;
+  // Scenario IDs may include a replay/run suffix (for example
+  // `drought-20260902-01`). Keep only the recognized scenario prefix.
+  const known = Object.keys(SCENARIO_LABELS)
+    .filter((item) => !['MULTI_SCENARIO', 'PLOT_SCOPED'].includes(item))
+    .sort((left, right) => right.length - left.length);
+  return known.find((item) => normalized.startsWith(`${item}_`)) || '';
+}
+
+/**
+ * Resolve the scenario shown in a platform overview without inventing a
+ * global value. The simulator itself is global, while strategies are stored
+ * per plot, so plot values are authoritative whenever they are available.
+ */
+export function simulationScenarioSummary({ plots = [], overviewPlots = [], simulator = {} } = {}) {
+  const scenariosByPlot = new Map();
+  let anonymousIndex = 0;
+  const collect = (items) => {
+    if (!Array.isArray(items)) return;
+    items.forEach((plot) => {
+      if (code(plot?.status) === 'INACTIVE') return;
+      const simulation = plot?.simulation || plot?.simulationConfig || {};
+      const scenario = [
+        simulation.scenario,
+        simulation.scenarioId,
+        plot?.simulationScenario,
+        plot?.scenario,
+        plot?.scenarioId
+      ].map(normalizedScenarioCode).find(Boolean);
+      if (!scenario) return;
+      const plotKey = String(plot?.plotId || plot?.id || `anonymous-${anonymousIndex++}`);
+      // `plots` is normally the normalized/authoritative list; the overview
+      // cards are a fallback when the slower /plots request has not settled.
+      if (!scenariosByPlot.has(plotKey)) scenariosByPlot.set(plotKey, scenario);
+    });
+  };
+  collect(plots);
+  collect(overviewPlots);
+
+  const scenarios = [...new Set(scenariosByPlot.values())];
+  if (scenarios.length === 1) return scenarios[0];
+  if (scenarios.length > 1) return `多场景（${scenarios.length}）`;
+
+  const globalScenario = [simulator?.scenario, simulator?.scenarioId]
+    .map(normalizedScenarioCode)
+    .find(Boolean);
+  if (globalScenario) return globalScenario;
+
+  const status = code(simulator?.status);
+  return simulator?.running === true || status === 'RUNNING' ? 'PLOT_SCOPED' : '';
 }
 
 export function priorityLabel(value, fallback = '普通') {

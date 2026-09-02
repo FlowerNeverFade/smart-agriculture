@@ -40,13 +40,14 @@ import {
   provenanceLabel,
   resourceTypeLabel,
   scenarioLabel,
+  simulationScenarioSummary,
   serviceNameLabel,
   serviceStatusLabel,
   modeLabel,
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-ai-direct-v2';
+} from './live-data.js?v=20260902-scenario-summary-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -499,11 +500,11 @@ function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alert
   // `openai-compatible`; the overview uses the concise product-facing mode
   // names used by the demo card.
   const aiMode = rawAiMode === 'openai-compatible' ? 'full' : rawAiMode;
-  const scenarios = [...new Set((overview.plots || [])
-    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
-    .filter(Boolean)
-    .map((scenario) => String(scenario).toUpperCase()))];
-  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
+  const scenario = simulationScenarioSummary({
+    plots,
+    overviewPlots: overview.plots,
+    simulator
+  });
   return {
     uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
@@ -2748,10 +2749,15 @@ const AdminSimulatorView = {
       props.state.simulatorStatus = status;
       const interval = Number(status.sampleIntervalSeconds || props.state.adminOverview.simulator?.sampleIntervalSeconds || 20);
       const scale = Number(status.timeScale || props.state.adminOverview.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE);
+      const scenario = simulationScenarioSummary({
+        plots: props.state.allPlots || props.state.plots,
+        overviewPlots: props.state.overview?.plots,
+        simulator: status
+      });
       props.state.adminOverview.simulator = {
         ...(props.state.adminOverview.simulator || {}),
-        running: String(status.status || '').toUpperCase() === 'RUNNING',
-        scenario: status.scenario || status.scenarioId || '',
+        running: String(status.status || '').trim() ? String(status.status).toUpperCase() === 'RUNNING' : status.running === true,
+        scenario: scenario || props.state.adminOverview.simulator?.scenario || '',
         eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0),
         sampleIntervalSeconds: interval,
         timeScale: scale
