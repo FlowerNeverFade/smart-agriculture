@@ -446,11 +446,19 @@ function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alert
   const simulatorSettings = simulator.settings && typeof simulator.settings === 'object' ? simulator.settings : simulator;
   const sampleIntervalSeconds = Number(simulator.sampleIntervalSeconds ?? simulatorSettings.sampleIntervalSeconds ?? 20);
   const timeScale = Number(simulator.timeScale ?? simulatorSettings.timeScale ?? DEFAULT_SIMULATION_TIME_SCALE);
-  const scenarios = [...new Set((overview.plots || [])
-    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
+  const scenarios = [...new Set((plots || overview.plots || [])
+    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId || plot?.scenario)
     .filter(Boolean)
     .map((scenario) => String(scenario).toUpperCase()))];
-  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
+  // 当前场景兜底链：simulator.status → plots 的 simulation → 运行历史最新 RUNNING（或最新一条）。
+  // 后端 simulator/status 不返回场景字段（只有 running/采样/流速/事件数），运行历史里
+  // RUNNING 记录的 scenarioId 是模拟器正在执行的场景，避免 Live 下显示“未设置”。
+  const historyRuns = Array.isArray(simulator.history) ? simulator.history : [];
+  const runningHistoryScenario = historyRuns
+    .find((run) => liveStatusValue(run.status, '') === 'RUNNING' && (run.scenario || run.scenarioId))
+    ?.scenario || historyRuns.find((run) => liveStatusValue(run.status, '') === 'RUNNING')?.scenarioId
+    || historyRuns[0]?.scenario || historyRuns[0]?.scenarioId || '';
+  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '') || runningHistoryScenario || '';
   return {
     uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',

@@ -2713,6 +2713,24 @@ html[data-surface-style="minimal"] .role-system-admin :is(.g-header, .g-sidebar)
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
+
+html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+/* classic 下 system-admin 与 minimal 对齐：header/sidebar 是半透明白，若
+   #app 与 .g-main 仍保持淡绿渐变会透出来，视觉上导航栏发绿。必须把容器
+   背景换成近白的 appearance-base，nav 才能显示干净的白色。 */
+html[data-surface-style="classic"] .role-system-admin {
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
 html[data-surface-style="minimal"] .role-system-admin .g-nav-item {
   background: var(--system-liquid-control) !important;
   border-color: var(--system-glass-control-outline) !important;
