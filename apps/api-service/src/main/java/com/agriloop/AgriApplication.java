@@ -837,15 +837,20 @@ class AgriStore {
             List<Object> realArgs = new ArrayList<>(ids);
             realArgs.add(TimestampParser.sql(activeRealFrom));
             realArgs.add(TimestampParser.sql(to));
-            jdbc.query(realSql, (rs, rowNum) -> {
-                Map<String, Object> event = readTelemetryRow(rs);
-                String plotId = Jsons.text(event, "plotId", "");
-                String metric = Jsons.text(event, "metric", "");
-                if (!plotId.isBlank() && !metric.isBlank()) {
-                    result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
-                }
-                return event;
-            }, realArgs.toArray());
+            try {
+                jdbc.query(realSql, (rs, rowNum) -> {
+                    Map<String, Object> event = readTelemetryRow(rs);
+                    String plotId = Jsons.text(event, "plotId", "");
+                    String metric = Jsons.text(event, "metric", "");
+                    if (!plotId.isBlank() && !metric.isBlank()) {
+                        result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
+                    }
+                    return event;
+                }, realArgs.toArray());
+            } catch (Exception ignored) {
+                // The latest indexed sample is still a valid overview even if
+                // the optional REAL-source arbitration query is unavailable.
+            }
 
             String qualitySql = "SELECT p.plot_id,p.metric,COALESCE(recent.valid_samples,0) AS valid_samples FROM " + pairs
                     + " LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE sample.quality_status<>'BAD') AS valid_samples "
@@ -855,13 +860,18 @@ class AgriStore {
             List<Object> qualityArgs = new ArrayList<>(ids);
             qualityArgs.add(TimestampParser.sql(qualityFrom));
             qualityArgs.add(TimestampParser.sql(to));
-            jdbc.query(qualitySql, (rs, rowNum) -> {
-                String plotId = rs.getString("plot_id");
-                String metric = rs.getString("metric");
-                Map<String, Object> event = result.getOrDefault(plotId, Map.of()).get(metric);
-                if (event != null) event.put("_validSamples", rs.getLong("valid_samples"));
-                return event;
-            }, qualityArgs.toArray());
+            try {
+                jdbc.query(qualitySql, (rs, rowNum) -> {
+                    String plotId = rs.getString("plot_id");
+                    String metric = rs.getString("metric");
+                    Map<String, Object> event = result.getOrDefault(plotId, Map.of()).get(metric);
+                    if (event != null) event.put("_validSamples", rs.getLong("valid_samples"));
+                    return event;
+                }, qualityArgs.toArray());
+            } catch (Exception ignored) {
+                // Completeness is advisory; retain the latest values and use
+                // a zero count when the optional quality window is unavailable.
+            }
             result.values().forEach(byMetric -> byMetric.values().forEach(event -> event.putIfAbsent("_validSamples", 0L)));
             return result;
         } catch (Exception ignored) { return null; }
@@ -2271,8 +2281,13 @@ class AgriEngine {
     }
 
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
-        List<Map<String, Object>> hardware = store.list("device").stream()
+        return hardwareBindingForDevices(store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
+                .toList());
+    }
+
+    private Map<String, Object> hardwareBindingForDevices(Collection<Map<String, Object>> devices) {
+        List<Map<String, Object>> hardware = (devices == null ? List.<Map<String, Object>>of() : devices).stream()
                 .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
@@ -2837,13 +2852,17 @@ class AgriEngine {
             card.put("lastOperationSummary", Jsons.text(plot, "lastOperationSummary", ""));
             card.put("operationRevision", Jsons.whole(plot, "operationRevision", 0));
             card.put("operationHistory", plot.getOrDefault("operationHistory", List.of()));
-            Map<String, Object> device = selectPreferredDevice(devicesByPlot.getOrDefault(plotId, List.of())); card.put("device", device);
-            Map<String, Object> simulation = plotSimulationView(plotId);
+            List<Map<String, Object>> plotDevices = devicesByPlot.getOrDefault(plotId, List.of());
+            Map<String, Object> device = selectPreferredDevice(plotDevices); card.put("device", device);
+            // The overview only needs the active scenario and hardware
+            // binding. The full simulation editor catalog is loaded on the
+            // plot detail page, so avoid rebuilding it for every card.
+            Map<String, Object> simulation = simulationRecord(plotId);
             card.put("simulation", Map.of(
                     "scenario", simulation.get("scenario"),
                     "parameters", simulation.get("parameters"),
                     "revision", simulation.get("revision")));
-            card.put("hardware", simulation.get("hardware"));
+            card.put("hardware", hardwareBindingForDevices(plotDevices));
             Map<String, Object> cropContext = plotCropContext(plotId, batchesByPlot);
             Map<String, Object> health = cropPackCatalog.scoreHealth(cropContext, latest, device, Jsons.text(plot, "riskLevel", "UNKNOWN"));
             card.put("stageCode", cropContext.get("stageCode"));
