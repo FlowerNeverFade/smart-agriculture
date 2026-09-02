@@ -808,7 +808,7 @@ class AgriStore {
             // DISTINCT ON query sorted every matching row in a 48-hour window,
             // which became several seconds once the telemetry table grew past
             // six million records.
-            String latestSql = "SELECT p.plot_id,p.metric,l.* FROM " + pairs
+            String latestSql = "SELECT p.plot_id,m.metric,l.* FROM " + pairs
                     + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
                     + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.event_ts>=? AND t.event_ts<=? "
                     + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 1) l ON TRUE";
@@ -829,7 +829,7 @@ class AgriStore {
             // source produced the newest event.  This is intentionally a
             // separate indexed probe so a physical device never gets hidden
             // by a high-frequency simulator stream.
-            String realSql = "SELECT p.plot_id,p.metric,l.* FROM " + pairs
+            String realSql = "SELECT p.plot_id,m.metric,l.* FROM " + pairs
                     + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
                     + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.source_mode='REAL' "
                     + "AND t.event_ts>=? AND t.event_ts<=? "
