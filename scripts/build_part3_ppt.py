@@ -16,7 +16,7 @@ from pptx.enum.shapes import MSO_SHAPE, MSO_SHAPE_TYPE
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.oxml.ns import qn
 
-SRC = r"C:\Users\Yang\Desktop\PPT郑.pptx"
+SRC = r"C:\Users\Yang\Desktop\PPT原.pptx"  # 2026-09-03 由 PPT郑.pptx 改名
 DST = r"C:\Users\Yang\Desktop\PPT郑_第三部分重制.pptx"
 
 PX = 9525
@@ -240,21 +240,29 @@ def main():
           "三角色三入口共享一个内核（api.js / live-data.js / roles.js）· 浏览器只走 REST / SSE · "
           "Vue 3 全局运行时 + 模块化原生 JS，未上 TS/SFC 是取舍")
 
+    # 三条主线页：缩图后会悬空的模板小图标/小矩形，直接清掉
+    for sh in list(slides[I_MAIN].shapes):
+        if sh.name in ("矩形 14", "矩形 15", "矩形 16", "矩形 17") or (
+            sh.shape_type == MSO_SHAPE_TYPE.PICTURE and (sh.width or 0) < 100 * PX
+        ):
+            sh._element.getparent().remove(sh._element)
+
     # ---------- new slide A: 数据主线九跳 ----------
     layout = slides[I_FE].slide_layout
     sA = prs.slides.add_slide(layout)
     for ph in list(sA.placeholders):
         ph._element.getparent().remove(ph._element)
-    clone_chrome(prs, slides[I_FE], sA, "数据主线：一条遥测的九跳旅程")
+    clone_chrome(prs, slides[I_FE], sA, "数据主线：一条遥测的九站旅程")
 
     hops = [
-        ("① 产生", ["SimulationEngine 带种子情景", "BearPi E53_IA1 适配器", "带 eventId/plotId/指标/质量/scenarioId"], BLUE2),
-        ("② 传输", ["MQTT Mosquitto 2 · Paho QoS1", "真实链路可选；默认进程内直注"], BLUE2),
+        ("① 产生", ["来源A：SimulationEngine（带种子情景）", "来源B：BearPi E53_IA1 真机适配器",
+                    "统一合同：eventId / plotId / 指标 / 质量 / scenarioId"], BLUE2),
+        ("② 传输", ["协议 MQTT · 服务端 Mosquitto 2", "客户端 Paho · QoS1 至少送达一次", "真实链路可选，默认进程内直注"], BLUE2),
         ("③ 缓冲", ["Redis Stream agri.telemetry", "消费组 · 批量 50 · DLQ 死信"], BLUE2),
         ("④ 治理", ["校验 · 去重 · 三维质量评分", "新鲜度 / 完整度 / 可信度"], BLUE2),
         ("⑤ 落库", ["PostgreSQL 16 entity_record", "JSONB · Flyway V1–V5 · H2 回退"], BLUE2),
         ("⑥ 计算", ["规则→告警(迟滞/冷却)", "根因→短期预测→就绪度"], TEAL),
-        ("⑦ 推送", ["SSE /events/stream", "按用户 scoped · 心跳 · eventId 作 SSE id"], TEAL),
+        ("⑦ 推送", ["SSE /events/stream", "按用户隔离 · 心跳 · eventId 作 SSE id"], TEAL),
         ("⑧ 呈现", ["Vue 3 工作台秒级刷新", "浏览器不连 MQTT"], TEAL),
         ("⑨ 回执", ["处方→安全门→虚拟执行", "ACK→效果评价→实绩回写"], TEAL),
     ]
@@ -295,14 +303,14 @@ def main():
     ])
     textbox(sA, 40, 606, 1200, 36, [
         ("组件名与代码一一对应：SimulationEngine / hardware/bearpi_e53_bridge.py / MqttCommandGateway / "
-         "RedisStreamWorker(agri.telemetry+DLQ) / AgriStore(entity_record) / SseEmitter(/events/stream)，每一跳都指得到源码。",
+         "RedisStreamWorker(agri.telemetry+DLQ) / AgriStore(entity_record) / SseEmitter(/events/stream)，每一站都指得到源码。",
          9, False, GRAY),
     ])
     set_notes(sA,
-              "[90s] 这页是本章核心：带评委跟一条遥测走九跳。重点展开三跳：第③跳 Redis Stream 是真用了——消费组 + 批量 50 + "
-              "死信队列，失败消息进 DLQ 而不是静默丢；第④跳 三维质量评分（新鲜度/完整度/可信度），不达标后面就不给可执行灌溉处方，"
-              "监测直接服务“信任”层；第⑦跳 SSE 按用户 scoped、带心跳、eventId 作 SSE id，前端去重和回放都靠它。其余扫过。"
-              "最后指底部橙框：每一跳都有降级路径，且降级可见。时间紧可压到 60s，只展开③④。")
+              "[90s] 这页是本章核心：带评委跟一条遥测走九站。重点展开三站：第三站 Redis Stream 是真用了——消费组 + 批量 50 + "
+              "死信队列，失败消息进 DLQ 而不是静默丢；第四站 三维质量评分（新鲜度/完整度/可信度），不达标后面就不给可执行灌溉处方，"
+              "监测直接服务“信任”层；第七站 SSE 按用户隔离、带心跳、eventId 作 SSE id，前端去重和回放都靠它。其余扫过。"
+              "最后指底部橙框：每一站都有降级路径，且降级可见。时间紧可压到 60s，只展开三四站。")
 
     # ---------- new slide B: 工程可信度 ----------
     sB = prs.slides.add_slide(layout)
