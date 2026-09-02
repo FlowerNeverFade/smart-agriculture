@@ -1,5 +1,5 @@
 /* ============================================================
-   AgriLoop Admin Panel ?System Admin Module Styles
+   AgriLoop Admin Panel — System Admin Module Styles
    Extends the Google Material 3 design tokens from style.css
    ============================================================ */
 
@@ -998,14 +998,18 @@
   border-radius: 16px;
 }
 
-.role-farm-admin .g-nav-item {
+.role-farm-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
   border-radius: 14px;
   margin-bottom: 8px;
   background: var(--admin-liquid-control);
   font-weight: 600;
 }
 
-.role-farm-admin .g-nav-item.active {
+.role-farm-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
   border-color: color-mix(in srgb, var(--g-primary) 34%, var(--admin-glass-control-outline));
   background:
     linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .32)),
@@ -1036,7 +1040,15 @@
 }
 
 [data-theme="dark"] .role-farm-admin .g-nav-item.active,
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
 [data-theme="dark"] .role-farm-admin :is(
+  .admin-local-tabs button.active,
+  .admin-alert-tabs button.active,
+  .admin-tab.active,
+  .admin-icon-picker button.selected
+),
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin :is(
   .admin-local-tabs button.active,
   .admin-alert-tabs button.active,
   .admin-tab.active,
@@ -1468,7 +1480,9 @@
   backdrop-filter: blur(24px) saturate(128%);
 }
 
-.role-farm-admin .g-nav-item {
+.role-farm-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
   --nav-accent: var(--g-primary);
   --nav-tint: var(--g-primary-bg);
   position: relative;
@@ -1484,19 +1498,25 @@
   backdrop-filter: none;
 }
 
-.role-farm-admin .g-nav-item[data-nav="work-orders"] {
+.role-farm-admin .g-nav-item[data-nav="work-orders"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="work-orders"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="work-orders"] {
   --nav-accent: var(--admin-blue);
   --nav-tint: var(--admin-blue-bg);
 }
 
-.role-farm-admin .g-nav-item[data-nav="decision-console"] {
+.role-farm-admin .g-nav-item[data-nav="decision-console"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] {
   --nav-accent: var(--admin-orange);
   --nav-tint: var(--admin-orange-bg);
   gap: 10px;
   padding-inline: 12px;
 }
 
-.role-farm-admin .g-nav-item[data-nav="decision-console"] .g-nav-label {
+.role-farm-admin .g-nav-item[data-nav="decision-console"] .g-nav-label,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] .g-nav-label,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] .g-nav-label {
   overflow: hidden;
   font-size: 13px;
   letter-spacing: -.025em;
@@ -1504,21 +1524,29 @@
   white-space: nowrap;
 }
 
-.role-farm-admin .g-nav-item[data-nav="resource-coordination"] {
+.role-farm-admin .g-nav-item[data-nav="resource-coordination"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="resource-coordination"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="resource-coordination"] {
   --nav-accent: var(--admin-teal);
   --nav-tint: var(--admin-teal-bg);
 }
 
-.role-farm-admin .g-nav-item[data-nav="farm-members"] {
+.role-farm-admin .g-nav-item[data-nav="farm-members"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="farm-members"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="farm-members"] {
   --nav-accent: var(--admin-purple);
   --nav-tint: var(--admin-purple-bg);
 }
 
-.role-farm-admin .g-nav-item .material-symbols-outlined {
+.role-farm-admin .g-nav-item .material-symbols-outlined,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item .material-symbols-outlined,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item .material-symbols-outlined {
   color: var(--nav-accent);
 }
 
-.role-farm-admin .g-nav-item:not(:disabled):hover {
+.role-farm-admin .g-nav-item:not(:disabled):hover,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:not(:disabled):hover,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:not(:disabled):hover {
   border-color: color-mix(in srgb, var(--nav-accent) 18%, var(--g-border));
   background: color-mix(in srgb, var(--nav-tint) 82%, var(--g-bg-surface));
   box-shadow: none;
@@ -1526,14 +1554,18 @@
   transform: none;
 }
 
-.role-farm-admin .g-nav-item.active {
+.role-farm-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
   border-color: color-mix(in srgb, var(--nav-accent) 28%, var(--g-border));
   background: color-mix(in srgb, var(--nav-tint) 92%, var(--g-bg-surface));
   box-shadow: inset 3px 0 0 var(--nav-accent), 0 5px 14px color-mix(in srgb, var(--nav-accent) 9%, transparent);
   color: var(--nav-accent);
 }
 
-.role-farm-admin .g-nav-item:focus-visible {
+.role-farm-admin .g-nav-item:focus-visible,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:focus-visible,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:focus-visible {
   outline-color: color-mix(in srgb, var(--nav-accent) 38%, transparent);
 }
 
@@ -2864,7 +2896,7 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
 .admin-appearance-option.active {
   border-color: var(--g-primary);
   background: var(--g-primary-bg);
-  box-shadow: inset 0 0 0 1.5px var(--g-primary), var(--g-shadow-1);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-primary) 32%, transparent), var(--g-shadow-1);
 }
 .admin-appearance-option-icon {
   width: 34px;
@@ -4244,8 +4276,7 @@ html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-grid 
 .farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
 .farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
-.farmer-settings-choice:hover { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
-.farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
+.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
 .farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
 .farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
@@ -4756,11 +4787,4 @@ html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
   color: var(--g-warning, #d97706);
   font-size: 12px;
   line-height: 1.5;
-}
-
-html[data-surface-style='classic'] .role-system-admin .g-nav-item {
-  background: linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .32)) !important;
-}
-html[data-theme='dark'][data-surface-style='classic'] .role-system-admin .g-nav-item {
-  background: linear-gradient(145deg, rgba(255, 255, 255, .13), rgba(255, 255, 255, .055) 50%, rgba(255, 255, 255, .085)) !important;
 }
