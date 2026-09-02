@@ -3123,6 +3123,10 @@
 .farmer-suggestion-blocked > .material-symbols-outlined { font-size: 20px; }
 .farmer-suggestion-blocked strong { display: block; color: var(--g-text-primary); font-size: 13px; }
 .farmer-suggestion-blocked p { margin: 3px 0 8px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-suggestion-advisory { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-warning) 38%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 72%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-suggestion-advisory > .material-symbols-outlined { flex: 0 0 auto; font-size: 20px; }
+.farmer-suggestion-advisory strong { display: block; color: var(--g-text-primary); font-size: 13px; }
+.farmer-suggestion-advisory p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-confirm-check { margin: 0; padding: 10px 12px; border-radius: var(--g-radius); background: var(--g-bg-subtle); font-size: 12px; line-height: 1.55; }
 .farmer-suggestion-inline-action { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 9px 11px; border: 1px dashed var(--g-border); border-radius: var(--g-radius); color: var(--g-text-secondary); font-size: 12px; }
 .farmer-suggestion-inline-action .g-btn { min-height: 38px; }

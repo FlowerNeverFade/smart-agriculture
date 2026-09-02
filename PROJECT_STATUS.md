@@ -1,7 +1,8 @@
 # 智慧农业项目进度
 
 > 项目：农智闭环（AgriLoop）
-> 更新时间：2026-09-01
+> 更新时间：2026-09-02
+> 2026-09-02 灌溉建议安全门简化与补证闭环修复（本地实现，自动化与构建通过，未发布线上）：readiness 统一增加 `blockingEvidence`、`advisoryEvidence`、`executionAllowed`；仅在新鲜 GOOD 遥测、设备在线、无高置信漂移/故障、非暴雨、资源/权限/时长通过、湿度不低于 Crop Pack 自动浇水阈值且为 `OPERATOR_CONFIRMED` 的常规人工灌溉中，把 `MORE_DIAGNOSIS_EVIDENCE`/`HUMAN_EVIDENCE_REVIEW` 降为提醒，证据和冲突历史仍保留。自动/应急安全门、坏数据、过期遥测、漂移、离线、暴雨、资源/权限/时长失败继续硬阻断；补证按地块+证据类型+未完成工单去重，复测匹配标记旧冲突 `RESOLVED`，新冲突标记旧冲突 `SUPERSEDED`，普通巡田无便携仪值不伪造复测；巡田保存后只执行一次处方→readiness→诊断刷新链路。后端 `compileJava/compileTestJava`、ASCII 驱动映射定向 Java 3/3、前端定向 Node 17/17、JS 检查、Vite 构建、OpenAPI 校验和差异检查已通过；中文路径的 Gradle Test worker 仍报告测试类 `ClassNotFoundException`，未把它当作断言通过。线上页面只读加载尝试超时，未登录、未执行虚拟浇水或部署，仅验证本地模拟数据和虚拟执行。
 > 2026-09-01 main 合并与服务器发布：`farmer-ui` 已合入最新 GitHub `main`，发布提交 `165aefd9da72fc7f98eafe71eea5e89fe741e724` 已同步至 `/srv/agriloop`；服务器端源码包编译、API 健康检查、Supervisor 状态和公网静态入口均通过。数据库备份为 `/srv/agriloop/backups/agri-165aefd9-20260901-194649.sql.gz`，旧应用回滚目录为 `/srv/agriloop/releases/pre-165aefd9-20260901-195301-backup`。本次只完成 HTTP/服务级发布核验，登录后的双角色浏览器操作仍待集中验收。
 > 2026-09-01 巡田记录与补证申请双角色可见修复（本地实现与自动化验收完成，浏览器双角色验收待补，待服务器部署）：`GET /api/v1/inspections` 支持农场/地块筛选并按角色裁剪，农户只看本人提交或分配给本人的记录，农场管理员查看授权当前农场全部记录；巡田记录与 `READINESS` 补证申请均在数据库持久化成功后返回并发布 SSE，失败返回 `503 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE`。农户提交后立即显示服务端记录并只刷新一次，照片上传失败单独提示；农场管理员在现有“农务任务”页增加独立补证申请区和最新 8 条巡田记录展开区，读取失败保留旧数据并提示。Web Node 118/118、Java 直接 JUnit 81/81、Vite、OpenAPI 校验和静态检查通过；Gradle 测试任务在当前 Windows 路径下的 worker `@classpath` 无法加载测试类，非断言失败，详见验收记录。本轮浏览器已检查农户记录提交/刷新和管理员巡田展示，但切换演示身份时被本地 URL 安全策略中断，未将完整双角色补证申请浏览器检查写成通过。线上服务器尚未部署。详见 `T-135` 与 `docs/acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md`。
 > 2026-09-01 农户端地块稳定排序与拖拽排序（本地验收完成，待服务器部署）：`/api/v1/plots` 改为按 `plotId` 稳定排序；新增按农户账号隔离、数据库持久化的 `farmer-workspace` 地块顺序偏好，PUT 通过 `expectedRevision` 防止多设备静默覆盖，并按权限、停用、新增规则合并地块。农户首页、我的地块、下拉选择和工具入口统一消费该顺序；“我的地块”使用 Pointer Events 支持约 400ms 长按拖动、8px 误触取消、Escape/指针取消/保存失败回滚和一次性提交。农户与管理员共用十一项标准指标顺序，缺失值显示 `—`，扩展指标稳定追加。Web 114/114、Java Gradle 79/79、Vite、OpenAPI YAML、桌面/390px 浏览器功能视觉验收和控制台检查通过；本地提交后推送 GitHub `farmer-ui`，线上服务器尚未部署。详见 `T-134` 与 `docs/acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md`。
@@ -79,7 +80,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 
 | 范围 | 当前状态 | 说明 |
 | --- | --- | --- |
-| Git 功能基线 | 本地 `main` | 已包含最新 `origin/main` 和本轮任务/告警/设置及农户地块排序增量；本轮目标为提交后推送 GitHub `farmer-ui`，不改动原有 `.gitignore` 用户修改 |
+| Git 功能基线 | 本地 `main` | 已包含最新 `origin/main` 和本轮任务/告警/设置及农户地块排序增量；本轮只创建本地提交，不推送 GitHub 或部署线上，保留原有 `.gitignore` 用户修改 |
 | 角色 | 已完成 | `FARM_ADMIN`、`FARMER`、`SYSTEM_ADMIN` 三角色；旧角色只保留兼容迁移，不作为第四种界面身份 |
 | 数据主线 | 已完成 | 模拟遥测由 API 进程内引擎生成并 ingest；真实硬件仍走 MQTT -> Redis Streams -> PostgreSQL -> SSE；含校验、去重、质量、新鲜度、来源和恢复 |
 | 智能体主线 | 已完成 | 确定性诊断/处方/安全门为事实边界，Qwen 只负责受控解释；不可用时明确降级 |
@@ -135,7 +136,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
   -> 计划实绩与回放
 ```
 
-- `SENSOR_DRIFT`、设备离线、低质量或证据不足不会生成可执行灌溉结论。
+- `SENSOR_DRIFT`、设备离线、坏/过期/低质量数据不会生成可执行灌溉结论；正常低风险人工确认场景中的证据不足或人工冲突可以只作为 `advisoryEvidence`，仍需操作人确认且不代表证据消失。
 - `FAILED`、`PARTIAL`、`TIMEOUT` 与 `SUCCEEDED` 分开保存和展示。
 - 工单主链为 `OPEN -> ASSIGNED -> IN_PROGRESS -> SUBMITTED -> DONE`，退回链为 `SUBMITTED -> REJECTED -> IN_PROGRESS`。
 - 巡田记录保留人员、时间、来源、质量和任务引用，不覆盖遥测事实。
@@ -196,10 +197,10 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 | T-123 | 本地真实协同验收通过，待用户验收 | V5.9 三账号真实资源同步，包含标签页级会话、文件型 H2、角色范围过滤、数据库拒写降级及 REST/SSE 同步。 |
 | T-124 | 待用户验收 | V5.9.1 将农场管理员水资源页面的可见名称统一为“灌溉调度”，路由、接口、权限及同步合同不变。 |
 | T-125 | 待用户验收 | V5.9.2 Crop Pack 卡片优先读取 `icon` 并使用统一 Emoji 兜底，九种内置作物与详情交互已核对。 |
-| T-132 | 待用户验收 | 农户灌溉人工证据冲突前置阻断：前置拦截 `HUMAN_REVIEW`/`HUMAN_EVIDENCE_REVIEW`，避免点击后才显示安全门错误；已随 `main@165aefd9` 发布到 `/srv/agriloop`，服务级检查通过，待线上点击验收。 |
+| T-132 | 待验收 | 农户灌溉证据门分级：`blockingEvidence` 决定阻断，`advisoryEvidence` 只提示，`executionAllowed` 统一前后端执行判定；正常低风险人工灌溉中的 `MORE_DIAGNOSIS_EVIDENCE`/`HUMAN_EVIDENCE_REVIEW` 可保持 `READY`，坏/过期/漂移/离线/暴雨/资源权限时长失败及自动/应急完整安全门不足仍阻断；证据、冲突和审计不删除。正式 API、演示 API、农户确认弹窗同步，线上未部署。 |
 | T-133 | 待用户验收 | 农户任务状态引用刷新与具体问题上报：执行状态同步、关联 `FARMER_REPORT` 工单、管理员总览/任务/动态/SSE 接收；Web 定向 26/26（完整前端 109/109）、Java Gradle 全量、Vite、差异检查和本地浏览器关键路径验收通过；已随 `main@165aefd9` 发布，待线上操作验收。 |
 | T-134 | 已完成（本地验收） | 农户端地块稳定排序、账号级跨设备偏好、版本冲突保护、长按拖拽回滚、统一入口顺序和十一项固定指标槽位已实现；详见 `docs/acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md`，已随 `main@165aefd9` 发布，待线上操作验收。 |
-| T-135 | 待验收 | 巡田记录/补证申请按角色和农场隔离；持久化成功后再返回/发 SSE；农户提交即时插入、失败状态可重试，管理员“农务任务”内独立展示补证申请及巡田记录。自动化与构建通过；已随 `main@165aefd9` 发布，公网接口/静态入口通过，完整双角色浏览器验收待执行，详见 `docs/acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md`。 |
+| T-135 | 待验收 | 巡田/复测记录和补证申请保留既有角色与农场隔离、持久化和管理员展示；补证按地块+证据类型+未完成工单去重，重复申请复用；普通巡田无便携仪值只补充现场观察，`RETEST` 必须有便携仪值，匹配复测标记旧冲突 `RESOLVED`，新冲突标记旧冲突 `SUPERSEDED` 并保留历史；保存后前端只走一次处方→readiness→诊断刷新。线上未部署，详见 `docs/acceptance/FARMER_P0_ACCEPTANCE.md`。 |
 | T-126 | 待用户验收 | V5.9.3 农场管理员日度市场行情：授权农场范围、官方日价、持久化快照、真实缺失断线、九种 Crop Pack 映射、市场比较与非自动交易销售观察。 |
 | T-127 | 已完成（历史交付，国内展示由 T-130 收口） | V5.9.4 的英国 DEFRA 原始数据、单位、来源和缺口合同继续供全球批发伦敦节点使用；国内行情中的参考曲线入口已退出。 |
 | T-130 | 已完成（历史交付，报价覆盖由 T-131 扩展） | V5.9.7 完成国内/国际展示隔离；V5.9.8 继续保持国内无国际参考，并按用户要求增加全国官方后备和独立模拟趋势。 |
@@ -211,6 +212,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 
 | 验证项 | 结果 | 备注 |
 | --- | --- | --- |
+| 2026-09-02 T-132/T-135 灌溉证据门分级与补证闭环 | 自动化/构建通过，界面与线上未验收 | Web 定向 Node 17/17、ASCII 驱动映射定向 Java 3/3、`node --check`、Vite 生产构建、OpenAPI `swagger-cli validate` 和 `git diff --check` 通过；API `compileJava/compileTestJava` 通过。中文路径的 Gradle Test worker 仍以 `ClassNotFoundException` 结束，非断言失败；线上地址只读加载超时，本轮未登录、未点击虚拟浇水或部署，`.gitignore` 用户改动保留。 |
 | 2026-09-01 main 合并与服务器发布 | 通过（服务级，待线上浏览器） | GitHub `main` 已包含合并提交 `165aefd9da72fc7f98eafe71eea5e89fe741e724` 及发布记录；服务器 `/srv/agriloop` 标记为 `165aefd9da72fc7f98eafe71eea5e89fe741e724`，数据库备份和旧应用回滚目录已保留，Supervisor/API 健康检查与公网静态入口均通过；登录后的双角色操作未执行。 |
 | 2026-09-01 T-133 农户任务刷新与问题上报 | 通过（本地，待线上） | Web 定向 26/26，完整前端 109/109；Java Gradle 全量测试通过（使用 ASCII 映射路径规避 Windows 中文路径执行器误报）；Vite 构建与 `git diff --check` 通过。浏览器复用本地 farmer 页面验证执行中任务不再显示“开始执行”，并可打开“具体问题”表单；控制台仅有本地后端不可用时的预期演示降级提示。正式服务器尚未部署，未执行线上上报。 |
 | 2026-09-01 T-134 农户端地块稳定排序与拖拽排序 | 通过（本地，待线上） | Web Node 114/114（串行测试避免演示存储并发干扰）、Java Gradle 79/79（ASCII 临时驱动映射）、Vite 生产构建、OpenAPI YAML 解析与 `git diff --check` 通过。浏览器在本地 farmer 页面验证长按拖动、一次保存提示、刷新后顺序保持、首页卡片/工具下拉一致、普通点击详情、十一项指标标签顺序、390px 无横向溢出和零控制台 warning/error。服务器尚未部署，线上页面仍需发布后验收。 |

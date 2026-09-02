@@ -113,6 +113,10 @@ test('演示巡田和补证记录按当前农户可见并在重读后保留补�
   service.sessionMode = 'demo';
   service.user = { userId: 'visibility-farmer', username: 'visibility.farmer', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
   const own = await service.createInspection({ farmId: 'farm-demo', plotId: 'plot-a01', notes: '本人现场观察' });
+  assert.equal(own.evidenceType, 'FIELD_INSPECTION');
+  assert.equal(own.evidenceStatus, 'OBSERVATION_ONLY');
+  assert.equal(own.portableSoilMoisture, null);
+  assert.equal(own.portableComparison, undefined);
   const request = await service.createDecisionEvidenceRequest('readiness-demo', {
     farmId: 'farm-demo', plotId: 'plot-a01', reason: '需要复测', evidenceType: 'RETEST'
   });
@@ -121,6 +125,69 @@ test('演示巡田和补证记录按当前农户可见并在重读后保留补�
   service.user = { userId: 'visibility-other', username: 'visibility.other', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
   assert.equal((await service.getInspections()).some(item => item.inspectionId === own.inspectionId), false);
   assert.equal((await service.getWorkOrders()).some(item => item.workOrderId === request.workOrderId), false);
+});
+
+test('演示复测可解决历史冲突、低风险处方只提示且补证申请去重', async () => {
+  storage.clear();
+  agentSessionStorage.clear();
+  try {
+    const service = new ApiService();
+    service.sessionMode = 'demo';
+    service.user = { userId: 'evidence-loop-farmer', username: 'evidence.loop', role: 'FARMER', farmIds: ['farm-demo'], plotIds: ['plot-a01'] };
+    const plot = service.mockPlot('plot-a01');
+    const telemetryValue = Number(plot.metrics.SOIL_MOISTURE.value);
+    const conflictingValue = telemetryValue <= 80 ? telemetryValue + 20 : telemetryValue - 20;
+
+    const firstInspection = await service.createInspection({
+      farmId: 'farm-demo', plotId: 'plot-a01', evidenceType: 'RETEST',
+      portableSoilMoisture: conflictingValue, notes: '首次复测与在线遥测存在差异'
+    });
+    assert.equal(firstInspection.evidenceStatus, 'ACTIVE');
+    assert.ok(firstInspection.sensorConflict);
+
+    const diagnosisWithConflict = await service.evaluateDiagnosis('plot-a01', { scenarioId: 'normal' });
+    const planWithAdvisory = await service.estimateIrrigation({
+      plotId: 'plot-a01', diagnosisId: diagnosisWithConflict.diagnosisId, scenarioId: 'normal'
+    });
+    const advisoryReadiness = await service.getDecisionReadiness('IRRIGATION_PLAN', planWithAdvisory.planId, {
+      plotId: 'plot-a01', plan: planWithAdvisory, diagnosis: diagnosisWithConflict
+    });
+    assert.equal(advisoryReadiness.status, 'READY');
+    assert.equal(advisoryReadiness.executionAllowed, true);
+    assert.deepEqual(advisoryReadiness.blockingEvidence, []);
+    assert.ok(advisoryReadiness.advisoryEvidence.includes('HUMAN_EVIDENCE_REVIEW'));
+
+    const secondInspection = await service.createInspection({
+      farmId: 'farm-demo', plotId: 'plot-a01', evidenceType: 'RETEST',
+      portableSoilMoisture: telemetryValue, notes: '复测值与在线遥测一致'
+    });
+    assert.equal(secondInspection.evidenceStatus, 'CLEAR');
+    const historicalFirst = (await service.getInspections({ plotId: 'plot-a01' }))
+      .find(item => item.inspectionId === firstInspection.inspectionId);
+    assert.equal(historicalFirst.evidenceStatus, 'RESOLVED');
+    assert.equal(historicalFirst.resolvedByInspectionId, secondInspection.inspectionId);
+
+    const diagnosisAfterResolution = await service.evaluateDiagnosis('plot-a01', { scenarioId: 'normal' });
+    assert.equal(diagnosisAfterResolution.evidenceConflicts.some(item => item.status === 'ACTIVE'), false);
+    assert.equal(diagnosisAfterResolution.evidenceConflicts.find(item => item.inspectionId === firstInspection.inspectionId)?.status, 'RESOLVED');
+
+    const requestOne = await service.createDecisionEvidenceRequest('readiness-evidence-loop', {
+      farmId: 'farm-demo', plotId: 'plot-a01', reason: '需要再次复测', evidenceType: 'RETEST'
+    });
+    const requestTwo = await service.createDecisionEvidenceRequest('readiness-evidence-loop-next', {
+      farmId: 'farm-demo', plotId: 'plot-a01', reason: '重复点击复测', evidenceType: 'RETEST'
+    });
+    assert.equal(requestTwo.workOrderId, requestOne.workOrderId);
+    assert.equal(requestTwo.reused, true);
+    const openRetestRequests = (await service.getWorkOrders({ plotId: 'plot-a01' }))
+      .filter(item => String(item.sourceType || '').toUpperCase() === 'READINESS'
+        && String(item.evidenceType || '').toUpperCase() === 'RETEST'
+        && !['DONE', 'CANCELLED', 'REJECTED'].includes(String(item.status || '').toUpperCase()));
+    assert.equal(openRetestRequests.length, 1);
+  } finally {
+    storage.clear();
+    agentSessionStorage.clear();
+  }
 });
 
 test('演示操作记录跨服务实例保留并供农场管理员读取', async () => {
