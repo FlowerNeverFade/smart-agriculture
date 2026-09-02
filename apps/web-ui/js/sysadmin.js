@@ -417,7 +417,7 @@ function adminServiceCards(systemStatus = {}) {
   }));
 }
 
-function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
+function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alerts, devices, recentEvents } = {}) {
   overview = overview || {};
   systemStatus = systemStatus || {};
   simulator = simulator || {};
@@ -458,7 +458,7 @@ function adminOverviewFromLive({ overview, systemStatus, simulator, alerts, devi
     ai: systemStatus.ai,
     llmModel: systemStatus.llmModel || overview.llmModel || (aiMode === 'full' ? 'Qwen 服务' : '—'),
     alerts: { open, acknowledged, closedToday: statuses.filter((status) => ['CLOSED', 'RESOLVED'].includes(status)).length },
-    devices: { total: devices.length, online, offline: Math.max(0, devices.length - online) },
+    devices: { total: devices.length || overview?.devices?.total || 0, online: devices.length ? online : (overview?.devices?.online || 0), offline: devices.length ? Math.max(0, devices.length - online) : (overview?.devices?.offline || 0) },
     simulator: {
       running: simStatus === 'RUNNING',
       scenario,
@@ -1437,7 +1437,7 @@ const AdminRulesView = {
       } catch (error) { toast(error.message || '重新评估失败', 'error'); }
     };
     const rulePage = usePagination(rulesList);
-    const candidatePage = usePagination(candidatesList);
+    const learningPage = usePagination(filteredLearningCases);
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
@@ -1446,7 +1446,7 @@ const AdminRulesView = {
       learningCasesList, learningFilter, learningCounts, filteredLearningCases, learningReason, learningUses, learningStatus, learningTone, strategySummary, offlineEvidence, rollbackSummary, reviewLearningCase, reEvaluateLearningCase,
       candidateStatusCode, canValidateCandidate, canApproveCandidate, canActivateCandidate, canRejectCandidate, canRollbackCandidate, validateCandidate,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
-      candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
+      learningPageSize: learningPage.pageSize, learningCurrentPage: learningPage.currentPage, learningJumpInput: learningPage.jumpInput, learningTotalPages: learningPage.totalPages, learningPageRecords: learningPage.pageRecords, learningPrevPage: learningPage.prevPage, learningNextPage: learningPage.nextPage, learningJumpTo: learningPage.jumpTo
     };
   }
 };
@@ -2297,8 +2297,9 @@ const app = createApp({
         state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = simulator || state.value.simulatorStatus;
         state.value.adminOverview = adminOverviewFromLive({
-          overview,
-          systemStatus,
+            overview,
+            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
+            systemStatus,
           simulator: simulator || {},
           alerts: alerts || [],
           devices,
@@ -2511,7 +2512,7 @@ const app = createApp({
       state.value.adminLearningCases = adminLearningCases;
       state.value.adminUsers = adminUsers;
       state.value.adminAuditLogs = adminAuditLogs;
-      state.value.adminOverview = adminOverviewFromLive({ overview, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
+      state.value.adminOverview = adminOverviewFromLive({ overview, plots: typeof plots !== "undefined" ? plots : state.value.allPlots, systemStatus: results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {}, simulator: { ...state.value.simulatorStatus, history: state.value.adminSimHistory }, alerts, devices, recentEvents });
       if (failures.length && announceErrors) showToast(`部分正式平台数据读取失败：${failures.join('；')}`, 'error');
     };
 

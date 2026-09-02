@@ -1389,7 +1389,7 @@ export function mapTimelineRecord(entry = {}, plotMap = new Map(), index = 0) {
       : type === 'IRRIGATION-PLAN'
         ? `生成灌溉处方${record.waterLitre !== undefined ? ` · ${record.waterLitre} 升` : ''}`
         : type === 'COMMAND'
-          ? `控制命令：${text(record.action || record.commandType, '已提交')}`
+          ? `控制命令：${text(record.action || record.commandType || (record.payload && record.payload.action), '已提交')}${record.deviceId ? ` (目标: ${record.deviceId})` : ''}`
           : type === 'READINESS'
             ? `决策就绪度：${text(record.readinessStatus || record.status, '待评估')}`
             : type === 'INSPECTION'

@@ -1,5 +1,5 @@
 /* ============================================================
-   AgriLoop 种植农户工作台专用样式
+   农智闭环种植农户工作台专用样式
    - 绿色作为选中高亮
    - 浅色按钮风格
    - snake_case 命名
@@ -3932,7 +3932,8 @@
 .farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
 .farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
-.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice:hover { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
 .farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
 .farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }

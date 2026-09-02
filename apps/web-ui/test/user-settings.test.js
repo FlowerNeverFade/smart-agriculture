@@ -35,7 +35,7 @@ test('工作台设置应用主题、布局、密度和纯色地块数据属性',
 });
 
 test('旧柔和玻璃与作物背景设置自动迁移到清晰纯色外观', () => {
-  assert.deepEqual(SURFACE_STYLE_OPTIONS.map((item) => item.value), ['classic', 'glass-latest']);
+  assert.deepEqual(SURFACE_STYLE_OPTIONS.map((item) => item.value), ['classic', 'glass-latest', 'minimal']);
   const normalized = normalizeUserSettings({ surfaceStyle: 'glass-soft', plotBackground: 'crop' });
   assert.equal(normalized.surfaceStyle, 'classic');
   assert.equal(normalized.plotBackground, 'none');

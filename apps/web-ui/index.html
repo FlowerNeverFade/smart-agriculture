@@ -714,7 +714,7 @@
               <div class="chat-msg-content">{{ displayText(msg.content) }}</div>
             </div>
             <div v-if="isTyping" class="chat-msg agent">
-               <app-icon name="hourglass_empty" style="animation: spin 2s linear infinite;"></app-icon> 推理中…
+               <app-icon name="hourglass_empty" style="animation: spin 2s linear infinite;"></app-icon> 生成回答中…
             </div>
           </div>
 
@@ -1573,7 +1573,7 @@
                       </dl>
                     </div>
                     <div class="passport-section">
-                      <div class="passport-section-title">🤖 智能助手推理</div>
+                      <div class="passport-section-title">🤖 智能助手说明</div>
                       <dl class="passport-kv">
                         <dt>诊断结论</dt><dd>{{ displayText(record.passport.diagnosis) }}</dd>
                         <dt>处方建议</dt><dd>{{ displayText(record.passport.prescription) }}</dd>

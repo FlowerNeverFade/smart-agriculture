@@ -8,7 +8,7 @@ import { EXTENDED_CROP_PACK_DETAILS } from './crop-guidance-extended.js';
 export const MOCK_DATA = {
   system: {
     mode: "standalone",
-    aiMode: "rules-only",
+    aiMode: "openai-compatible",
     database: "UP",
     redis: "UP",
     redisStream: "agri.telemetry",
