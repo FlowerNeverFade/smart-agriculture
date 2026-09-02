@@ -922,7 +922,7 @@
                 <div>
                   <span class="farmer-section-kicker">光照系统</span>
                   <h3>按地块查看光照强度与补光状态</h3>
-                  <p>光照属于 <b>SIMULATION_ONLY</b> 指标；低于或高于 Crop Pack 阶段范围时只生成可解释风险提醒，补光仍需当前操作人确认。</p>
+                  <p>光照属于 <b>SIMULATION_ONLY</b> 指标；系统按白天/夜间时段与 Crop Pack 阶段目标生成风险提醒，补光仍需当前操作人确认。</p>
                 </div>
                 <div class="farmer-light-system-fact"><span>当前地块</span><strong>{{ advice_plot?.name || '—' }}</strong><small>{{ advice_plot?.deviceStatus === 'OFFLINE' ? '设备离线 · 可演示补光' : '设备在线 · 虚拟执行' }}</small></div>
               </div>
@@ -1003,7 +1003,15 @@
                   <div v-else-if="advice_light_status.status === 'WARN_LOW'" class="farmer-light-system-notice"><app-icon name="light_mode"></app-icon><span>光照略低于目标，建议先核对遮挡；达到告警阈值后才开放补光操作。</span></div>
                   <div v-else-if="advice_light_status.status === 'ALERT_LOW'" class="farmer-light-system-notice is-low"><app-icon name="light_mode"></app-icon><span>{{ advice_light_status.deviceOffline ? '设备离线，仅可在本地演示模式下虚拟补光。' : '光照低于告警阈值，可由当前操作人确认执行虚拟补光。' }}</span></div>
                   <div v-else class="farmer-light-system-notice is-normal"><app-icon name="check_circle"></app-icon><span>{{ advice_light_status.isNight ? '当前为夜间休息时段，作物不需要补光，系统已关闭缺光预警。' : '当前光照处于阶段目标范围内，无需补光。' }}</span></div>
-                  <div class="farmer-light-control-actions"><button v-if="light_operation_available" type="button" class="g-btn primary farmer-btn-analyze" @click="open_virtual_lighting" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>{{ light_operation_label }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)"><app-icon name="grass"></app-icon>查看地块详情</button></div>
+                  <div class="farmer-light-control-actions"><button type="button" class="g-btn primary farmer-btn-analyze" @click="open_light_advice" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>查看建议并执行</button><button type="button" class="g-btn secondary farmer-btn-light" :class="{ 'is-active': show_lighting_diagnosis }" @click="open_lighting_diagnosis"><app-icon :name="show_lighting_diagnosis ? 'expand_less' : 'psychology'"></app-icon>{{ show_lighting_diagnosis ? '收起诊断' : '查看智能诊断' }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)"><app-icon name="grass"></app-icon>查看地块详情</button></div>
+                  <div v-if="show_lighting_diagnosis && lighting_advice_summary" class="farmer-fold-section farmer-advice-diagnosis-panel farmer-light-diagnosis-panel">
+                    <div class="farmer-panel-header">
+                      <div><span class="farmer-section-kicker">光照智能诊断</span><h3>{{ advice_plot ? advice_plot.name : '当前地块' }} · 建议与证据</h3></div>
+                      <span class="g-badge" :class="lighting_advice_summary.missing.length ? 'warning' : 'primary'">{{ lighting_advice_summary.confidenceLabel }}</span>
+                    </div>
+                    <div class="farmer-diagnosis-primary"><strong>{{ lighting_advice_summary.causeLabel }}</strong><p>{{ lighting_advice_summary.summary }}</p><p class="farmer-operation-status is-success"><span class="farmer-freshness-dot"></span>{{ lighting_advice_summary.recommendation }}</p></div>
+                    <div class="farmer-evidence-grid"><section><strong>支持证据</strong><span v-for="item in lighting_advice_summary.supporting" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.supporting.length">暂无支持证据</em></section><section><strong>反对证据</strong><span v-for="item in lighting_advice_summary.opposing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.opposing.length">暂无反对证据</em></section><section><strong>缺失证据</strong><span v-for="item in lighting_advice_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!lighting_advice_summary.missing.length">当前无缺失项</em></section></div>
+                  </div>
                   <small class="farmer-case-note">补光动作仅走虚拟执行器；命令、ACK、效果评价和光照模拟遥测均保留来源标识。</small>
                 </article>
               </div>

@@ -2171,6 +2171,7 @@ const app = createApp({
     const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && !advice_light_status.value.isNight && Boolean(advice_plot.value?.plotId));
     const light_operation_label = computed(() => advice_light_status.value.deviceOffline ? '虚拟补光（离线演示）' : '执行补光');
     const show_virtual_lighting = ref(false);
+    const show_lighting_diagnosis = ref(false);
     const virtual_lighting_stage = ref('FORM');
     const virtual_lighting_confirmed = ref(false);
     const virtual_lighting_result = ref(null);
@@ -2183,6 +2184,46 @@ const app = createApp({
       const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
       const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
       return { ...info, boost, after };
+    });
+    const lighting_advice_summary = computed(() => {
+      const info = advice_light_status.value || {};
+      const value = Number(info.value);
+      const hasValue = Number.isFinite(value);
+      const target = `${Number.isFinite(Number(info.low)) ? Number(info.low).toLocaleString() : '—'}~${Number.isFinite(Number(info.high)) ? Number(info.high).toLocaleString() : '—'} lux`;
+      const current = hasValue ? `${value.toLocaleString()} lux` : '当前暂无光照读数';
+      const evidence = {
+        current: { id: 'light-current', label: '当前光照读数', meta: current },
+        target: { id: 'light-target', label: `${info.phaseLabel || '当前时段'}目标`, meta: target },
+        schedule: { id: 'light-schedule', label: 'Crop Pack 光照时段', meta: info.isNight ? `夜间休息 · 白天 ${info.scheduleLabel || '06:00—18:00'}` : `白天生长 · ${info.scheduleLabel || '06:00—18:00'}` },
+        device: { id: 'light-device', label: '补光设备状态', meta: info.deviceOffline ? '离线（仅允许虚拟演示）' : '在线（仍只走虚拟执行器）' }
+      };
+      let causeLabel = '光照正常';
+      let summary = `${current}，处于 ${info.phaseLabel || '当前时段'}目标 ${target} 内。`;
+      let recommendation = '当前无需补光，继续观察趋势即可。';
+      const supporting = hasValue ? [evidence.current, evidence.target] : [evidence.target];
+      const opposing = [];
+      const missing = hasValue ? [] : [{ id: 'light-missing', label: '光照遥测', meta: '需要设备上报或刷新数据' }];
+      if (info.isNight && info.status === 'NORMAL') {
+        causeLabel = '夜间休息';
+        summary = `当前处于夜间休息时段（白天 ${info.scheduleLabel || '06:00—18:00'} 之外），目标 ${target}，系统关闭缺光预警。`;
+        recommendation = '不需要补光；如需查看白天策略，请切换到白天时段或查看曲线。';
+        supporting.push(evidence.schedule);
+      } else if (info.status === 'ALERT_LOW' || info.status === 'WARN_LOW') {
+        causeLabel = info.status === 'ALERT_LOW' ? '白天光照不足' : '白天光照偏低';
+        summary = `${current}，低于白天阶段目标 ${target}；请结合曲线和设备状态判断是否需要补光。`;
+        recommendation = info.status === 'ALERT_LOW' ? '建议查看处方并确认虚拟补光；设备离线时仅用于本地演示。' : '建议先检查遮挡和补光设备，达到告警阈值后再执行。';
+        if (info.deviceOffline) supporting.push(evidence.device);
+      } else if (info.status === 'ALERT_HIGH' || info.status === 'WARN_HIGH') {
+        causeLabel = info.status === 'ALERT_HIGH' ? '光照过强' : '光照偏高';
+        summary = `${current}，高于 ${info.phaseLabel || '当前时段'}目标 ${target}；系统不会在高光状态下继续补光。`;
+        recommendation = '建议检查遮阳、通风和传感器安装位置，暂不执行补光。';
+        opposing.push({ id: 'light-no-boost', label: '补光安全门', meta: '高光状态下禁止补光' });
+      } else if (!hasValue) {
+        causeLabel = '光照数据不可用';
+        summary = '当前没有可用光照读数，系统不会猜测风险或生成补光命令。';
+        recommendation = '建议刷新数据或检查设备连接后再进行诊断。';
+      }
+      return { causeLabel, confidenceLabel: hasValue ? '规则判定' : '证据不足', summary, recommendation, supporting, opposing, missing, statusLabel: info.label || '光照正常' };
     });
     const irrigation_readiness = computed(() => {
       const score = irrigation_readiness_detail.value?.score ?? advice_readiness.value?.score;
@@ -4435,6 +4476,31 @@ const app = createApp({
       show_virtual_lighting.value = true;
     };
 
+    // 光照子系统与灌溉保持同一入口语义：先查看规则建议，只有白天缺光告警才进入确认执行。
+    const open_light_advice = () => {
+      const info = advice_light_status.value || {};
+      if (info.status === 'ALERT_LOW' && !info.isNight) {
+        open_virtual_lighting();
+        return;
+      }
+      show_lighting_diagnosis.value = true;
+      if (info.isNight) {
+        show_toast('当前为夜间休息时段，已展开光照建议：无需补光', 'warning');
+      } else if (String(info.status || '').includes('HIGH')) {
+        show_toast('当前光照偏高，已展开智能诊断：暂不执行补光', 'warning');
+      } else {
+        show_toast('当前暂无可执行补光动作，已展开光照建议', 'success');
+      }
+    };
+
+    const open_lighting_diagnosis = () => {
+      if (!advice_plot.value?.plotId) {
+        show_toast('请先选择地块', 'error');
+        return;
+      }
+      show_lighting_diagnosis.value = !show_lighting_diagnosis.value;
+    };
+
     const close_virtual_lighting = () => {
       if (virtual_lighting_busy.value) return;
       show_virtual_lighting.value = false;
@@ -6213,6 +6279,9 @@ const app = createApp({
       advice_light_status,
       light_operation_available,
       light_operation_label,
+      show_lighting_diagnosis,
+      lighting_advice_summary,
+      show_virtual_lighting,
       virtual_lighting_stage,
       virtual_lighting_confirmed,
       virtual_lighting_result,
@@ -6376,6 +6445,8 @@ const app = createApp({
       close_manual_irrigation,
       submit_manual_irrigation,
       open_virtual_lighting,
+      open_light_advice,
+      open_lighting_diagnosis,
       close_virtual_lighting,
       submit_virtual_lighting,
       prepare_suggestion_confirmation,

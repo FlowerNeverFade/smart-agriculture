@@ -236,6 +236,12 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(html + source, /advice_light_chart/);
   assert.match(farmerSurface, /光照不足|光照过强/);
   assert.match(farmerSurface, /虚拟补光（离线演示）|light_operation_label/);
+  assert.match(farmerSurface, /查看建议并执行/);
+  assert.match(farmerSurface, /查看智能诊断/);
+  assert.match(source, /open_light_advice/);
+  assert.match(source, /open_lighting_diagnosis/);
+  assert.match(source, /lighting_advice_summary/);
+  assert.match(source, /show_virtual_lighting,/);
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /resolve_light_band_status/);
   assert.match(farmerSurface, /夜间目标|夜间休息/);
