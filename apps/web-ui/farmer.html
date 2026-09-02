@@ -631,7 +631,6 @@
                     risk: card.isAlert
                   }">{{ card.bandLabel }}</span>
                 </div>
-                <span v-if="card.selected" class="farmer-risk-mini-selected-mark">当前选择</span>
                 <div class="farmer-risk-mini-body">
                   <span class="farmer-risk-mini-moist" :class="'metric-' + card.moistureStatus">{{ card.moisture }}<small>%</small></span>
                   <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.moistureTarget }}</span>
@@ -950,7 +949,6 @@
                       risk: card.lightStatus === 'ALERT_LOW' || card.lightStatus === 'ALERT_HIGH'
                   }">{{ card.lightLabel }}</span>
                 </div>
-                <span v-if="card.selected" class="farmer-risk-mini-selected-mark">当前选择</span>
                   <div class="farmer-risk-mini-body farmer-light-risk-body">
                     <span class="farmer-risk-mini-moist" :class="card.lightStatus.includes('LOW') ? 'metric-ALERT' : card.lightStatus.includes('HIGH') ? 'metric-WARN' : 'metric-NORMAL'">{{ card.lightValue ?? '—' }}<small> lux</small></span>
                     <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.lightTarget }}</span>

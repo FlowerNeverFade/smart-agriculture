@@ -2772,16 +2772,6 @@
   line-height: 1.4;
   color: var(--g-text-secondary);
 }
-.farmer-risk-mini-selected-mark {
-  align-self: flex-start;
-  margin-top: -2px;
-  padding: 2px 6px;
-  border-radius: var(--g-radius-pill);
-  color: var(--g-primary-strong, var(--g-primary));
-  background: var(--g-primary-bg);
-  font-size: 10px;
-  font-weight: 700;
-}
 .farmer-risk-mini-light-warning {
   display: flex;
   align-items: center;
@@ -2878,6 +2868,8 @@
   border-left-width: 4px;
   background: color-mix(in srgb, var(--g-primary-bg) 45%, var(--g-bg-surface));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-primary) 22%, transparent), var(--g-shadow-1);
+  outline: 1px solid color-mix(in srgb, var(--g-primary) 35%, transparent);
+  outline-offset: 2px;
 }
 .farmer-risk-mini-card.is-selected.is-warn {
   border-color: var(--g-warning);
