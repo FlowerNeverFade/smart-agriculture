@@ -2180,11 +2180,20 @@ const app = createApp({
     const virtual_lighting_busy = ref(false);
     const virtual_lighting_idempotency_key = ref('');
     const virtual_lighting_boost = ref(6000);
+    const virtual_lighting_duration_seconds = ref(300);
+    const virtual_lighting_duration_options = Object.freeze([
+      { value: 60, label: '1 分钟' },
+      { value: 300, label: '5 分钟' },
+      { value: 600, label: '10 分钟' },
+      { value: 900, label: '15 分钟' }
+    ]);
     const virtual_lighting_preview = computed(() => {
       const info = advice_light_status.value;
       const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
       const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
-      return { ...info, boost, after };
+      const durationSeconds = Math.max(1, Math.min(900, Number(virtual_lighting_duration_seconds.value) || 300));
+      const durationOption = virtual_lighting_duration_options.find((item) => item.value === durationSeconds);
+      return { ...info, boost, after, durationSeconds, durationLabel: durationOption?.label || `${Math.round(durationSeconds / 60)} 分钟` };
     });
     const lighting_advice_summary = computed(() => {
       const info = advice_light_status.value || {};
@@ -4564,7 +4573,7 @@ const app = createApp({
         let result = await api.executeVirtualLighting({
           plotId,
           boostLux: preview.boost,
-          durationSeconds: 60,
+          durationSeconds: preview.durationSeconds,
           confirmed: true,
           allowOfflineDemo: true,
           idempotencyKey: virtual_lighting_idempotency_key.value,
@@ -6375,6 +6384,8 @@ const app = createApp({
       virtual_lighting_error,
       virtual_lighting_busy,
       virtual_lighting_boost,
+      virtual_lighting_duration_seconds,
+      virtual_lighting_duration_options,
       virtual_lighting_preview,
       irrigation_guard,
       automatic_watering_status,

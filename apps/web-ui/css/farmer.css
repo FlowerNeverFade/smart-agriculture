@@ -3312,8 +3312,8 @@
 .farmer-manual-warning p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.55; }
 .farmer-manual-facts { margin: 0; }
 .farmer-manual-water-input { display: grid; gap: 6px; color: var(--g-text-primary); font-size: 13px; font-weight: 600; }
-.farmer-manual-water-input input { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-weight: 500; outline: none; }
-.farmer-manual-water-input input:focus { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 15%, transparent); }
+.farmer-manual-water-input :is(input, select) { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-weight: 500; outline: none; }
+.farmer-manual-water-input :is(input, select):focus { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 15%, transparent); }
 .farmer-manual-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .farmer-manual-preview > div { display: grid; gap: 3px; padding: 10px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-primary-bg) 48%, var(--g-bg-base)); }
 .farmer-manual-preview small { color: var(--g-text-secondary); font-size: 11px; }
