@@ -2713,6 +2713,14 @@ html[data-surface-style="minimal"] .role-system-admin :is(.g-header, .g-sidebar)
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
+
+html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
 html[data-surface-style="minimal"] .role-system-admin .g-nav-item {
   background: var(--system-liquid-control) !important;
   border-color: var(--system-glass-control-outline) !important;
