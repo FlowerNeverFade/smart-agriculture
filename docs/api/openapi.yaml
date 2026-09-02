@@ -300,7 +300,13 @@ paths:
   /api/v1/diagnoses/{diagnosisId}/explain:
     post: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 基于确定性诊断证据的 AI 解释；不改变主因、置信度或安全门}}}
   /api/v1/decisions/{subjectType}/{subjectId}/readiness:
-    get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
+    get:
+      tags: [decision]
+      parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: 四态决策就绪度；blockingEvidence 决定是否阻断，advisoryEvidence 只提示，executionAllowed 是最终执行判定。missingEvidence 与 conflicts 作为兼容和审计字段保留。
+          content: {application/json: {schema: {$ref: '#/components/schemas/DecisionReadinessEnvelope'}}}
   /api/v1/decision-readiness/{readinessId}/evidence-requests:
     post:
       tags: [decision]
@@ -650,6 +656,35 @@ components:
         schemaVersion: {type: string}
         data: {type: object, nullable: true}
         error: {type: object, nullable: true}
+    DecisionReadinessEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/ApiEnvelope'}
+        - type: object
+          properties:
+            data: {$ref: '#/components/schemas/DecisionReadiness'}
+    DecisionReadiness:
+      type: object
+      required: [readinessId, subject, plotId, status, hardGates, missingEvidence, blockingEvidence, advisoryEvidence, executionAllowed, conflicts, requiredActions, policyVersion]
+      properties:
+        readinessId: {type: string}
+        subject:
+          type: object
+          required: [type, id]
+          properties:
+            type: {type: string}
+            id: {type: string}
+        plotId: {type: string}
+        status: {type: string, enum: [READY, NEEDS_EVIDENCE, HUMAN_REVIEW, UNAVAILABLE]}
+        score: {type: number, minimum: 0, maximum: 1}
+        hardGates: {type: object, additionalProperties: {type: string, enum: [PASS, REVIEW, FAIL]}}
+        missingEvidence: {type: array, items: {type: string}, description: 兼容字段；包含阻断和提醒证据，不能单独决定执行}
+        blockingEvidence: {type: array, items: {type: string}, description: 当前必须补齐的硬阻断证据}
+        advisoryEvidence: {type: array, items: {type: string}, description: 当前仅提示但不阻断常规低风险人工确认灌溉的证据}
+        executionAllowed: {type: boolean, description: 前端执行按钮和后端控制接口共同使用的最终允许标记}
+        conflicts: {type: array, items: {type: string}}
+        requiredActions: {type: array, items: {type: object, additionalProperties: true}}
+        policyVersion: {type: string, example: readiness-v2}
+        evaluatedAt: {type: string, format: date-time}
     MarketPriceOverview:
       type: object
       required: [farmId, scope, rangeDays, sourceStatus, historyPersistence, availableCropCount, totalCropCount, source, crops]
@@ -986,6 +1021,7 @@ components:
         soilSurface: {type: string, example: DRY}
         cropCondition: {type: string, example: LEAF_SLIGHT_WILT}
         deviceStatus: {type: string, example: NORMAL}
+        evidenceType: {type: string, enum: [FIELD_INSPECTION, RETEST, DEVICE_CHECK], default: FIELD_INSPECTION, description: RETEST 类型必须同时提供 portableSoilMoisture；普通巡田没有便携仪读数时只能形成现场观察证据}
         portableSoilMoisture: {type: number, minimum: 0, maximum: 100, nullable: true}
         notes: {type: string, description: 现场可复核说明}
     InspectionRecord:
@@ -1002,6 +1038,20 @@ components:
             updatedAt: {type: string, format: date-time}
             revision: {type: integer, minimum: 1}
             evidenceSummary: {type: string}
+            evidenceStatus: {type: string, enum: [OBSERVATION_ONLY, ACTIVE, CLEAR, UNAVAILABLE, RESOLVED, SUPERSEDED], description: 当前人工证据与遥测比对状态；历史冲突只标记状态，不删除原始记录}
+            portableComparison:
+              type: object
+              nullable: true
+              properties:
+                telemetryValue: {type: number}
+                portableValue: {type: number}
+                deviation: {type: number, minimum: 0}
+                status: {type: string, enum: [ACTIVE, CLEAR]}
+                evaluatedAt: {type: string, format: date-time}
+            resolvedByInspectionId: {type: string, nullable: true}
+            resolvedAt: {type: string, format: date-time, nullable: true}
+            supersededByInspectionId: {type: string, nullable: true}
+            supersededAt: {type: string, format: date-time, nullable: true}
             provenance: {type: string, enum: [USER_PROVIDED]}
             sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
             photos:

@@ -813,7 +813,7 @@
                     <section><strong>反对证据</strong><span v-for="item in advice_diagnosis_summary.opposing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.opposing.length">暂无反对证据</em></section>
                     <section v-if="!advice_is_no_action"><strong>缺失证据</strong><span v-for="item in advice_diagnosis_summary.missing" :key="item.id"><b>{{ item.label }}</b><small>{{ item.meta }}</small></span><em v-if="!advice_diagnosis_summary.missing.length">当前无缺失项</em></section>
                   </div>
-                  <div v-if="advice_diagnosis_summary.conflicts.length" class="farmer-evidence-conflicts"><strong>证据冲突，需要人工复核</strong><span v-for="item in advice_diagnosis_summary.conflicts" :key="item.id">{{ item.label }} · {{ item.meta }}</span></div>
+                  <div v-if="advice_diagnosis_summary.conflicts.length" class="farmer-evidence-conflicts"><strong>证据冲突，{{ advice_readiness_summary && advice_readiness_summary.executionAllowed ? '当前作为提醒，不阻断常规处方' : '需要人工复核' }}</strong><span v-for="item in advice_diagnosis_summary.conflicts" :key="item.id">{{ item.label }} · {{ item.meta }}</span></div>
                   <div v-if="advice_readiness_summary" class="farmer-readiness-block">
                     <div class="farmer-readiness-head">
                       <strong>{{ advice_is_no_action ? '无需操作' : advice_readiness_summary.statusLabel }}</strong>
@@ -1385,7 +1385,7 @@
                         <button v-if="task_has_active_issue_report(selected_task)" type="button" class="g-btn secondary farmer-btn-light" disabled title="问题已上报，等待农场管理员处理">问题已上报</button>
                         <button v-else type="button" class="g-btn secondary farmer-btn-light" :disabled="['DONE', 'CANCELLED'].includes(farmer_task_status(selected_task))" @click="open_issue_report(selected_task)">上报问题</button>
                         <p v-if="task_has_active_issue_report(selected_task)" class="farmer-task-report-status"><app-icon name="notifications"></app-icon>问题已提交给农场管理员，等待处理。</p>
-                        <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_task.plot_id, selected_task.workOrderId)">录入巡田记录</button>
+                        <button type="button" class="g-btn secondary farmer-btn-light" @click="open_inspection_form(selected_task.plot_id, selected_task.workOrderId, selected_task.evidenceType)">录入巡田记录</button>
                       </div>
                     </div>
                   </div>
@@ -1490,12 +1490,13 @@
                   <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_inspection_form" title="关闭"><app-icon name="close"></app-icon></button>
                 </div>
                   <label>地块<select v-model="inspection_form.plot_id" required><option v-for="plot in plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+                  <p class="farmer-form-hint farmer-inspection-type-hint">证据类型：{{ inspection_form.evidence_type === 'RETEST' ? '传感器复测' : inspection_form.evidence_type === 'DEVICE_CHECK' ? '设备检查' : '现场巡田' }}。人工观察会保留历史记录，不会覆盖在线遥测。</p>
                   <p v-if="inspection_form.work_order_id" class="farmer-form-hint">本记录将关联任务 {{ inspection_form.work_order_id }}，提交后管理员可在验收时查看。</p>
                 <div class="farmer-form-grid">
                   <label>土壤表层<select v-model="inspection_form.soil_surface"><option value="DRY">偏干</option><option value="NORMAL">正常</option><option value="WET">偏湿</option></select></label>
                   <label>作物状态<select v-model="inspection_form.crop_condition"><option value="HEALTHY">长势正常</option><option value="LEAF_SLIGHT_WILT">叶片轻微萎蔫</option><option value="PEST_SUSPECTED">疑似病虫害</option></select></label>
                 </div>
-                <label>便携仪实测含水率（%）<input v-model.number="inspection_form.moisture" type="number" min="0" max="100" step="0.1" required></label>
+                  <label>便携仪实测含水率（%）<input v-model.number="inspection_form.moisture" type="number" min="0" max="100" step="0.1" :required="inspection_form.evidence_type === 'RETEST'"><small class="farmer-form-hint">{{ inspection_form.evidence_type === 'RETEST' ? '传感器复测必填；' : '普通巡田可留空；' }}当前遥测 {{ inspection_telemetry_reference === null ? '—' : inspection_telemetry_reference }}% 仅作只读参考，不会自动作为人工复测值提交。</small></label>
                 <label>现场说明<textarea v-model.trim="inspection_form.notes" rows="3" placeholder="例如：表层略干，无明显渗漏。" required></textarea></label>
                 <label>现场照片（选填，最多 6 张，JPEG/PNG/WebP）<input type="file" accept="image/jpeg,image/png,image/webp" multiple @change="on_inspection_photos"><small class="farmer-form-hint">照片按人工提供证据保存，不会覆盖传感器读数。{{ inspection_form.photos.length ? '已选 ' + inspection_form.photos.length + ' 张。' : '' }}</small></label>
                 <div class="farmer-form-footer"><button type="button" class="g-btn secondary farmer-btn-light" @click="close_inspection_form">取消</button><button type="submit" class="g-btn primary farmer-btn-analyze">保存记录</button></div>
@@ -1781,6 +1782,7 @@
                 <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
               </div>
               <div v-if="suggestion_emergency_notice" class="farmer-suggestion-emergency" role="status"><span class="material-symbols-outlined">emergency</span><div><strong>低湿度 · 自动浇水条件</strong><p>{{ suggestion_emergency_notice }}</p></div></div>
+              <div v-if="suggestion_advisory_notice" class="farmer-suggestion-advisory" role="status"><span class="material-symbols-outlined">info</span><div><strong>证据提示（不阻断执行）</strong><p>{{ suggestion_advisory_notice }}</p></div></div>
               <div v-if="suggestion_block_reason" class="farmer-suggestion-blocked" role="alert"><span class="material-symbols-outlined">lock</span><div><strong>暂不能执行</strong><p>{{ suggestion_block_reason }}</p><button type="button" class="g-btn secondary farmer-btn-light" @click="open_suggestion_inspection">去巡田 / 申请复测</button></div></div>
               <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="suggestion_confirm_checked" type="checkbox" :disabled="Boolean(suggestion_block_reason)"><span>我已核对地块、处理原因{{ active_suggestion && active_suggestion.kind === 'IRRIGATION' ? '、水量和时间，并确认立即执行虚拟灌溉' : '，并确认按提示操作' }}。</span></label>
               <div class="farmer-form-footer">

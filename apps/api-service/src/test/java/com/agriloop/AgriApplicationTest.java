@@ -967,6 +967,111 @@ class AgriApplicationTest {
     }
 
     @Test
+    void routineEvidenceConflictIsAdvisoryButAutomaticModeKeepsTheFullGate() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-evidence-advisory-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("farmer-evidence-" + suffix, "farmer-evidence-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "证据提醒测试田", "cropCode", "tomato",
+                "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId,
+                "status", "ONLINE", "bindingState", "BOUND", "lastSeen", Instant.now().toString())));
+        engine.ingest(Map.of("eventId", "evidence-advisory-telemetry-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 22.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> inspection = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", plotId, "observedAt", Instant.now().toString(),
+                "evidenceType", "RETEST", "soilSurface", "DRY", "cropCondition", "LEAF_SLIGHT_WILT",
+                "portableSoilMoisture", 8.0, "notes", "便携仪与在线读数存在差异")), farmer);
+        Map<String, Object> diagnosis = engine.diagnose(plotId, Map.of("scenarioId", "normal", "traceId", "trace-advisory-" + suffix));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of(
+                "plotId", plotId, "diagnosisId", diagnosis.get("diagnosisId"), "traceId", "trace-advisory-" + suffix), farmer);
+        Map<String, Object> readiness = engine.readiness("IRRIGATION_PLAN", String.valueOf(plan.get("planId")), farmer);
+
+        assertThat(readiness).containsEntry("status", "READY").containsEntry("executionAllowed", true)
+                .containsEntry("policyVersion", "readiness-v2");
+        assertThat(Jsons.strings(readiness.get("blockingEvidence"))).doesNotContain("HUMAN_EVIDENCE_REVIEW", "MORE_DIAGNOSIS_EVIDENCE");
+        assertThat(Jsons.strings(readiness.get("advisoryEvidence"))).contains("HUMAN_EVIDENCE_REVIEW");
+        assertThat(Jsons.strings(readiness.get("missingEvidence"))).contains("HUMAN_EVIDENCE_REVIEW");
+        assertThat(plan).containsEntry("readinessStatus", "READY").containsEntry("executable", true)
+                .containsEntry("executionAllowed", true);
+        assertThat(plan).containsKey("blockingEvidence").containsKey("advisoryEvidence").containsKey("diagnosis");
+        assertThat(inspection).containsEntry("evidenceType", "RETEST").containsEntry("evidenceStatus", "ACTIVE");
+
+        Map<String, Object> automaticPlan = engine.irrigationPlan(Map.of(
+                "plotId", plotId, "diagnosisId", diagnosis.get("diagnosisId"), "automatic", true,
+                "traceId", "trace-advisory-auto-" + suffix), farmer);
+        Map<String, Object> automaticReadiness = engine.readiness("IRRIGATION_PLAN", String.valueOf(automaticPlan.get("planId")), farmer);
+        assertThat(automaticPlan).containsEntry("executable", false);
+        assertThat(automaticReadiness.get("status")).isNotEqualTo("READY");
+        assertThat(Jsons.strings(automaticReadiness.get("blockingEvidence"))).contains("HUMAN_EVIDENCE_REVIEW");
+    }
+
+    @Test
+    void matchingRetestResolvesPriorConflictAndReadinessKeepsHistory() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-evidence-resolve-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("farmer-resolve-" + suffix, "farmer-resolve-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "复测闭环测试田", "cropCode", "tomato",
+                "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId,
+                "status", "ONLINE", "bindingState", "BOUND", "lastSeen", Instant.now().toString())));
+        engine.ingest(Map.of("eventId", "evidence-resolve-telemetry-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 32.0, "unit", "%",
+                "scenarioId", "normal", "ts", Instant.now().toString()));
+        Map<String, Object> first = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", plotId, "observedAt", Instant.now().minusSeconds(10).toString(),
+                "evidenceType", "RETEST", "portableSoilMoisture", 18.0, "notes", "首次复测偏差")), farmer);
+        Map<String, Object> matching = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
+                "farmId", "farm-demo", "plotId", plotId, "observedAt", Instant.now().toString(),
+                "evidenceType", "RETEST", "portableSoilMoisture", 32.0, "notes", "复测与在线值一致")), farmer);
+
+        Map<String, Object> persistedFirst = store.find("inspection", String.valueOf(first.get("inspectionId")));
+        assertThat(persistedFirst).containsEntry("evidenceStatus", "RESOLVED")
+                .containsEntry("resolvedByInspectionId", matching.get("inspectionId"))
+                .containsKey("resolvedAt");
+        assertThat(matching).containsEntry("evidenceType", "RETEST").containsEntry("evidenceStatus", "CLEAR");
+        Map<String, Object> diagnosis = engine.diagnose(plotId, Map.of("scenarioId", "normal"));
+        assertThat(Jsons.maps(new ObjectMapper(), diagnosis.get("evidenceConflicts")))
+                .anySatisfy(item -> assertThat(item).containsEntry("inspectionId", first.get("inspectionId"))
+                        .containsEntry("status", "RESOLVED"));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of("plotId", plotId, "diagnosisId", diagnosis.get("diagnosisId")), farmer);
+        Map<String, Object> readiness = engine.readiness("IRRIGATION_PLAN", String.valueOf(plan.get("planId")), farmer);
+        assertThat(readiness).containsEntry("status", "READY").containsEntry("executionAllowed", true);
+        assertThat(Jsons.strings(readiness.get("advisoryEvidence"))).doesNotContain("HUMAN_EVIDENCE_REVIEW");
+    }
+
+    @Test
+    void readinessEvidenceRequestsDeduplicateByPlotAndEvidenceType() {
+        String suffix = String.valueOf(System.nanoTime());
+        String plotId = "plot-evidence-request-" + suffix;
+        UserPrincipal farmer = new UserPrincipal("farmer-request-" + suffix, "farmer-request-" + suffix,
+                "FARMER", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "补证去重测试田", "cropCode", "tomato", "status", "ACTIVE")));
+        String firstRef = "ready-request-first-" + suffix;
+        String secondRef = "ready-request-second-" + suffix;
+        Map<String, Object> first = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", plotId, "sourceType", "READINESS", "sourceRef", firstRef,
+                "actionType", "INSPECTION", "evidenceType", "RETEST", "title", "申请便携仪复测", "reason", "补充人工读数"), farmer);
+        Map<String, Object> repeated = engine.createWorkOrder(Map.of(
+                "farmId", "farm-demo", "plotId", plotId, "sourceType", "READINESS", "sourceRef", secondRef,
+                "actionType", "INSPECTION", "evidenceType", "RETEST", "title", "再次申请便携仪复测", "reason", "重复点击"), farmer);
+
+        assertThat(repeated).containsEntry("reused", true).containsEntry("workOrderId", first.get("workOrderId"));
+        assertThat(store.list("work-order").stream()
+                .filter(item -> plotId.equals(item.get("plotId")))
+                .filter(item -> "READINESS".equals(item.get("sourceType")))
+                .filter(item -> "RETEST".equals(item.get("evidenceType")))
+                .count()).isEqualTo(1);
+    }
+
+    @Test
     void farmAdminCanHandleAlertAndConvertItToWorkOrder() {
         String alertId = "alert-operations-test";
         store.save("alert", alertId, new java.util.LinkedHashMap<>(Map.of(

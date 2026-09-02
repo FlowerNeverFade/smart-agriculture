@@ -16,7 +16,7 @@
 > 2026-09-01 V5.9.10 自注册农场与地块接入（本地验收，待用户验收）：自注册 FARM_ADMIN 必须填写农场名称和地区，服务端在同一事务内创建账号及独立空农场，初始地块范围为空，不再继承 `farm-demo` 的地块、设备、遥测或任务；任一写入失败整体回滚并返回 `503 ACCOUNT_PERSISTENCE_UNAVAILABLE`。空农场总览提供可稍后跳过的“添加第一块地”正常引导，复用现有表单录入作物、品种、阶段、设施、生长周期、面积及可选设备；地块仅在持久化成功后返回，数据库不可用返回 `503 PLOT_PERSISTENCE_UNAVAILABLE`。FARM_ADMIN 地块权限按授权农场动态判定，创建前签发的 JWT 可立即读取和修改本场新地块，跨农场访问仍为 403。隔离真实 HTTP 使用两个新管理员验证农场与业务数据完全隔离，创建及修改地块后重启文件型 H2，原农场 ID、地块 ID 与修改内容仍可查询。Web Node 124/124、Java JUnit 89/89（主源码/测试直接编译）、Vite、JS、OpenAPI YAML 与差异检查通过；正式注册页、空农场和首块地闭环在桌面与 698px 均无横向溢出，页面无 warning/error。完整 Gradle 仍在编译前被本机 Java NIO loopback 故障阻断，未虚报为通过；未推送、未部署。详见 `T-137`。
 > 2026-09-01 V5.9.9 受控三角色账号创建（历史交付，自注册 FARM_ADMIN 范围已由 T-137 替代）：登录页注册开放种植农户、农场管理员和系统管理员三种身份；FARMER 保持示范农场默认地块，V5.9.9 的 FARM_ADMIN 示范农场范围已在 V5.9.10 改为独立空农场，SYSTEM_ADMIN 必须使用部署环境提供的 `SYSTEM_ADMIN_AUTHORIZATION_CODE`，仓库无默认密钥，授权码采用恒定时间比较且连续失败 5 次后限制 15 分钟。SYSTEM_ADMIN 工作台改为真实全局账号列表和角色化创建表单，非系统管理员账号支持停用、启用和删除，全部 SYSTEM_ADMIN 永久禁止停用或删除，创建成功只显示一次恢复码；`/farm-members` 仅允许本场 FARMER，关闭农场管理员创建高权限账号的绕过路径。账号创建、状态、删除和范围均在持久化成功后返回，数据库不可用统一拒写 `503 ACCOUNT_PERSISTENCE_UNAVAILABLE`。隔离真实 HTTP 已验证三角色注册、错误授权拒绝、全局三角色创建、敏感字段隔离、越权拒绝、账号保护与文件型 H2 重启后同 ID/范围仍在。Web Node 122/122、Java JUnit 77/77（主源码/测试直接编译）、Vite、JS、OpenAPI YAML 和差异检查通过；正式页面确认桌面与 698px 注册/账号管理无横向溢出，系统账号保护按钮禁用，控制台无 warning/error。完整 Gradle 仍在守护进程启动前被本机 Java NIO loopback 故障阻断，未虚报为通过；未推送、未部署。详见 `T-136`。
 > 当前功能发布：`main` 已整合最新 `SysAdminUI`、`farmer-ui` 与管理员增量；资源安排已升级为配额、风险、需求、分配与用水事实同页核对，农户端在“更多工具”提供负责地块的参数化只读风险双轨试算、完整作物培养手册和农智助手。三角色共享工作台设置保留左下角入口、白色默认主题、黑色/跟随系统主题、经典卡片/液态玻璃、强调色、字体、密度、宽度、动效、自动刷新和来源标识；柔和玻璃与地块图片偏好已退出，旧浏览器配置自动迁移为经典卡片和纯色地块，所有外观偏好即时静默生效。
-> GitHub 同步：本地已合并最新 `origin/main@bd3e578`，并以 `Banana2400 <483971956@qq.com>` 将发布提交 `5511efe` 推送到 GitHub `main`。相同 Web 快照已差异发布到 `/srv/farm-admin` 和中央 `/srv/agriloop`，其他角色副本目录未单独改动。
+> 2026-09-02 灌溉建议安全门简化与补证闭环修复（本地实现，自动化与构建通过，未发布线上）：readiness 统一增加 `blockingEvidence`、`advisoryEvidence`、`executionAllowed`；仅在新鲜 GOOD 遥测、设备在线、无高置信漂移/故障、非暴雨、资源/权限/时长通过、湿度不低于 Crop Pack 自动浇水阈值且为 `OPERATOR_CONFIRMED` 的常规人工灌溉中，把 `MORE_DIAGNOSIS_EVIDENCE`/`HUMAN_EVIDENCE_REVIEW` 降为提醒，证据和冲突历史仍保留。自动/应急安全门、坏数据、过期遥测、漂移、离线、暴雨、资源/权限/时长失败继续硬阻断；补证按地块+证据类型+未完成工单去重，复测匹配标记旧冲突 `RESOLVED`，新冲突标记旧冲突 `SUPERSEDED`，普通巡田无便携仪值不伪造复测；巡田保存后只执行一次处方→readiness→诊断刷新链路。后端 `compileJava/compileTestJava`、ASCII 驱动映射定向 Java 3/3、前端定向 Node 17/17、JS 检查、Vite 构建、OpenAPI 校验和差异检查已通过；中文路径的 Gradle Test worker 仍报告测试类 `ClassNotFoundException`，未把它当作断言通过。线上页面只读加载尝试超时，未登录、未执行虚拟浇水或部署，仅验证本地模拟数据和虚拟执行。
 > 2026-09-01 main 合并与服务器发布：`farmer-ui` 已合入最新 GitHub `main`，发布提交 `165aefd9da72fc7f98eafe71eea5e89fe741e724` 已同步至 `/srv/agriloop`；服务器端源码包编译、API 健康检查、Supervisor 状态和公网静态入口均通过。数据库备份为 `/srv/agriloop/backups/agri-165aefd9-20260901-194649.sql.gz`，旧应用回滚目录为 `/srv/agriloop/releases/pre-165aefd9-20260901-195301-backup`。本次只完成 HTTP/服务级发布核验，登录后的双角色浏览器操作仍待集中验收。
 > 2026-09-01 巡田记录与补证申请双角色可见修复（本地实现与自动化验收完成，浏览器双角色验收待补，待服务器部署）：`GET /api/v1/inspections` 支持农场/地块筛选并按角色裁剪，农户只看本人提交或分配给本人的记录，农场管理员查看授权当前农场全部记录；巡田记录与 `READINESS` 补证申请均在数据库持久化成功后返回并发布 SSE，失败返回 `503 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE`。农户提交后立即显示服务端记录并只刷新一次，照片上传失败单独提示；农场管理员在现有“农务任务”页增加独立补证申请区和最新 8 条巡田记录展开区，读取失败保留旧数据并提示。Web Node 118/118、Java 直接 JUnit 81/81、Vite、OpenAPI 校验和静态检查通过；Gradle 测试任务在当前 Windows 路径下的 worker `@classpath` 无法加载测试类，非断言失败，详见验收记录。本轮浏览器已检查农户记录提交/刷新和管理员巡田展示，但切换演示身份时被本地 URL 安全策略中断，未将完整双角色补证申请浏览器检查写成通过。线上服务器尚未部署。详见 `T-135` 与 `docs/acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md`。
 > 2026-09-01 农户端地块稳定排序与拖拽排序（本地验收完成，待服务器部署）：`/api/v1/plots` 改为按 `plotId` 稳定排序；新增按农户账号隔离、数据库持久化的 `farmer-workspace` 地块顺序偏好，PUT 通过 `expectedRevision` 防止多设备静默覆盖，并按权限、停用、新增规则合并地块。农户首页、我的地块、下拉选择和工具入口统一消费该顺序；“我的地块”使用 Pointer Events 支持约 400ms 长按拖动、8px 误触取消、Escape/指针取消/保存失败回滚和一次性提交。农户与管理员共用十一项标准指标顺序，缺失值显示 `—`，扩展指标稳定追加。Web 114/114、Java Gradle 79/79、Vite、OpenAPI YAML、桌面/390px 浏览器功能视觉验收和控制台检查通过；本地提交后推送 GitHub `farmer-ui`，线上服务器尚未部署。详见 `T-134` 与 `docs/acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md`。
@@ -96,7 +96,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 
 | 范围 | 当前状态 | 说明 |
 | --- | --- | --- |
-| Git 功能基线 | 本地 `main` | 已包含最新 `origin/main` 和本轮任务/告警/设置及农户地块排序增量；本轮目标为提交后推送 GitHub `farmer-ui`，不改动原有 `.gitignore` 用户修改 |
+| Git 功能基线 | 本地 `main` | 已包含最新 `origin/main` 和本轮任务/告警/设置及农户地块排序增量；本轮只创建本地提交，不推送 GitHub 或部署线上，保留原有 `.gitignore` 用户修改 |
 | 角色 | 已完成 | `FARM_ADMIN`、`FARMER`、`SYSTEM_ADMIN` 三角色；旧角色只保留兼容迁移，不作为第四种界面身份 |
 | 数据主线 | 已完成 | 模拟遥测由 API 进程内引擎生成并 ingest；BearPi 真实遥测走 MQTT -> Redis Streams -> PostgreSQL -> SSE，含校验、去重、质量、新鲜度、来源仲裁和恢复 |
 | 智能体主线 | 已完成 | 确定性诊断/处方/安全门为事实边界，Qwen 只负责受控解释；不可用时明确降级 |
@@ -152,7 +152,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
   -> 计划实绩与回放
 ```
 
-- `SENSOR_DRIFT`、设备离线、低质量或证据不足不会生成可执行灌溉结论。
+- `SENSOR_DRIFT`、设备离线、坏/过期/低质量数据不会生成可执行灌溉结论；正常低风险人工确认场景中的证据不足或人工冲突可以只作为 `advisoryEvidence`，仍需操作人确认且不代表证据消失。
 - `FAILED`、`PARTIAL`、`TIMEOUT` 与 `SUCCEEDED` 分开保存和展示。
 - 工单主链为 `OPEN -> ASSIGNED -> IN_PROGRESS -> SUBMITTED -> DONE`，退回链为 `SUBMITTED -> REJECTED -> IN_PROGRESS`。
 - 巡田记录保留人员、时间、来源、质量和任务引用，不覆盖遥测事实。
@@ -213,10 +213,10 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 | T-123 | 本地真实协同验收通过，待用户验收 | V5.9 三账号真实资源同步，包含标签页级会话、文件型 H2、角色范围过滤、数据库拒写降级及 REST/SSE 同步。 |
 | T-124 | 待用户验收 | V5.9.1 将农场管理员水资源页面的可见名称统一为“灌溉调度”，路由、接口、权限及同步合同不变。 |
 | T-125 | 待用户验收 | V5.9.2 Crop Pack 卡片优先读取 `icon` 并使用统一 Emoji 兜底，九种内置作物与详情交互已核对。 |
-| T-132 | 待用户验收 | 农户灌溉人工证据冲突前置阻断：前置拦截 `HUMAN_REVIEW`/`HUMAN_EVIDENCE_REVIEW`，避免点击后才显示安全门错误；已随 `main@165aefd9` 发布到 `/srv/agriloop`，服务级检查通过，待线上点击验收。 |
+| T-132 | 待验收 | 农户灌溉证据门分级：`blockingEvidence` 决定阻断，`advisoryEvidence` 只提示，`executionAllowed` 统一前后端执行判定；正常低风险人工灌溉中的 `MORE_DIAGNOSIS_EVIDENCE`/`HUMAN_EVIDENCE_REVIEW` 可保持 `READY`，坏/过期/漂移/离线/暴雨/资源权限时长失败及自动/应急完整安全门不足仍阻断；证据、冲突和审计不删除。正式 API、演示 API、农户确认弹窗同步，线上未部署。 |
 | T-133 | 待用户验收 | 农户任务状态引用刷新与具体问题上报：执行状态同步、关联 `FARMER_REPORT` 工单、管理员总览/任务/动态/SSE 接收；Web 定向 26/26（完整前端 109/109）、Java Gradle 全量、Vite、差异检查和本地浏览器关键路径验收通过；已随 `main@165aefd9` 发布，待线上操作验收。 |
 | T-134 | 已完成（本地验收） | 农户端地块稳定排序、账号级跨设备偏好、版本冲突保护、长按拖拽回滚、统一入口顺序和十一项固定指标槽位已实现；详见 `docs/acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md`，已随 `main@165aefd9` 发布，待线上操作验收。 |
-| T-135 | 待验收 | 巡田记录/补证申请按角色和农场隔离；持久化成功后再返回/发 SSE；农户提交即时插入、失败状态可重试，管理员“农务任务”内独立展示补证申请及巡田记录。自动化与构建通过；已随 `main@165aefd9` 发布，公网接口/静态入口通过，完整双角色浏览器验收待执行，详见 `docs/acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md`。 |
+| T-135 | 待验收 | 巡田/复测记录和补证申请保留既有角色与农场隔离、持久化和管理员展示；补证按地块+证据类型+未完成工单去重，重复申请复用；普通巡田无便携仪值只补充现场观察，`RETEST` 必须有便携仪值，匹配复测标记旧冲突 `RESOLVED`，新冲突标记旧冲突 `SUPERSEDED` 并保留历史；保存后前端只走一次处方→readiness→诊断刷新。线上未部署，详见 `docs/acceptance/FARMER_P0_ACCEPTANCE.md`。 |
 | T-126 | 待用户验收 | V5.9.3 农场管理员日度市场行情：授权农场范围、官方日价、持久化快照、真实缺失断线、九种 Crop Pack 映射、市场比较与非自动交易销售观察。 |
 | T-127 | 已完成（历史交付，国内展示由 T-130 收口） | V5.9.4 的英国 DEFRA 原始数据、单位、来源和缺口合同继续供全球批发伦敦节点使用；国内行情中的参考曲线入口已退出。 |
 | T-130 | 已完成（历史交付，报价覆盖由 T-131 扩展） | V5.9.7 完成国内/国际展示隔离；V5.9.8 继续保持国内无国际参考，并按用户要求增加全国官方后备和独立模拟趋势。 |
@@ -236,6 +236,7 @@ AgriLoop 的数据、智能体和可视化三条软件主线已形成可运行�
 | 2026-09-02 T-138 受控学习质量门 | 通过（静态门禁，待定向验收） | Java 主源码/测试编译、4 个前端模块 `node --check`、`git diff --check` 和冲突标记扫描待合并后重跑；完整测试套件未运行。远端最新 `main` 的业务更新以远端版本为主体，受控学习仅作增量补回。 |
 | 2026-09-01 V5.9.10 自注册农场与地块接入 | 通过（本地） | 隔离真实 HTTP 使用两个新 FARM_ADMIN 验证独立空农场、零 Demo 地块/设备/遥测、首块地创建与修改、旧 JWT 动态授权、跨农场列表及修改均 403，并在文件型 H2 重启后读取同一农场 ID、地块 ID 和修改内容。Web Node 124/124、Java JUnit 89/89（主源码/测试直接编译）、Vite、JS、OpenAPI YAML 与差异检查通过；桌面与 698px 注册、空农场和首块地闭环无横向溢出，页面日志无 warning/error。完整 Gradle 被本机 Java NIO loopback 故障阻断。 |
 | 2026-09-01 V5.9.9 受控三角色账号创建 | 通过（本地） | 隔离真实 HTTP 覆盖三角色注册、授权缺失/错误/限流、全局创建与列表、敏感字段隔离、越权拒绝、非系统账号状态/删除、系统账号永久保护及文件型 H2 重启持久化。Web Node 122/122、Java JUnit 77/77（主源码/测试直接编译）、Vite、JS、OpenAPI YAML 与差异检查通过；桌面和 698px 登录注册/全局账号管理无横向溢出，页面日志无 warning/error。完整 Gradle 被本机 Java NIO loopback 故障阻断。 |
+| 2026-09-02 T-132/T-135 灌溉证据门分级与补证闭环 | 自动化/构建通过，界面与线上未验收 | Web 定向 Node 17/17、ASCII 驱动映射定向 Java 3/3、`node --check`、Vite 生产构建、OpenAPI `swagger-cli validate` 和 `git diff --check` 通过；API `compileJava/compileTestJava` 通过。中文路径的 Gradle Test worker 仍以 `ClassNotFoundException` 结束，非断言失败；线上地址只读加载超时，本轮未登录、未点击虚拟浇水或部署，`.gitignore` 用户改动保留。 |
 | 2026-09-01 main 合并与服务器发布 | 通过（服务级，待线上浏览器） | GitHub `main` 已包含合并提交 `165aefd9da72fc7f98eafe71eea5e89fe741e724` 及发布记录；服务器 `/srv/agriloop` 标记为 `165aefd9da72fc7f98eafe71eea5e89fe741e724`，数据库备份和旧应用回滚目录已保留，Supervisor/API 健康检查与公网静态入口均通过；登录后的双角色操作未执行。 |
 | 2026-09-01 T-133 农户任务刷新与问题上报 | 通过（本地，待线上） | Web 定向 26/26，完整前端 109/109；Java Gradle 全量测试通过（使用 ASCII 映射路径规避 Windows 中文路径执行器误报）；Vite 构建与 `git diff --check` 通过。浏览器复用本地 farmer 页面验证执行中任务不再显示“开始执行”，并可打开“具体问题”表单；控制台仅有本地后端不可用时的预期演示降级提示。正式服务器尚未部署，未执行线上上报。 |
 | 2026-09-01 T-134 农户端地块稳定排序与拖拽排序 | 通过（本地，待线上） | Web Node 114/114（串行测试避免演示存储并发干扰）、Java Gradle 79/79（ASCII 临时驱动映射）、Vite 生产构建、OpenAPI YAML 解析与 `git diff --check` 通过。浏览器在本地 farmer 页面验证长按拖动、一次保存提示、刷新后顺序保持、首页卡片/工具下拉一致、普通点击详情、十一项指标标签顺序、390px 无横向溢出和零控制台 warning/error。服务器尚未部署，线上页面仍需发布后验收。 |

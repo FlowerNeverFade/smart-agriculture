@@ -428,7 +428,8 @@ const EVIDENCE_LABELS = Object.freeze({
   FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
   MORE_TELEMETRY_HISTORY: '延长遥测观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
   GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量', HUMAN_EVIDENCE_REVIEW: '复核人工现场证据',
-  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）'
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断', MORE_DIAGNOSIS_EVIDENCE: '现场复核（仅在读数异常时需要）',
+  HEAVY_RAIN_REVIEW: '确认暴雨与排水状态', SOIL_MOISTURE: '补充土壤湿度数据', RESOURCE_CAPACITY: '水源容量限制', CHECK_RESOURCE: '核对水源容量'
 });
 
 function evidence_view(item, index = 0) {
@@ -2287,11 +2288,17 @@ const app = createApp({
       const readiness = advice_readiness.value;
       if (!readiness) return null;
       const status = String(readiness.status || 'UNAVAILABLE').toUpperCase();
+      const blockingCodes = Array.isArray(readiness.blockingEvidence)
+        ? readiness.blockingEvidence
+        : status === 'READY' ? [] : (readiness.missingEvidence || []);
+      const advisoryCodes = Array.isArray(readiness.advisoryEvidence) ? readiness.advisoryEvidence : [];
       return {
         status,
         statusLabel: READINESS_STATUS_LABELS[status] || status,
         score: Number.isFinite(Number(readiness.score)) ? Math.round(Number(readiness.score) * 100) : null,
-        missing: (readiness.missingEvidence || []).slice(0, 6).map((item, index) => evidence_view(item, index)),
+        missing: blockingCodes.slice(0, 6).map((item, index) => evidence_view(item, index)),
+        advisory: advisoryCodes.slice(0, 6).map((item, index) => evidence_view(item, index)),
+        executionAllowed: readiness.executionAllowed !== false && status === 'READY' && blockingCodes.length === 0,
         requiredActions: (readiness.requiredActions || []).slice(0, 6).map((item, index) => ({
           id: `${item.type || 'ACTION'}-${item.action || index}`,
           label: EVIDENCE_LABELS[item.action] || EVIDENCE_LABELS[item.type] || item.action || item.type || '补充检查',
@@ -2482,11 +2489,17 @@ const app = createApp({
     const inspection_form = ref({
       plot_id: plots.value[0]?.plotId || '',
       work_order_id: '',
+      evidence_type: 'FIELD_INSPECTION',
       soil_surface: 'NORMAL',
       crop_condition: 'HEALTHY',
-      moisture: plots.value[0]?.metrics?.SOIL_MOISTURE?.value ?? '',
+      moisture: '',
       notes: '',
       photos: []
+    });
+    const inspection_telemetry_reference = computed(() => {
+      const plot = find_plot_by_id(plots.value, inspection_form.value.plot_id);
+      const value = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+      return Number.isFinite(value) ? value : null;
     });
     const evidence_form = ref({
       plot_id: plots.value[0]?.plotId || '',
@@ -3021,19 +3034,29 @@ const app = createApp({
     const suggestion_block_reason = computed(() => {
       if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
       const plan = irrigation_plan.value;
-      const status = String(plan?.readinessStatus || plan?.status || '').toUpperCase();
       if (irrigation_plan_loading.value) return '正在读取最新处方和安全门，请稍候。';
       if (irrigation_plan_error.value) return irrigation_plan_error.value;
       if (!active_suggestion.value.plotId || !suggestion_plot.value) return '未明确涉及地块，请先选择要处理的地块。';
       if (!plan) return '暂未生成处方，请先查看地块湿度或发起复测。';
-      const readinessGate = String(irrigation_readiness_detail.value?.status || '').toUpperCase();
-      const missing = (irrigation_readiness_detail.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean).slice(0, 3);
-      if (['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED', 'HUMAN_REVIEW'].includes(readinessGate)) return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或诊断需要人工复核。';
-      if (status === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
-      if (status === 'NEEDS_EVIDENCE') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '数据质量或诊断证据不足，请先巡田或复测。';
-      if (status === 'UNAVAILABLE') return '暂不能执行：设备或最新数据不可用，请先检查设备并获取新遥测。';
-      if (status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
-      if (status === 'HUMAN_REVIEW') return missing.length ? `暂不能执行：还缺少 ${missing.join('、')}。` : '暂不能执行：当前数据或诊断需要人工复核。';
+      const readiness = irrigation_readiness_detail.value || advice_readiness.value || plan.readiness || {};
+      const readinessGate = String(readiness.status || plan.readinessStatus || plan.status || '').toUpperCase();
+      const planStatus = String(plan.status || '').toUpperCase();
+      const blockingCodes = Array.isArray(readiness.blockingEvidence)
+        ? readiness.blockingEvidence
+        : Array.isArray(plan.blockingEvidence)
+          ? plan.blockingEvidence
+          : readinessGate === 'READY' ? [] : (readiness.missingEvidence || []);
+      const missing = blockingCodes.map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean).slice(0, 3);
+      if (planStatus === 'NO_ACTION' || readinessGate === 'NO_ACTION') return '当前湿度已达到目标，无需灌溉。';
+      const planExecutionAllowed = plan.executionAllowed !== false && plan.executable !== false;
+      const readinessExecutionAllowed = readiness.executionAllowed !== false;
+      const blockedStatus = ['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED', 'HUMAN_REVIEW'].includes(readinessGate);
+      if (blockingCodes.length || blockedStatus || !readinessExecutionAllowed || !planExecutionAllowed) {
+        if (readinessGate === 'UNAVAILABLE') return '暂不能执行：设备或最新数据不可用，请先检查设备并获取新遥测。';
+        if (missing.length) return `暂不能执行：还缺少 ${missing.join('、')}。`;
+        if (readinessGate === 'BLOCKED' || plan.status === 'BLOCKED') return '暂不能执行：安全门未通过，请先补充必要证据。';
+        return '暂不能执行：当前数据或诊断需要人工复核。';
+      }
       const guard = irrigation_guard.value;
       if (!guard) return '暂不能执行：安全门状态暂不可用，请稍后重试。';
       const water = Number(plan.waterLitre ?? plan.howMuch?.waterLitre);
@@ -3044,6 +3067,19 @@ const app = createApp({
       if (!Number.isFinite(duration) || duration <= 0) return '处方缺少有效执行时长，不能执行灌溉。';
       if (!start || !end) return '处方缺少执行时间窗口，请先补充证据。';
       return '';
+    });
+    const suggestion_advisory_notice = computed(() => {
+      if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
+      const plan = irrigation_plan.value;
+      const readiness = irrigation_readiness_detail.value || advice_readiness.value || plan?.readiness || {};
+      const status = String(readiness.status || plan?.readinessStatus || plan?.status || '').toUpperCase();
+      if (!plan || status !== 'READY' || suggestion_block_reason.value || plan.executionAllowed === false || plan.executable === false) return '';
+      const advisoryCodes = Array.isArray(readiness.advisoryEvidence)
+        ? readiness.advisoryEvidence
+        : Array.isArray(plan.advisoryEvidence) ? plan.advisoryEvidence : [];
+      const labels = [...new Set(advisoryCodes.map((item) => EVIDENCE_LABELS[item] || item).filter(Boolean))].slice(0, 3);
+      if (!labels.length) return '';
+      return `现场证据存在差异（${labels.join('、')}），但核心安全门已通过；这是常规低风险处方，可由操作人确认执行，原始证据和冲突仍会保留在诊断与审计记录中。`;
     });
     const suggestion_emergency_notice = computed(() => {
       if (!active_suggestion.value || active_suggestion.value.kind !== 'IRRIGATION') return '';
@@ -4699,8 +4735,13 @@ const app = createApp({
 
     const open_suggestion_inspection = () => {
       const plotId = active_suggestion.value?.plotId;
+      const task = active_suggestion.value?.task || {};
+      const readiness = irrigation_readiness_detail.value || advice_readiness.value || irrigation_plan.value?.readiness || {};
+      const action = readiness.requiredActions?.[0]?.action || '';
+      const evidenceType = task.evidenceType
+        || (action === 'CHECK_DEVICE' ? 'DEVICE_CHECK' : action === 'REMEASURE' ? 'RETEST' : 'FIELD_INSPECTION');
       close_suggestion_flow();
-      open_inspection_form(plotId, active_suggestion.value?.task?.workOrderId || '');
+      open_inspection_form(plotId, task.workOrderId || '', evidenceType);
     };
 
     const submit_suggestion_result = async () => {
@@ -4863,9 +4904,11 @@ const app = createApp({
         const traceId = plan.traceId || advice_trace.value || advice_trace_id();
         advice_trace.value = traceId;
         advice_plan.value = plan;
-        const diagnosis = await api.evaluateDiagnosis(plot.plotId, { traceId });
+        const diagnosis = plan.diagnosis
+          || (Array.isArray(plan.evidence) ? plan.evidence.find((item) => item?.diagnosisId) : null)
+          || await api.evaluateDiagnosis(plot.plotId, { traceId });
         advice_diagnosis.value = diagnosis;
-        advice_readiness.value = irrigation_readiness_detail.value || await api.getDecisionReadiness('IRRIGATION_PLAN', plan.planId, {
+        advice_readiness.value = irrigation_readiness_detail.value || plan.readiness || await api.getDecisionReadiness('IRRIGATION_PLAN', plan.planId, {
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
           plotId: plot.plotId,
           diagnosis,
@@ -4903,12 +4946,24 @@ const app = createApp({
       evidence_request_busy.value = true;
       try {
         const action = readiness.requiredActions?.[0] || {};
-        const key = `farmer-evidence-${readiness.readinessId}-${action.action || action.type || 'inspection'}`;
+        if (action.action === 'CHECK_RESOURCE') {
+          show_toast('当前水源容量未通过，请联系管理员调整灌溉调度后再试', 'warning');
+          return;
+        }
         const requestedEvidenceType = action.action === 'CHECK_DEVICE' ? 'DEVICE_CHECK' : action.action === 'REMEASURE' ? 'RETEST' : 'FIELD_INSPECTION';
+        const key = `farmer-evidence-${plot.plotId}-${requestedEvidenceType}`;
+        const blockingCodes = Array.isArray(readiness.blockingEvidence)
+          ? readiness.blockingEvidence
+          : String(readiness.status || '').toUpperCase() === 'READY' ? [] : (readiness.missingEvidence || []);
+        const blockingLabel = blockingCodes[0] ? EVIDENCE_LABELS[blockingCodes[0]] || blockingCodes[0] : '现场复测';
+        if (!blockingCodes.length && String(readiness.status || '').toUpperCase() === 'READY') {
+          show_toast('当前安全门已通过，无需重复申请补证', 'warning');
+          return;
+        }
         const saved = await api.createDecisionEvidenceRequest(readiness.readinessId, {
           farmId: farm.value.farmId || session_user?.farmIds?.find((id) => id !== '*'),
           plotId: plot.plotId,
-          title: `决策补证：${EVIDENCE_LABELS[action.action] || EVIDENCE_LABELS[readiness.missingEvidence?.[0]] || '现场复测'}`,
+          title: `决策补证：${EVIDENCE_LABELS[action.action] || blockingLabel}`,
           reason: `就绪度 ${readiness.status}，需要补充最小证据`,
           actionType: action.type === 'REQUEST_APPROVAL' ? 'IRRIGATION_REVIEW' : 'INSPECTION',
           evidenceType: requestedEvidenceType,
@@ -4927,7 +4982,8 @@ const app = createApp({
           dataOrigin: 'BACKEND'
         });
         const refreshed = await load_live_workspace({ announce: false });
-        show_toast(refreshed ? `补证任务已创建：${saved.workOrderId || '待同步'}` : `补证任务已创建，但列表刷新失败：${load_error.value || '请稍后重试'}`, refreshed ? 'success' : 'warning');
+        const reusedText = saved?.reused ? '已复用已有未完成补证任务' : `补证任务已创建：${saved.workOrderId || '待同步'}`;
+        show_toast(refreshed ? reusedText : `${reusedText}，但列表刷新失败：${load_error.value || '请稍后重试'}`, refreshed ? 'success' : 'warning');
       } catch (error) {
         show_toast(error.message || '补证任务创建失败', 'error');
       } finally {
@@ -5412,14 +5468,31 @@ const app = createApp({
 
     const ask_question = send_assistant_message;
 
-    const open_inspection_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId, work_order_id = '') => {
+    const refresh_irrigation_decision_after_evidence = async (plotId) => {
+      if (!plotId) return false;
+      const refreshedPlan = await load_irrigation_plan(plotId, { silent: true });
+      if (!refreshedPlan?.planId) return false;
+      advice_plan.value = refreshedPlan;
+      const refreshedDiagnosis = refreshedPlan.diagnosis
+        || (Array.isArray(refreshedPlan.evidence) ? refreshedPlan.evidence.find((item) => item?.diagnosisId) : null);
+      if (refreshedDiagnosis?.diagnosisId) advice_diagnosis.value = refreshedDiagnosis;
+      advice_readiness.value = irrigation_readiness_detail.value || refreshedPlan.readiness || null;
+      advice_trace.value = refreshedPlan.traceId || advice_trace.value;
+      return true;
+    };
+
+    const open_inspection_form = (plot_id = selected_plot.value?.plotId || plots.value[0]?.plotId, work_order_id = '', evidence_type = 'FIELD_INSPECTION') => {
       navigate('inspections');
+      const normalizedEvidenceType = String(evidence_type || 'FIELD_INSPECTION').trim().toUpperCase().replace(/-/g, '_');
       inspection_form.value = {
         plot_id: plot_id || '',
         work_order_id: work_order_id || '',
+        evidence_type: normalizedEvidenceType,
         soil_surface: 'NORMAL',
         crop_condition: 'HEALTHY',
-        moisture: find_plot_by_id(plots.value, plot_id)?.metrics?.SOIL_MOISTURE?.value ?? '',
+        // Current telemetry is read-only context; do not submit it as a
+        // farmer-provided portable-meter reading by default.
+        moisture: '',
         notes: '',
         photos: []
       };
@@ -5444,6 +5517,11 @@ const app = createApp({
         show_toast('便携仪含水率必须是数字，未知时请留空', 'error');
         return;
       }
+      const evidenceType = String(inspection_form.value.evidence_type || 'FIELD_INSPECTION').trim().toUpperCase().replace(/-/g, '_');
+      if (evidenceType === 'RETEST' && portable_moisture === null) {
+        show_toast('传感器复测必须填写便携仪含水率；普通巡田可以留空', 'error');
+        return;
+      }
       if (is_formal_session) {
         try {
           const saved = await api.createInspection({
@@ -5453,6 +5531,7 @@ const app = createApp({
             observedAt: new Date().toISOString(),
             soilSurface: inspection_form.value.soil_surface,
             cropCondition: inspection_form.value.crop_condition,
+            evidenceType,
             portableSoilMoisture: portable_moisture,
             notes: inspection_form.value.notes.trim()
           }, inspection_form.value.photos);
@@ -5473,8 +5552,10 @@ const app = createApp({
             show_toast('巡田记录已保存，管理员和诊断模块可读取');
           }
           if (saved?.sensorConflict) {
-            show_toast(saved.sensorConflict.message, 'error');
+            show_toast(saved.sensorConflict.message, 'warning');
           }
+          const decisionRefreshed = await refresh_irrigation_decision_after_evidence(plot.plotId);
+          if (!decisionRefreshed) show_toast('巡田记录已保存，但灌溉处方尚未刷新，请稍后查看建议', 'warning');
         } catch (error) {
           show_toast(error.message || '巡田记录保存失败', 'error');
         }
@@ -5488,6 +5569,7 @@ const app = createApp({
           observedAt: new Date().toISOString(),
           soilSurface: inspection_form.value.soil_surface,
           cropCondition: inspection_form.value.crop_condition,
+          evidenceType,
           portableSoilMoisture: portable_moisture,
           notes: inspection_form.value.notes.trim()
         }, inspection_form.value.photos);
@@ -5495,8 +5577,10 @@ const app = createApp({
         close_inspection_form();
         show_toast('演示巡田记录已保存');
         if (saved?.sensorConflict) {
-          show_toast(saved.sensorConflict.message, 'error');
+          show_toast(saved.sensorConflict.message, 'warning');
         }
+        const decisionRefreshed = await refresh_irrigation_decision_after_evidence(plot.plotId);
+        if (!decisionRefreshed) show_toast('巡田记录已保存，但灌溉处方尚未刷新，请稍后查看建议', 'warning');
       } catch (error) {
         show_toast(error.message || '巡田记录保存失败', 'error');
       }
@@ -5545,8 +5629,9 @@ const app = createApp({
           });
           close_evidence_form();
           const refreshed = await load_live_workspace({ announce: false });
-          if (!refreshed) show_toast(`补证申请已提交，但列表刷新失败：${load_error.value || '请稍后重试'}`, 'warning');
-          else show_toast('补证申请已提交，管理员工作台可直接分配');
+          const requestText = saved?.reused ? '已有相同未完成补证申请，本次已复用' : '补证申请已提交，管理员工作台可直接分配';
+          if (!refreshed) show_toast(`${requestText}，但列表刷新失败：${load_error.value || '请稍后重试'}`, 'warning');
+          else show_toast(requestText);
         } catch (error) {
           show_toast(error.message || '补证申请提交失败', 'error');
         }
@@ -5580,7 +5665,7 @@ const app = createApp({
           dataOrigin: 'SIMULATED'
         });
         close_evidence_form();
-        show_toast('演示补证申请已提交，管理员会安排处理');
+        show_toast(saved?.reused ? '已有相同未完成补证申请，本次已复用' : '演示补证申请已提交，管理员会安排处理');
       } catch (error) {
         show_toast(error.message || '补证申请提交失败', 'error');
       }
@@ -6189,6 +6274,7 @@ const app = createApp({
       operation_record_load_error,
       retry_operation_records,
       show_inspection_form,
+      inspection_telemetry_reference,
       show_evidence_form,
       show_account_modal,
       show_profile_menu,
@@ -6204,6 +6290,7 @@ const app = createApp({
       suggestion_kind_label,
       suggestion_plot,
       suggestion_block_reason,
+      suggestion_advisory_notice,
       suggestion_emergency_notice,
       suggestion_emergency_mode,
       suggestion_confirm_checked,

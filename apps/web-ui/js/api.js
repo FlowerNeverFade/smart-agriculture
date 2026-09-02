@@ -13,11 +13,13 @@ import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-m
 const WORK_ORDER_STATUS_ALIASES = Object.freeze({ PENDING: 'OPEN', NEW: 'OPEN', CLAIMED: 'ASSIGNED', COMPLETED: 'DONE' });
 const TERMINAL_WORK_ORDER_STATUSES = new Set(['DONE', 'CANCELLED']);
 let demoWorkOrderSequence = 0;
+let demoInspectionSequence = 0;
 // A stalled browser connection must not keep a role workspace's bootstrap
 // overlay open forever. Individual callers may provide a shorter timeout via
 // `_fetch(..., { timeoutMs })`; normal API calls use this conservative limit.
 const DEFAULT_API_TIMEOUT_MS = 12000;
 const IRRIGATION_DEFAULTS = Object.freeze({ threshold: 20, emergencyThreshold: 10, cooldownMinutes: 0, automaticWateringThreshold: 10 });
+const HUMAN_EVIDENCE_TOLERANCE_PERCENT = 5;
 const AUTH_SESSION_KEYS = Object.freeze(['agriloop_token', 'agriloop_user', 'agriloop_session_mode']);
 
 function browserStorage(name) {
@@ -1951,6 +1953,18 @@ export class ApiService {
       });
       return response?.data || response;
     }
+    const sourceType = String(workOrder.sourceType || '').trim().toUpperCase();
+    if (sourceType === 'READINESS') {
+      const plotId = String(workOrder.plotId || '').trim();
+      const evidenceType = String(workOrder.evidenceType || 'FIELD_INSPECTION').trim().toUpperCase().replace(/-/g, '_');
+      const existing = [...this.demoWorkOrders.values()].find((item) =>
+        String(item.sourceType || '').toUpperCase() === 'READINESS'
+        && String(item.plotId || '') === plotId
+        && String(item.evidenceType || 'FIELD_INSPECTION').toUpperCase() === evidenceType
+        && !['DONE', 'CANCELLED', 'REJECTED'].includes(normalizeWorkOrderStatus(item.status))
+      );
+      if (existing) return { ...cloneWorkOrder(existing), reused: true, sourceReadinessId: workOrder.sourceRef || null };
+    }
     const requestedWorkOrderId = String(workOrder.workOrderId || '').trim();
     let workOrderId = requestedWorkOrderId || `wo-demo-${Date.now()}`;
     while (!requestedWorkOrderId && this.demoWorkOrders.has(workOrderId)) {
@@ -2608,9 +2622,25 @@ export class ApiService {
     }
     const now = new Date().toISOString();
     const photos = await Promise.all(uploads.map((file, index) => fileToInspectionPhoto(file, index)));
+    const linkedWorkOrder = inspection.workOrderId ? this.demoWorkOrders.get(inspection.workOrderId) : null;
+    const evidenceType = String(inspection.evidenceType || linkedWorkOrder?.evidenceType || 'FIELD_INSPECTION').trim().toUpperCase().replace(/-/g, '_');
+    const portableText = inspection.portableSoilMoisture === undefined || inspection.portableSoilMoisture === null
+      ? '' : String(inspection.portableSoilMoisture).trim();
+    const portableValue = portableText === '' ? null : Number(portableText);
+    if (portableText !== '' && (!Number.isFinite(portableValue) || portableValue < 0 || portableValue > 100)) {
+      throw new ApiError('便携仪含水率必须在 0% 到 100% 之间', { status: 400, code: 'INSPECTION_MOISTURE_INVALID' });
+    }
+    if (evidenceType === 'RETEST' && portableValue === null) {
+      throw new ApiError('传感器复测必须填写便携仪含水率', { status: 400, code: 'INSPECTION_MOISTURE_REQUIRED' });
+    }
+    const plot = this.demoPlots.get(inspection.plotId) || this.mockPlot(inspection.plotId);
+    const telemetryValue = Number(plot?.metrics?.SOIL_MOISTURE?.value);
+    const hasComparison = portableValue !== null && Number.isFinite(telemetryValue);
+    const deviation = hasComparison ? Number(Math.abs(portableValue - telemetryValue).toFixed(1)) : null;
+    const hasConflict = hasComparison && deviation > HUMAN_EVIDENCE_TOLERANCE_PERCENT;
     const saved = {
       ...inspection,
-      inspectionId: `ins-demo-${Date.now()}`,
+      inspectionId: `ins-demo-${Date.now()}-${++demoInspectionSequence}`,
       operatorId: this._demoActorId(),
       operatorName: this.user?.username || 'demo',
       operatorRole: this.user?.role || 'FARMER',
@@ -2620,10 +2650,33 @@ export class ApiService {
       revision: 1,
       provenance: 'USER_PROVIDED',
       sourceType: 'HUMAN_OBSERVATION',
+      evidenceType,
+      portableSoilMoisture: portableValue,
+      evidenceStatus: hasComparison ? (hasConflict ? 'ACTIVE' : 'CLEAR') : portableValue === null ? 'OBSERVATION_ONLY' : 'UNAVAILABLE',
+      ...(hasComparison ? { portableComparison: {
+        telemetryValue,
+        portableValue,
+        deviation,
+        status: hasConflict ? 'ACTIVE' : 'CLEAR',
+        evaluatedAt: now
+      } } : {}),
       photos,
       quality: inspection.quality || { status: 'GOOD', completeness: 1 }
     };
+    if (deviation !== null && deviation > 10) {
+      saved.sensorConflict = {
+        type: 'PORTABLE_VS_TELEMETRY',
+        inspectionId: saved.inspectionId,
+        plotId: saved.plotId,
+        portableValue,
+        telemetryValue,
+        deviation,
+        status: 'ACTIVE',
+        message: `便携仪实测 ${portableValue}% 与传感器读数 ${telemetryValue}% 相差 ${deviation} 个百分点，该地块传感器可能存在漂移或故障`
+      };
+    }
     this.demoInspections.set(saved.inspectionId, saved);
+    if (hasComparison) this._reconcileDemoInspectionEvidence(saved.plotId, saved.inspectionId, portableValue, telemetryValue, now);
     if (saved.workOrderId && this.demoWorkOrders.has(saved.workOrderId)) {
       const work = this.demoWorkOrders.get(saved.workOrderId);
       const evidenceRefs = Array.from(new Set([...(work.evidenceRefs || []), saved.inspectionId]));
@@ -2642,6 +2695,44 @@ export class ApiService {
     }
     this._demoSaveOperationRecords();
     return { ...saved };
+  }
+
+  _reconcileDemoInspectionEvidence(plotId, newInspectionId, newPortableValue, currentTelemetryValue, reconciledAt) {
+    const newConflict = Math.abs(newPortableValue - currentTelemetryValue) > HUMAN_EVIDENCE_TOLERANCE_PERCENT;
+    this.demoInspections.forEach((source, inspectionId) => {
+      if (inspectionId === newInspectionId || source.plotId !== plotId || source.portableSoilMoisture === null || source.portableSoilMoisture === undefined) return;
+      const comparison = source.portableComparison || {};
+      const currentStatus = String(source.evidenceStatus || '').toUpperCase();
+      if (['RESOLVED', 'SUPERSEDED'].includes(currentStatus)) return;
+      const priorPortable = Number(source.portableSoilMoisture);
+      const priorConflict = ['ACTIVE', 'OPEN'].includes(currentStatus)
+        || Boolean(source.sensorConflict)
+        || String(comparison.status || '').toUpperCase() === 'ACTIVE'
+        || (!Object.keys(comparison).length && Number.isFinite(priorPortable)
+          && Math.abs(priorPortable - currentTelemetryValue) > HUMAN_EVIDENCE_TOLERANCE_PERCENT);
+      if (!priorConflict) return;
+      const updated = { ...source,
+        evidenceStatus: newConflict ? 'SUPERSEDED' : 'RESOLVED',
+        updatedAt: reconciledAt
+      };
+      if (newConflict) {
+        updated.supersededByInspectionId = newInspectionId;
+        updated.supersededAt = reconciledAt;
+      } else {
+        updated.resolvedByInspectionId = newInspectionId;
+        updated.resolvedAt = reconciledAt;
+      }
+      if (source.sensorConflict && typeof source.sensorConflict === 'object') {
+        updated.sensorConflict = {
+          ...source.sensorConflict,
+          status: newConflict ? 'SUPERSEDED' : 'RESOLVED',
+          ...(newConflict
+            ? { supersededByInspectionId: newInspectionId, supersededAt: reconciledAt }
+            : { resolvedByInspectionId: newInspectionId, resolvedAt: reconciledAt })
+        };
+      }
+      this.demoInspections.set(inspectionId, updated);
+    });
   }
 
   async uploadInspectionPhotos(inspectionId, files = []) {
@@ -3284,6 +3375,7 @@ export class ApiService {
     // High-Fidelity Smart Agent Response Generator
     const lower = (message || '').toLowerCase();
     const traceId = 'run-' + Math.random().toString(36).substring(2, 10);
+    this._demoHydrateWorkspaceState();
     const plot = this.mockPlot(plotId);
     const role = demoAgentRoleCode(this.user?.role);
     const resolvedConversationId = conversationId || `conversation-${this._demoActorId()}`;
@@ -3618,6 +3710,7 @@ export class ApiService {
       return diagnosis;
     }
 
+    this._demoHydrateWorkspaceState();
     const plot = this.mockPlot(plotId);
     const scenario = String(input.scenarioId || 'normal').toLowerCase();
     const sourceMode = 'SIMULATED';
@@ -3660,6 +3753,88 @@ export class ApiService {
       cropPackVersion: '1.0.0',
       evaluatedAt: new Date().toISOString()
     };
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const humanObservations = [...this.demoInspections.values()]
+      .filter(item => item?.plotId === plotId)
+      .filter(item => Number.isNaN(Date.parse(item.observedAt || item.createdAt || '')) || Date.parse(item.observedAt || item.createdAt || '') >= cutoff)
+      .sort((a, b) => new Date(b.observedAt || b.createdAt || 0).getTime() - new Date(a.observedAt || a.createdAt || 0).getTime())
+      .slice(0, 3)
+      .map(item => ({
+        ...item,
+        evidenceId: item.inspectionId,
+        sourceType: 'HUMAN_OBSERVATION',
+        provenance: 'USER_PROVIDED'
+      }));
+    const latestPortable = humanObservations.find(item => item.portableSoilMoisture !== null && item.portableSoilMoisture !== undefined);
+    const latestPortableId = latestPortable?.inspectionId || '';
+    const latestPortableValue = latestPortable ? Number(latestPortable.portableSoilMoisture) : Number.NaN;
+    const latestPortableConflict = Number.isFinite(latestPortableValue) && Number.isFinite(moisture)
+      && Math.abs(latestPortableValue - moisture) > HUMAN_EVIDENCE_TOLERANCE_PERCENT;
+    const evidenceConflicts = [];
+    const humanEvidenceAssessment = [];
+    humanObservations.forEach((observation) => {
+      const supports = [];
+      const opposes = [];
+      const soilSurface = String(observation.soilSurface || '').toUpperCase();
+      const cropCondition = String(observation.cropCondition || '').toUpperCase();
+      const deviceStatus = String(observation.deviceStatus || '').toUpperCase();
+      if (soilSurface.includes('DRY')) supports.push('WATER_DEFICIT');
+      if (['WET', 'NORMAL', 'MOIST'].includes(soilSurface)) opposes.push('WATER_DEFICIT');
+      if (cropCondition.includes('WILT') || cropCondition.includes('DROOP')) supports.push('WATER_DEFICIT');
+      if (['NORMAL', 'HEALTHY'].includes(cropCondition)) opposes.push('WATER_DEFICIT');
+      if (deviceStatus.includes('OFFLINE') || deviceStatus.includes('FAULT') || deviceStatus.includes('LEAK')) supports.push('DEVICE_FAULT');
+      if (deviceStatus === 'NORMAL') opposes.push('DEVICE_FAULT');
+      const portable = Number(observation.portableSoilMoisture);
+      if (Number.isFinite(portable)) {
+        if (portable < 20) supports.push('WATER_DEFICIT'); else opposes.push('WATER_DEFICIT');
+        const deviation = Number.isFinite(moisture) ? Number(Math.abs(portable - moisture).toFixed(1)) : Number.NaN;
+        const storedStatus = String(observation.evidenceStatus || '').toUpperCase();
+        const historicalConflict = (Number.isFinite(deviation) && deviation > HUMAN_EVIDENCE_TOLERANCE_PERCENT)
+          || ['ACTIVE', 'RESOLVED', 'SUPERSEDED'].includes(storedStatus);
+        if (historicalConflict) {
+          let conflictStatus = storedStatus;
+          if (!['RESOLVED', 'SUPERSEDED'].includes(conflictStatus)) {
+            conflictStatus = observation.inspectionId === latestPortableId
+              ? (latestPortableConflict ? 'ACTIVE' : 'RESOLVED')
+              : latestPortableId ? (latestPortableConflict ? 'SUPERSEDED' : 'RESOLVED') : 'ACTIVE';
+          }
+          const conflict = {
+            type: 'PORTABLE_VS_TELEMETRY',
+            inspectionId: observation.inspectionId,
+            telemetryValue: moisture,
+            portableValue: portable,
+            ...(Number.isFinite(deviation) ? { deviation } : {}),
+            status: conflictStatus,
+            message: '便携仪结果与在线传感器相差较大，需要人工复核',
+            provenance: 'USER_PROVIDED'
+          };
+          if (conflictStatus === 'RESOLVED') {
+            conflict.resolvedByInspectionId = observation.resolvedByInspectionId || latestPortableId;
+            conflict.resolvedAt = observation.resolvedAt || latestPortable?.observedAt || '';
+          } else if (conflictStatus === 'SUPERSEDED') {
+            conflict.supersededByInspectionId = observation.supersededByInspectionId || latestPortableId;
+            conflict.supersededAt = observation.supersededAt || latestPortable?.observedAt || '';
+          }
+          evidenceConflicts.push(conflict);
+        }
+      }
+      const assessment = {
+        inspectionId: observation.inspectionId,
+        workOrderId: observation.workOrderId,
+        supports: [...new Set(supports)],
+        opposes: [...new Set(opposes)],
+        provenance: 'USER_PROVIDED'
+      };
+      humanEvidenceAssessment.push(assessment);
+      if (supports.includes(primary)) diagnosis.supportingEvidence.push({ type: 'human-observation', ...assessment, relation: 'SUPPORTS' });
+      if (opposes.includes(primary)) diagnosis.opposingEvidence.push({ type: 'human-observation', ...assessment, relation: 'OPPOSES' });
+    });
+    if (evidenceConflicts.some(item => !['RESOLVED', 'SUPERSEDED'].includes(String(item.status || '').toUpperCase()))) {
+      diagnosis.missingInformation = [...new Set([...(diagnosis.missingInformation || []), 'HUMAN_EVIDENCE_REVIEW'])];
+    }
+    diagnosis.humanObservations = humanObservations;
+    diagnosis.humanEvidenceAssessment = humanEvidenceAssessment;
+    diagnosis.evidenceConflicts = evidenceConflicts;
     this.decisionCache.diagnoses.set(diagnosis.diagnosisId, diagnosis);
     return diagnosis;
   }
@@ -3762,11 +3937,26 @@ export class ApiService {
     const diagnosis = this.decisionCache.diagnoses.get(input.diagnosisId)
       || await this.evaluateDiagnosis(plotId, input);
     const primary = String(diagnosis.primaryCause || 'INSUFFICIENT_EVIDENCE');
-    const hardBlock = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
-    const reviewOnly = primary === 'INSUFFICIENT_EVIDENCE';
+    const diagnosisConfidence = Number(diagnosis.confidence || 0);
     const canControl = canExecuteIrrigation(this.user);
-    const simulatedMoisture = String(input.scenarioId || '').toLowerCase() === 'drought' ? 12.4 : null;
+    const scenario = String(input.scenarioId || 'normal').toUpperCase();
+    const simulatedMoisture = scenario === 'DROUGHT' ? 12.4 : null;
     const current = simulatedMoisture ?? Number(plot?.metrics?.SOIL_MOISTURE?.value ?? 22);
+    const soilMetric = plot?.metrics?.SOIL_MOISTURE || {};
+    const qualityStatus = String(soilMetric.quality?.status || 'GOOD').toUpperCase();
+    const metricAvailable = Number.isFinite(current);
+    const metricTimestamp = Date.parse(soilMetric.ts || '');
+    const freshnessPass = !Number.isFinite(metricTimestamp) || Date.now() - metricTimestamp <= 180000;
+    const qualityDegraded = qualityStatus === 'DEGRADED';
+    const qualityBad = qualityStatus === 'BAD';
+    const deviceOffline = scenario === 'DEVICE-OFFLINE' || String(plot?.deviceStatus || 'ONLINE').toUpperCase() === 'OFFLINE';
+    const activeHeavyRain = scenario === 'HEAVY-RAIN';
+    const diagnosisHardFail = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && diagnosisConfidence >= .6;
+    const drift = scenario === 'SENSOR-DRIFT' || qualityBad || primary === 'SENSOR_DRIFT';
+    const activeConflicts = (diagnosis.evidenceConflicts || [])
+      .filter(item => !['RESOLVED', 'SUPERSEDED'].includes(String(item?.status || 'ACTIVE').toUpperCase()));
+    const humanEvidenceConflict = activeConflicts.length > 0;
+    const insufficientDiagnosisEvidence = primary === 'INSUFFICIENT_EVIDENCE';
     const target = 30;
     const emergencyThreshold = Number((MOCK_DATA.cropPackDetails || [])
       .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
@@ -3777,13 +3967,45 @@ export class ApiService {
     const durationSeconds = Math.min(900, Math.max(0, Math.round(rawWater / flow * 60)));
     const waterLitre = Number((durationSeconds / 60 * flow).toFixed(1));
     const noAction = durationSeconds <= 0 && current >= target;
-    const readinessStatus = hardBlock ? (primary === 'DEVICE_FAULT' ? 'UNAVAILABLE' : 'NEEDS_EVIDENCE')
-      : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'READY';
-    const executable = readinessStatus === 'READY' && durationSeconds > 0;
-    const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
     const manualLimits = this._demoManualWaterLimits(plotId, plot);
+    const resourcePass = noAction || manualLimits.maxWaterLitre >= waterLitre;
+    const qualityPass = metricAvailable && freshnessPass && qualityStatus === 'GOOD';
+    const safetyPass = durationSeconds <= 900;
+    const routineLowRisk = input.automatic !== true && metricAvailable && freshnessPass && qualityPass
+      && !deviceOffline && !drift && !diagnosisHardFail && !activeHeavyRain
+      && resourcePass && canControl && safetyPass && current >= emergencyThreshold;
+    const evidenceAdvisoryAllowed = routineLowRisk && (insufficientDiagnosisEvidence || humanEvidenceConflict);
+    const diagnosisNeedsReview = (insufficientDiagnosisEvidence && !evidenceAdvisoryAllowed)
+      || (humanEvidenceConflict && !evidenceAdvisoryAllowed);
+    const hardDataBlock = !metricAvailable || !freshnessPass || qualityBad || drift || deviceOffline || diagnosisHardFail;
+    const blockingEvidence = [];
+    const advisoryEvidence = [];
+    const missingEvidence = [];
+    const addEvidence = (code, destination = blockingEvidence) => {
+      if (!missingEvidence.includes(code)) missingEvidence.push(code);
+      if (!destination.includes(code)) destination.push(code);
+    };
+    if (!metricAvailable) addEvidence('SOIL_MOISTURE');
+    if (!freshnessPass) addEvidence('FRESH_TELEMETRY');
+    if (qualityBad) addEvidence('GOOD_DATA_QUALITY');
+    else if (qualityDegraded) addEvidence('QUALITY_REVIEW');
+    if (deviceOffline) addEvidence('DEVICE_HEALTH');
+    if (drift) addEvidence('FLOW_RATE_CALIBRATION');
+    if (diagnosisHardFail) addEvidence('DIAGNOSIS_CONFIRMATION');
+    else if (insufficientDiagnosisEvidence) addEvidence('MORE_DIAGNOSIS_EVIDENCE', evidenceAdvisoryAllowed ? advisoryEvidence : blockingEvidence);
+    if (humanEvidenceConflict) addEvidence('HUMAN_EVIDENCE_REVIEW', evidenceAdvisoryAllowed ? advisoryEvidence : blockingEvidence);
+    if (activeHeavyRain) addEvidence('HEAVY_RAIN_REVIEW');
+    if (!resourcePass) addEvidence('RESOURCE_CAPACITY');
+    if (!canControl) addEvidence('CONTROL_PERMISSION');
+    const readinessStatus = !metricAvailable || deviceOffline ? 'UNAVAILABLE'
+      : !freshnessPass || qualityBad || drift || diagnosisHardFail ? 'NEEDS_EVIDENCE'
+        : qualityDegraded || diagnosisNeedsReview || !resourcePass || !canControl || !safetyPass || activeHeavyRain ? 'HUMAN_REVIEW'
+          : 'READY';
+    const reviewOnly = readinessStatus !== 'READY';
+    const executable = readinessStatus === 'READY' && !noAction && durationSeconds > 0;
+    const emergencyEligible = automaticSetting.enabled && executable && current < emergencyThreshold;
     const manualBlockedGates = [];
-    if (hardBlock) {
+    if (hardDataBlock) {
       if (primary === 'SENSOR_DRIFT') {
         manualBlockedGates.push('DATA_QUALITY', 'DATA_CONFLICT');
       } else if (primary === 'DEVICE_FAULT') {
@@ -3792,10 +4014,48 @@ export class ApiService {
         manualBlockedGates.push('DATA_QUALITY');
       }
     }
-    if (reviewOnly) manualBlockedGates.push('DIAGNOSIS_EVIDENCE');
+    if (blockingEvidence.some(code => ['MORE_DIAGNOSIS_EVIDENCE', 'HUMAN_EVIDENCE_REVIEW', 'HEAVY_RAIN_REVIEW'].includes(code))) manualBlockedGates.push('DIAGNOSIS_EVIDENCE');
     if (readinessStatus !== 'READY') manualBlockedGates.push('DECISION_READINESS');
     const manualBlockedState = !noAction && !executable && manualBlockedGates.length > 0;
-    const planWhy = hardBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉' : reviewOnly ? '当前证据不足，仅提供人工复核参考' : noAction ? '当前湿度已达到阶段目标' : '土壤湿度低于当前作物阶段目标';
+    const planWhy = hardDataBlock ? '诊断或设备硬门未通过，先补证再决定是否灌溉'
+      : activeHeavyRain ? '当前地块处于暴雨模拟场景，先观察积水和排水状态'
+        : noAction ? '当前湿度已达到阶段目标'
+          : evidenceAdvisoryAllowed ? '现场证据存在差异，但核心安全门已通过；请确认后执行并保留审计记录'
+            : reviewOnly ? '当前证据不足，仅提供人工复核参考' : '土壤湿度低于当前作物阶段目标';
+    const hardGates = {
+      requiredMetrics: metricAvailable ? 'PASS' : 'FAIL',
+      freshness: freshnessPass ? 'PASS' : 'FAIL',
+      dataQuality: qualityPass ? 'PASS' : qualityDegraded ? 'REVIEW' : 'FAIL',
+      deviceHealth: deviceOffline ? 'FAIL' : 'PASS',
+      resourceCapacity: resourcePass ? 'PASS' : 'FAIL',
+      diagnosisSafety: diagnosisHardFail ? 'FAIL' : diagnosisNeedsReview ? 'REVIEW' : 'PASS',
+      permission: canControl ? 'PASS' : 'REVIEW',
+      safetyLimit: safetyPass ? 'PASS' : 'FAIL'
+    };
+    const readinessConflicts = [];
+    if (drift) readinessConflicts.push('QUALITY_VS_MOISTURE_CONFLICT');
+    if (humanEvidenceConflict) readinessConflicts.push('HUMAN_OBSERVATION_CONFLICT');
+    if (activeHeavyRain) readinessConflicts.push('ACTIVE_HEAVY_RAIN');
+    const readiness = {
+      readinessId: `ready-demo-${Date.now()}`,
+      subject: { type: 'IRRIGATION_PLAN', id: `pending-${plotId}` },
+      plotId,
+      status: readinessStatus,
+      score: Number((Object.values(hardGates).reduce((sum, value) => sum + (value === 'PASS' ? 1 : value === 'REVIEW' ? .5 : 0), 0) / Object.keys(hardGates).length).toFixed(2)),
+      hardGates,
+      missingEvidence,
+      blockingEvidence,
+      advisoryEvidence,
+      executionAllowed: readinessStatus === 'READY',
+      conflicts: [...new Set(readinessConflicts)],
+      requiredActions: blockingEvidence.map(item => ({
+        type: item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'CREATE_INSPECTION',
+        action: item.includes('FLOW') ? 'CHECK_FLOW_METER' : item.includes('DEVICE') ? 'CHECK_DEVICE' : item.includes('TELEMETRY') ? 'REMEASURE' : item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'CREATE_INSPECTION',
+        priority: 'HIGH'
+      })),
+      policyVersion: 'readiness-v2',
+      evaluatedAt: new Date().toISOString()
+    };
     const manualFallback = {
       available: manualBlockedState && canControl && manualLimits.maxWaterLitre >= 0.1,
       reasonCode: manualBlockedState ? (primary === 'SENSOR_DRIFT' ? 'DATA_CONFLICT' : 'SAFETY_GATE_BLOCKED') : 'NONE',
@@ -3810,6 +4070,7 @@ export class ApiService {
       planId: `plan-demo-${now}`,
       plotId,
       diagnosisId: diagnosis.diagnosisId,
+      diagnosis,
       traceId: input.traceId,
       cropPackVersion: '1.0.0',
       ruleVersion: 'rule-1.0.0',
@@ -3841,20 +4102,26 @@ export class ApiService {
         sourceMode: 'SIMULATION',
         status: !automaticSetting.enabled ? 'DISABLED' : emergencyEligible ? 'READY' : 'NOT_TRIGGERED'
       },
-      alternatives: hardBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
+      alternatives: hardDataBlock ? ['便携仪比对复测', '检查设备心跳与流量计'] : ['延后 20 分钟复测', '分两段执行并观察湿度响应'],
       evidence: diagnosis.supportingEvidence,
-      readinessId: `ready-demo-${now}`,
+      readinessId: readiness.readinessId,
       readinessStatus,
       requiresApproval: false,
       requiresAdminApproval: false,
       confirmationRequired: input.automatic !== true,
       executionMode: input.automatic === true ? 'AUTOMATIC_THRESHOLD' : 'OPERATOR_CONFIRMED',
+      blockingEvidence,
+      advisoryEvidence,
+      executionAllowed: executable,
       advisoryOnly: !executable,
       executable,
-      status: hardBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : reviewOnly || !canControl ? 'HUMAN_REVIEW' : 'PROPOSED',
+      status: hardDataBlock ? 'BLOCKED' : noAction ? 'NO_ACTION' : executable ? 'PROPOSED' : readinessStatus === 'NEEDS_EVIDENCE' ? 'BLOCKED' : 'HUMAN_REVIEW',
+      readiness,
       manualFallback,
       createdAt: new Date(now).toISOString()
     };
+    readiness.subject = { type: 'IRRIGATION_PLAN', id: plan.planId };
+    plan.readiness = readiness;
     this.decisionCache.plans.set(plan.planId, plan);
     this._demoSaveWorkspaceState();
     return plan;
@@ -3900,25 +4167,69 @@ export class ApiService {
 
     const plan = context.plan || this.decisionCache.plans.get(subjectId) || {};
     const diagnosis = context.diagnosis || this.decisionCache.diagnoses.get(plan.diagnosisId) || {};
+    if (plan.readiness && String(subjectType).toUpperCase() === 'IRRIGATION_PLAN') {
+      const readiness = {
+        ...plan.readiness,
+        subject: { type: subjectType, id: subjectId },
+        plotId: plan.plotId || context.plotId || subjectId
+      };
+      this.decisionCache.readiness.set(readiness.readinessId, readiness);
+      return readiness;
+    }
     const plot = this.mockPlot(context.plotId || plan.plotId || subjectId);
-    const status = plan.readinessStatus || 'HUMAN_REVIEW';
-    const drift = diagnosis.primaryCause === 'SENSOR_DRIFT';
-    const deviceOffline = diagnosis.primaryCause === 'DEVICE_FAULT' || plot.deviceStatus === 'OFFLINE';
+    const planStatus = String(plan.readinessStatus || 'HUMAN_REVIEW').toUpperCase();
+    const primary = String(diagnosis.primaryCause || '').toUpperCase();
+    const drift = primary === 'SENSOR_DRIFT';
+    const deviceOffline = primary === 'DEVICE_FAULT' || String(plot.deviceStatus || '').toUpperCase() === 'OFFLINE';
     const canControl = canExecuteIrrigation(this.user);
-    const hardGates = {
-      requiredMetrics: 'PASS',
-      freshness: deviceOffline ? 'FAIL' : 'PASS',
-      dataQuality: drift ? 'FAIL' : 'PASS',
-      deviceHealth: deviceOffline ? 'FAIL' : 'PASS',
-      diagnosisSafety: drift || deviceOffline ? 'FAIL' : diagnosis.primaryCause === 'INSUFFICIENT_EVIDENCE' ? 'REVIEW' : 'PASS',
-      resourceCapacity: 'PASS',
-      permission: canControl ? 'PASS' : 'REVIEW',
-      safetyLimit: Number(plan.durationSeconds || 0) <= 900 ? 'PASS' : 'FAIL'
-    };
-    const missingEvidence = [
+    const soilMetric = plot.metrics?.SOIL_MOISTURE || {};
+    const currentMoisture = Number(plan.currentMoisture ?? soilMetric.value);
+    const metricAvailable = Number.isFinite(currentMoisture);
+    const qualityStatus = String(soilMetric.quality?.status || 'GOOD').toUpperCase();
+    const freshnessTimestamp = Date.parse(soilMetric.ts || '');
+    const freshnessPass = !Number.isFinite(freshnessTimestamp) || Date.now() - freshnessTimestamp <= 180000;
+    const qualityPass = metricAvailable && freshnessPass && qualityStatus === 'GOOD';
+    const heavyRain = String(plan.scenarioId || diagnosis.scenarioId || '').toUpperCase().replace(/-/g, '_').includes('HEAVY_RAIN');
+    const diagnosisHardFail = ['SENSOR_DRIFT', 'DEVICE_FAULT'].includes(primary) && Number(diagnosis.confidence || 0) >= .6;
+    const activeHumanConflict = (diagnosis.evidenceConflicts || [])
+      .some(item => !['RESOLVED', 'SUPERSEDED'].includes(String(item?.status || 'ACTIVE').toUpperCase()));
+    const insufficientDiagnosisEvidence = primary === 'INSUFFICIENT_EVIDENCE';
+    const automaticThreshold = Number((MOCK_DATA.cropPackDetails || [])
+      .find(pack => pack.cropCode === plot?.cropCode)?.rules?.find(item => item.code === 'WATER_DEFICIT')?.automaticWateringThreshold ?? IRRIGATION_DEFAULTS.automaticWateringThreshold);
+    const manualLimits = this._demoManualWaterLimits(plot.plotId || subjectId, plot);
+    const requestedWater = Number(plan.waterLitre || 0);
+    const resourcePass = requestedWater <= 0 || manualLimits.maxWaterLitre >= requestedWater;
+    const safetyPass = Number(plan.durationSeconds || 0) <= 900;
+    const routineLowRisk = String(plan.executionMode || 'OPERATOR_CONFIRMED').toUpperCase() === 'OPERATOR_CONFIRMED'
+      && qualityPass && !deviceOffline && !drift && !diagnosisHardFail && !heavyRain
+      && resourcePass && canControl && safetyPass && currentMoisture >= automaticThreshold;
+    const advisoryAllowed = routineLowRisk && (insufficientDiagnosisEvidence || activeHumanConflict);
+    const rawEvidence = [
       ...(diagnosis.missingInformation || []),
-      ...(canControl ? [] : ['CONTROL_PERMISSION'])
+      ...(insufficientDiagnosisEvidence ? ['MORE_DIAGNOSIS_EVIDENCE'] : []),
+      ...(activeHumanConflict ? ['HUMAN_EVIDENCE_REVIEW'] : []),
+      ...(!resourcePass ? ['RESOURCE_CAPACITY'] : []),
+      ...(canControl ? [] : ['CONTROL_PERMISSION']),
+      ...(heavyRain ? ['HEAVY_RAIN_REVIEW'] : [])
     ].filter((item, index, all) => all.indexOf(item) === index);
+    const advisoryEvidence = rawEvidence.filter(item => advisoryAllowed
+      && ['MORE_DIAGNOSIS_EVIDENCE', 'HUMAN_EVIDENCE_REVIEW'].includes(item));
+    const blockingEvidence = rawEvidence.filter(item => !advisoryEvidence.includes(item));
+    const status = advisoryAllowed && blockingEvidence.length === 0 && ['HUMAN_REVIEW', 'NEEDS_EVIDENCE'].includes(planStatus)
+      ? 'READY'
+      : planStatus;
+    const hardGates = {
+      requiredMetrics: metricAvailable ? 'PASS' : 'FAIL',
+      freshness: freshnessPass ? 'PASS' : 'FAIL',
+      dataQuality: qualityStatus === 'BAD' ? 'FAIL' : qualityStatus === 'GOOD' && metricAvailable && freshnessPass ? 'PASS' : 'REVIEW',
+      deviceHealth: deviceOffline ? 'FAIL' : 'PASS',
+      diagnosisSafety: diagnosisHardFail ? 'FAIL' : (insufficientDiagnosisEvidence || activeHumanConflict) && !advisoryAllowed ? 'REVIEW' : 'PASS',
+      resourceCapacity: resourcePass ? 'PASS' : 'FAIL',
+      permission: canControl ? 'PASS' : 'REVIEW',
+      safetyLimit: safetyPass ? 'PASS' : 'FAIL'
+    };
+    const missingEvidence = rawEvidence;
+    const executionAllowed = status === 'READY' && blockingEvidence.length === 0 && plan.executionAllowed !== false && plan.executable !== false;
     const readiness = {
       readinessId: plan.readinessId || `ready-demo-${Date.now()}`,
       subject: { type: subjectType, id: subjectId },
@@ -3927,13 +4238,20 @@ export class ApiService {
       score: Number((Object.values(hardGates).reduce((sum, value) => sum + (value === 'PASS' ? 1 : value === 'REVIEW' ? .5 : 0), 0) / Object.keys(hardGates).length).toFixed(2)),
       hardGates,
       missingEvidence,
-      conflicts: drift ? ['QUALITY_VS_MOISTURE_CONFLICT'] : [],
-      requiredActions: missingEvidence.map(item => ({
-        type: item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'CREATE_INSPECTION',
-        action: item.includes('FLOW') ? 'CHECK_FLOW_METER' : item.includes('DEVICE') ? 'CHECK_DEVICE' : item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : 'REMEASURE',
+      blockingEvidence,
+      advisoryEvidence,
+      executionAllowed,
+      conflicts: [
+        ...(drift ? ['QUALITY_VS_MOISTURE_CONFLICT'] : []),
+        ...(activeHumanConflict ? ['HUMAN_OBSERVATION_CONFLICT'] : []),
+        ...(heavyRain ? ['ACTIVE_HEAVY_RAIN'] : [])
+      ],
+      requiredActions: blockingEvidence.map(item => ({
+        type: item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : item === 'RESOURCE_CAPACITY' ? 'RESOURCE_REVIEW' : 'CREATE_INSPECTION',
+        action: item.includes('FLOW') ? 'CHECK_FLOW_METER' : item.includes('DEVICE') ? 'CHECK_DEVICE' : item === 'CONTROL_PERMISSION' ? 'REQUEST_APPROVAL' : item === 'RESOURCE_CAPACITY' ? 'CHECK_RESOURCE' : 'REMEASURE',
         priority: 'HIGH'
       })),
-      policyVersion: 'readiness-v1',
+      policyVersion: 'readiness-v2',
       evaluatedAt: new Date().toISOString()
     };
     this.decisionCache.readiness.set(readiness.readinessId, readiness);
@@ -3948,6 +4266,15 @@ export class ApiService {
       });
       return resp?.data || resp;
     }
+    const plotId = String(input.plotId || '').trim();
+    const evidenceType = String(input.evidenceType || 'FIELD_INSPECTION').trim().toUpperCase().replace(/-/g, '_');
+    const existing = [...this.demoWorkOrders.values()].find((item) =>
+      String(item.sourceType || '').toUpperCase() === 'READINESS'
+      && String(item.plotId || '') === plotId
+      && String(item.evidenceType || 'FIELD_INSPECTION').toUpperCase() === evidenceType
+      && !['DONE', 'CANCELLED', 'REJECTED'].includes(normalizeWorkOrderStatus(item.status))
+    );
+    if (existing) return { ...cloneWorkOrder(existing), reused: true, sourceReadinessId: readinessId };
     return this.createWorkOrder({
       ...input,
       sourceType: 'READINESS',
