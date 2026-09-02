@@ -70,4 +70,4 @@ PUT  /api/v1/simulator/settings
 
 `scripts/run-simulator.sh` 为兼容旧部署的空操作脚本，不会启动任何外部进程。物理回归由 `SimulationEngineTest` 与 Gradle API 测试覆盖。
 
-真实硬件（BearPi）仍通过 MQTT 接入；模拟遥测不走 MQTT。
+真实硬件（当前为 BearPi E53_IA1）已通过 MQTT 接入；模拟遥测由 API 进程内引擎直接写入，不走 MQTT。两类来源在事件和页面上明确区分。
