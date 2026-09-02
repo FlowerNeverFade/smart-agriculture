@@ -1932,7 +1932,7 @@
               </div>
               <label class="farmer-manual-water-input">模拟补光增量（lux）<input v-model.number="virtual_lighting_boost" type="number" min="1000" step="500" inputmode="numeric" required></label>
               <label class="farmer-manual-water-input">选择补光时段<select v-model.number="virtual_lighting_duration_seconds"><option v-for="option in virtual_lighting_duration_options" :key="'light-duration-' + option.value" :value="option.value">{{ option.label }}</option></select></label>
-              <p class="farmer-form-hint">时段按本机系统时间的整点显示；执行记录仍保存对应秒数，最长不超过 8 小时。</p>
+              <p class="farmer-form-hint">补光选项直接显示计划时长；执行记录仍保存对应秒数，最长不超过 8 小时。</p>
               <p class="farmer-form-hint">光照指标当前属于 <b>仅模拟</b>，结果会以带有事件、命令回执和效果评价的模拟遥测写回页面。</p>
               <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="virtual_lighting_confirmed" type="checkbox"><span>我已确认地块和补光增量，并理解这是虚拟演示，不会控制真实补光灯。</span></label>
               <p v-if="virtual_lighting_error" class="farmer-form-error">{{ virtual_lighting_error }}</p>

@@ -404,7 +404,7 @@ paths:
   /api/v1/lighting/virtual:
     post:
       tags: [execution]
-      description: 农户操作系统的虚拟补光入口。光照低于当前作物模型包阶段下限时可由本人确认执行；补光时长按系统整点小时选择，设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
+      description: 农户操作系统的虚拟补光入口。光照低于当前作物模型包阶段下限时可由本人确认执行；补光时长直接按小时选取，设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualLightingRequest'}}}}
       responses: {'200': {description: 带离线演示标记、ACK、光照效果评价和模拟遥测的 LIGHT_BOOST 命令}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键或阶段光照状态冲突}, '422': {description: 光照不可用、未确认或设备不满足离线演示条件}}
   /api/v1/irrigation/plans/{planId}:
@@ -927,7 +927,7 @@ components:
       properties:
         plotId: {type: string}
         boostLux: {type: number, minimum: 1000, description: 模拟补光增量，服务端按阶段上限裁剪}
-        durationSeconds: {type: integer, minimum: 1, maximum: 28800, default: 7200, description: 补光计划时长，前端按 1/2/4/6/8 小时选取；虚拟执行不会等待真实时长}
+        durationSeconds: {type: integer, minimum: 1, maximum: 28800, default: 7200, description: 补光计划时长（秒），前端直接显示 1/2/4/6/8 小时；虚拟执行不会等待真实时长}
         idempotencyKey: {type: string, minLength: 8}
         confirmed: {type: boolean, description: 当前农户已核对地块并确认虚拟补光}
         allowOfflineDemo: {type: boolean, default: false, description: 仅本地 standalone/simulation 模式允许离线设备虚拟执行}

@@ -738,12 +738,6 @@ function format_sim_clock_label(elapsedHours, spanHours) {
   return `${(Math.max(0, span - elapsed) / 24).toFixed(1)} 日前`;
 }
 
-function format_system_time(timestamp) {
-  const date = new Date(timestamp);
-  if (!Number.isFinite(date.getTime())) return '—';
-  return date.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
 function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   const spec = PLOT_CHART_SPECS.find((item) => item.code === code);
   const metric = plot?.metrics?.[code];
@@ -2195,28 +2189,21 @@ const app = createApp({
     const virtual_lighting_idempotency_key = ref('');
     const virtual_lighting_boost = ref(6000);
     const virtual_lighting_duration_seconds = ref(2 * 60 * 60);
-    const virtual_lighting_schedule_started_at = ref(Date.now());
     const virtual_lighting_duration_values = Object.freeze([
-      { value: 1 * 60 * 60, label: '1 小时' },
-      { value: 2 * 60 * 60, label: '2 小时' },
-      { value: 4 * 60 * 60, label: '4 小时' },
-      { value: 6 * 60 * 60, label: '6 小时' },
-      { value: 8 * 60 * 60, label: '8 小时' }
+      { value: 1 * 60 * 60, label: '1h' },
+      { value: 2 * 60 * 60, label: '2h' },
+      { value: 4 * 60 * 60, label: '4h' },
+      { value: 6 * 60 * 60, label: '6h' },
+      { value: 8 * 60 * 60, label: '8h' }
     ]);
-    const virtual_lighting_duration_options = computed(() => {
-      const startedAt = Number(virtual_lighting_schedule_started_at.value) || Date.now();
-      return virtual_lighting_duration_values.map((option) => ({
-        ...option,
-        label: `${format_system_time(startedAt)}—${format_system_time(startedAt + option.value * 1000)}`
-      }));
-    });
+    const virtual_lighting_duration_options = virtual_lighting_duration_values;
     const virtual_lighting_preview = computed(() => {
       const info = advice_light_status.value;
       const boost = Math.max(1000, Number(virtual_lighting_boost.value) || 0);
       const after = info.value === null ? null : Math.min(Number(info.high || info.value + boost), info.value + boost);
       const durationSeconds = Math.max(1, Math.min(8 * 60 * 60, Number(virtual_lighting_duration_seconds.value) || 2 * 60 * 60));
-      const durationOption = virtual_lighting_duration_options.value.find((item) => item.value === durationSeconds);
-      return { ...info, boost, after, durationSeconds, durationLabel: durationOption?.label || `${format_system_time(virtual_lighting_schedule_started_at.value)}—${format_system_time(Number(virtual_lighting_schedule_started_at.value) + durationSeconds * 1000)}` };
+      const durationOption = virtual_lighting_duration_options.find((item) => item.value === durationSeconds);
+      return { ...info, boost, after, durationSeconds, durationLabel: durationOption?.label || `${Math.round(durationSeconds / 3600)}h` };
     });
     const lighting_advice_summary = computed(() => {
       const info = advice_light_status.value || {};
@@ -4553,9 +4540,6 @@ const app = createApp({
       virtual_lighting_error.value = '';
       virtual_lighting_busy.value = false;
       virtual_lighting_boost.value = Math.max(1000, Math.round((Number(advice_light_status.value.high || 30000) - Number(advice_light_status.value.value || 0)) * .65));
-      const scheduleStart = new Date();
-      scheduleStart.setMinutes(0, 0, 0);
-      virtual_lighting_schedule_started_at.value = scheduleStart.getTime();
       virtual_lighting_idempotency_key.value = `virtual-lighting-${advice_plot.value.plotId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       show_virtual_lighting.value = true;
     };
