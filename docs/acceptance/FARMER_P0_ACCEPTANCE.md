@@ -55,7 +55,7 @@ I-01/I-02、I-03、I-04、I-05、I-07/I-13、I-08、I-10/I-11、I-28 已形成�
 | `gradlew :apps:api-service:compileJava/compileTestJava --no-daemon` | 通过；后端与新增定向测试可编译。当前中文工作区路径下 Gradle Test worker 对测试类报告 `ClassNotFoundException`，不是断言结果；同一新增定向测试在 ASCII 驱动映射路径下 3/3 通过 |
 | `npm test -- --test-name-pattern="灌溉|巡田|补证|readiness|安全门|evidence"` | 17/17 通过；覆盖正常冲突提醒、匹配复测、补证去重和前端刷新相关场景 |
 | `npx vite build` | 通过（79 modules transformed）；仅保留既有 Vue/ECharts 非模块脚本提示 |
-| 消息中心定向 Node 测试 | 12/12 通过；覆盖已读存储首次为空、损坏容错、账号/模式隔离、重复去重、红点条件和单条打开即读契约 |
+| 农户 P0 定向 Node 测试 | 13/13 通过；其中覆盖已读存储首次为空、损坏容错、账号/模式隔离、重复去重、红点条件和单条打开即读契约 |
 | `node scripts/verify-webui.mjs svg` / `stub` / `real` | 30/30、31/31、31/31 通过；脚本退出码为 0，JSDOM 收尾提示为既有测试清理噪声 |
 | JavaScript 语法检查 | `message-read-state.js`、`farmer.js` 及既有农户/共享入口通过 |
 | OpenAPI YAML 解析 | 通过 |

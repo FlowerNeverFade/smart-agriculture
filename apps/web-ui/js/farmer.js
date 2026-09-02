@@ -8,6 +8,7 @@ import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v5910-mai
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260901-v594-plot-order-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260901-v5910-main-merge-v2';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260901-v5910-main-merge-v2';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from './message-read-state.js?v=20260902-message-read-v2';
 import {
   agentResponseSource,
   agentResponseText,
