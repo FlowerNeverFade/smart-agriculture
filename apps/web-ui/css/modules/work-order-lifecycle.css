@@ -492,7 +492,7 @@
 .inspection-observations span { overflow: hidden; color: var(--g-text-secondary); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .inspection-record-list article > footer { margin-top: 10px; color: var(--g-text-secondary); font-size: 11px; }
 .inspection-record-list article > footer > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.inspection-record-list article code { flex: 0 0 auto; color: var(--g-text-secondary); font-family: "Times New Roman", serif; font-size: 10px; }
+.inspection-record-list article code { flex: 0 0 auto; color: var(--g-text-secondary); font-family: inherit; font-size: 10px; }
 
 .inspection-load-error,
 .inspection-empty-state {

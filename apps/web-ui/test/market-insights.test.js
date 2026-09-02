@@ -38,7 +38,7 @@ test('price chart preserves missing dates and discloses its scale and source lim
   assert.match(viewSource, /纵轴按当前/);
   assert.match(viewSource, /不从 0 起/);
   assert.match(viewSource, /缺失日期不连线、不插值/);
-  assert.match(viewSource, /STIX Two Text/);
+  assert.match(viewSource, /fontFamily: 'system-ui/);
   assert.match(viewSource, /aria: \{ enabled: true/);
   assert.match(viewSource, /查看真实归档日价明细/);
   assert.match(viewSource, /非自动卖出信号/);
@@ -47,7 +47,7 @@ test('price chart preserves missing dates and discloses its scale and source lim
 test('domestic market uses observed national fallback and isolates simulated trend from real facts', () => {
   assert.match(viewSource, /真实当日价优先重庆、缺失时采用全国市场简单均值/);
   assert.match(viewSource, /buildDomesticMarketScenario/);
-  assert.match(viewSource, /SIMULATED/);
+  assert.match(viewSource, /模拟趋势，不是真实历史/);
   assert.match(viewSource, /不写入数据库、不参与涨跌、均价或销售观察/);
   assert.match(viewSource, /查看真实归档日价明细/);
   assert.match(viewSource, /aria-label="国内历史范围"/);

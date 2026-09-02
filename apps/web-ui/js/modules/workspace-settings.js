@@ -2,7 +2,7 @@
  * Every role shell mounts the same view and this same state/normalisation
  * path, so appearance controls cannot drift by role.
  */
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, FONT_FAMILY_OPTIONS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260902-v1-settings-fix';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, normalizeUserSettings, readUserSettings, saveUserSettings } from '../user-settings.js?v=20260902-v5911-zhcn-v1';
 
 export function createWorkspaceSettingsController({ props, emit, ref, computed, watch }) {
   const account = computed(() => props.state?.currentUser || null);
@@ -16,10 +16,9 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
   const refreshOptions = [5, 15, 30, 60];
   const roleLabel = computed(() => props.state?.currentUser?.roleLabel || '当前身份');
   const themeLabel = computed(() => themeOptions.find(item => item.value === settings.value.theme)?.label || '白色');
-  const presetLabel = computed(() => PRESET_OPTIONS.find(item => item.value === settings.value.preset)?.label || 'Codex 中性');
+  const presetLabel = computed(() => PRESET_OPTIONS.find(item => item.value === settings.value.preset)?.label || '简洁中性');
   const accentLabel = computed(() => ACCENT_OPTIONS.find(item => item.value === settings.value.accent)?.label || '田野绿');
   const surfaceStyleLabel = computed(() => SURFACE_STYLE_OPTIONS.find(item => item.value === settings.value.surfaceStyle)?.label || '经典卡片');
-  const fontLabel = computed(() => FONT_FAMILY_OPTIONS.find(item => item.value === settings.value.fontFamily)?.label || '系统默认');
   const updateSetting = (key, value) => {
     const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
     const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
@@ -62,8 +61,8 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
   return {
     account, settings, themeOptions, refreshOptions,
     presetOptions: PRESET_OPTIONS, accentOptions: ACCENT_OPTIONS,
-    surfaceStyleOptions: SURFACE_STYLE_OPTIONS, fontOptions: FONT_FAMILY_OPTIONS,
-    roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel, fontLabel,
+    surfaceStyleOptions: SURFACE_STYLE_OPTIONS,
+    roleLabel, themeLabel, presetLabel, accentLabel, surfaceStyleLabel,
     updateSetting, resetSettings
   };
 }
@@ -121,7 +120,6 @@ const WORKSPACE_SETTINGS_TEMPLATE = `
           <label>显示密度<select :value="settings.density" @change="updateSetting('density', $event.target.value)"><option value="comfortable">舒适</option><option value="compact">紧凑</option></select></label>
           <label>内容宽度<select :value="settings.layout" @change="updateSetting('layout', $event.target.value)"><option value="standard">标准</option><option value="wide">宽屏</option></select></label>
         </div>
-        <div class="settings-field"><label>界面字体<select :value="settings.fontFamily" @change="updateSetting('fontFamily', $event.target.value)"><option v-for="item in fontOptions" :key="item.value" :value="item.value">{{ item.label }}</option></select><small class="settings-field-hint">选择适合当前设备和阅读习惯的字体。</small></label></div>
         <label class="settings-switch"><input type="checkbox" :checked="settings.reducedMotion" @change="updateSetting('reducedMotion', $event.target.checked)"><span class="settings-switch-track"></span><span><strong>减少动效</strong><small>减少过渡和动画，适合低性能设备或对动效敏感时使用。</small></span></label>
       </article>
 
@@ -134,7 +132,7 @@ const WORKSPACE_SETTINGS_TEMPLATE = `
       </article>
     </div>
 
-    <footer class="settings-footer"><div><strong>当前设置</strong><span>{{ presetLabel }} · 主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ settings.customAccent || accentLabel }} · {{ fontLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
+    <footer class="settings-footer"><div><strong>当前设置</strong><span>{{ presetLabel }} · 主题：{{ themeLabel }} · 卡片：{{ surfaceStyleLabel }} · 强调色：{{ settings.customAccent || accentLabel }}</span></div><button type="button" class="g-btn secondary" @click="resetSettings"><app-icon name="replay"></app-icon>恢复默认设置</button></footer>
   </section>
 `;
 

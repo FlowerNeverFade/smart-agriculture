@@ -1,5 +1,5 @@
 {
-  "description": "AgriLoop 农智闭环微信小程序",
+  "description": "农智闭环微信小程序",
   "packOptions": {
     "ignore": [
       { "type": "file", "value": "README.md" }

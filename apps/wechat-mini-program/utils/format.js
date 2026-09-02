@@ -11,7 +11,7 @@ const METRIC_LABELS = {
   WATER_LEVEL: '水箱水位',
   LIGHT: '光照',
   CO2: '二氧化碳',
-  PH: '土壤 pH',
+  PH: '土壤酸碱度',
   NITROGEN: '氮',
   PHOSPHORUS: '磷',
   POTASSIUM: '钾',
@@ -137,11 +137,11 @@ const PROVENANCE_LABELS = {
 
 const SERVICE_LABELS = {
   database: '数据库',
-  redis: 'Redis',
+  redis: '高速消息流',
   mqtt: '消息链路',
-  qwen: 'AI 模型',
-  ai: 'AI 模型',
-  llm: 'AI 模型',
+  qwen: '智能模型',
+  ai: '智能模型',
+  llm: '智能模型',
   simulator: '模拟器',
   api: '接口服务',
   sse: '实时推送'
@@ -169,12 +169,12 @@ function roleLabel(role) {
 
 function statusLabel(status) {
   const key = String(status || 'UNKNOWN').toUpperCase();
-  return STATUS_LABELS[key] || String(status || '未知');
+  return STATUS_LABELS[key] || '未知状态';
 }
 
 function priorityLabel(priority) {
   const key = String(priority || 'MEDIUM').toUpperCase();
-  return PRIORITY_LABELS[key] || String(priority || '中');
+  return PRIORITY_LABELS[key] || '普通';
 }
 
 function workActionLabel(action) {
@@ -199,22 +199,22 @@ function outcomeLabel(outcome) {
 
 function provenanceLabel(value) {
   const key = String(value || '').trim().toUpperCase();
-  return PROVENANCE_LABELS[key] || (key ? key : '—');
+  return PROVENANCE_LABELS[key] || (key ? '其他来源' : '—');
 }
 
 function serviceLabel(value) {
   const key = String(value || '').trim().toLowerCase();
-  return SERVICE_LABELS[key] || String(value || '服务');
+  return SERVICE_LABELS[key] || '其他服务';
 }
 
 function agentIntentLabel(value) {
   const key = String(value || '').trim().toUpperCase();
-  return AGENT_INTENT_LABELS[key] || (key ? key.replace(/_/g, ' ') : '农事建议');
+  return AGENT_INTENT_LABELS[key] || '农事建议';
 }
 
 function agentToolLabel(value) {
   const key = String(value || '').trim();
-  return AGENT_TOOL_LABELS[key] || (key ? key.replace(/_/g, ' ') : '受控工具');
+  return AGENT_TOOL_LABELS[key] || '受控工具';
 }
 
 function agentSourceLabel(response, sessionMode) {
@@ -230,7 +230,7 @@ function agentSourceLabel(response, sessionMode) {
 
 function metricLabel(code) {
   const key = String(code || '').toUpperCase();
-  return METRIC_LABELS[key] || key || '指标';
+  return METRIC_LABELS[key] || '其他指标';
 }
 
 function metricObject(source, code) {
@@ -491,8 +491,10 @@ function normalizeActionProposal(raw) {
     riskLabel: raw.riskLevel === 'HIGH' ? '高风险' : raw.riskLevel === 'MEDIUM' ? '中风险' : '低风险',
     expiresLabel: raw.expiresAt ? formatTime(raw.expiresAt) : '',
     requiresConfirmation: raw.requiresConfirmation !== false,
-    resultLabel: first(raw.result?.status, raw.result?.message, ''),
-    error: first(raw.error, '')
+    resultLabel: raw.result ? (raw.result?.message && /[\u3400-\u9fff]/.test(String(raw.result.message))
+      ? String(raw.result.message)
+      : statusLabel(raw.result?.status)) : '',
+    error: raw.error ? (/[\u3400-\u9fff]/.test(String(raw.error)) ? String(raw.error) : '操作未完成，请稍后重试') : ''
   };
 }
 

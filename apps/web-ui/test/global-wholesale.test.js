@@ -71,7 +71,7 @@ test('world map uses the complete official standard map with a separate lightwei
 test('market workspace separates observed prices from simulated global planning', () => {
   assert.match(marketViewSource, /国内行情/);
   assert.match(marketViewSource, /全球批发/);
-  assert.match(marketViewSource, /SIMULATED/);
+  assert.match(marketViewSource, /模拟销售测算/);
   assert.match(viewSource, /0<\/strong> 个实时运费报价/);
   assert.match(viewSource, /不换汇、不进入本页到岸或毛差计算/);
   assert.match(viewSource, /毛差未计汇率、税务、资金占用、退货、质量分级与实际询价差异/);
@@ -88,7 +88,7 @@ test('DEFRA observations remain available to the global London context only', ()
   assert.ok(tomato.points.length > 12);
   assert.ok(!tomato.points.some(point => point.date === '2026-08-10'));
   assert.match(viewSource, /selectedCrop\.value\?\.internationalReference/);
-  assert.match(viewSource, /英国 DEFRA/);
+  assert.match(viewSource, /英国环境、食品与乡村事务部/);
   assert.match(viewSource, /不换汇、不进入本页到岸或毛差计算/);
   assert.doesNotMatch(marketViewSource, /国际参考|DEFRA|referencePeriods|chartMode|buildReferenceChartHistory|market-reference-banner|market-chart-mode-switch/);
 });

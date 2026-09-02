@@ -30,7 +30,7 @@
   </view>
 
   <view class="technical-toggle" bindtap="toggleTechnical">{{showTechnical ? '收起运行说明' : '查看运行说明'}} <text>{{showTechnical ? '⌃' : '⌄'}}</text></view>
-  <view wx:if="{{showTechnical}}" class="technical-box"><view>当前小程序复用 AgriLoop 现有 REST 接口和账号权限；服务不可用时只显示降级提示，不会伪造实时数据。</view><view>图片分析使用原图直传，发送前不会压缩或转码。</view><view>本期仍是软件仿真环境，页面上的执行结果以服务端返回为准。</view></view>
+  <view wx:if="{{showTechnical}}" class="technical-box"><view>当前小程序复用农智闭环现有接口服务和账号权限；服务不可用时只显示降级提示，不会伪造实时数据。</view><view>图片分析使用原图直传，发送前不会压缩或转码。</view><view>本期仍是软件仿真环境，页面上的执行结果以服务端返回为准。</view></view>
 
   <button class="danger logout-button" bindtap="logout">退出登录</button>
 </view>

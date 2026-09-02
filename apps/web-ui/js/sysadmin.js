@@ -1,20 +1,20 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260901-v599-accounts-v2';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260901-v593-market-v3';
-import { MOCK_DATA } from './mock-data.js?v=20260901-v593-market-v3';
-import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260901-v593-market-v3';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-v5911-zhcn-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
+import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
+import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
-import { agentRolePresentation } from './agent-presentation.js?v=20260901-v593-market-v3';
-import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v1-settings-fix';
-import { AdminAlertCenter } from './admin-alerts.js?v=20260901-v593-market-v3';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260901-v593-market-v3';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260901-v593-market-v3';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260901-v593-market-v3';
-import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v1-settings-fix';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260901-v593-market-v3';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260901-v593-market-v3';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260901-v593-market-v3';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260901-v593-market-v3';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260901-v599-accounts-v2';
+import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
+import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
+import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-v5911-zhcn-v1';
+import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v5911-zhcn-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -46,7 +46,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260901-v593-market-v3';
+} from './live-data.js?v=20260902-v5911-zhcn-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -76,7 +76,7 @@ const AppIcon = {
 
 const NAV_CATALOG = Object.freeze([
   { id: 'dashboard', label: '农智总览', icon: 'dashboard', labels: { FARMER: '我的农场', FARM_ADMIN: '农场总览', SYSTEM_ADMIN: '运行总览' } },
-  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: 'AI告警分析与智能处理', SYSTEM_ADMIN: '决策审计' } },
+  { id: 'decision-console', label: '智能决策', icon: 'warning_amber', labels: { FARMER: '智能建议', FARM_ADMIN: '智能告警分析与处理', SYSTEM_ADMIN: '决策审计' } },
   { id: 'work-orders', label: '农务工单', icon: 'task_alt', labels: { FARMER: '农务记录', FARM_ADMIN: '农务任务', SYSTEM_ADMIN: '工单审计' } },
   { id: 'resource-coordination', label: '设备与设施', icon: 'sensors' },
   { id: 'farm-members', label: '农场成员', icon: 'group' },
@@ -89,7 +89,7 @@ const NAV_CATALOG = Object.freeze([
   { id: 'admin-simulator', label: '仿真模拟', icon: 'science', labels: { SYSTEM_ADMIN: '仿真模拟' } },
   { id: 'admin-rules', label: '规则与版本', icon: 'rule_folder', labels: { SYSTEM_ADMIN: '规则与版本' } },
   { id: 'admin-settings', label: '系统管理', icon: 'admin_panel_settings', labels: { SYSTEM_ADMIN: '系统管理' } },
-  { id: 'admin-agent', label: 'Agent', icon: 'smart_toy', labels: { SYSTEM_ADMIN: 'Agent' } },
+  { id: 'admin-agent', label: '农智助手', icon: 'smart_toy', labels: { SYSTEM_ADMIN: '农智助手' } },
   { id: 'settings', label: '工作台设置', icon: 'settings', isFooter: true, labels: { SYSTEM_ADMIN: '工作台设置' } }
 ]);
 
@@ -803,8 +803,8 @@ const AdminResourcesView = {
     }));
     const farmName = farmId => farms.value.find(farm => farm.farmId === farmId)?.name || farmId || '未知农场';
     const plotName = plotId => (props.state.allPlots || []).find(plot => plot.plotId === plotId)?.name || plotId || '未知地块';
-    const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || status || '待处理');
-    const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || status || '未知');
+    const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || '待处理');
+    const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || '未知');
     const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
     return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
   }
@@ -1402,7 +1402,7 @@ const AdminRulesView = {
     };
     const learningUses = (item) => {
       const labels = { POSITIVE_RETRIEVAL: '允许检索', STRATEGY_CANDIDATE: '可生成策略', OFFLINE_TRAINING: '可导出训练', NEGATIVE_EVALUATION: '仅反例', NONE: '不参与学习' };
-      return (Array.isArray(item?.learningUses) ? item.learningUses : []).map((value) => labels[String(value).toUpperCase()] || value).join('、') || '不参与学习';
+      return (Array.isArray(item?.learningUses) ? item.learningUses : []).map((value) => labels[String(value).toUpperCase()] || '其他用途').join('、') || '不参与学习';
     };
     const learningStatus = (value) => ({ QUALIFIED: '合格', PENDING: '待审核', REJECTED: '已排除' }[String(value || 'PENDING').toUpperCase()] || '待审核');
     const learningTone = (value) => ({ QUALIFIED: 'approved', PENDING: 'pending', REJECTED: 'rejected' }[String(value || 'PENDING').toUpperCase()] || 'pending');
@@ -1506,10 +1506,10 @@ const AdminSettingsView = {
     const draftAiMode = ref(initialAiMode && initialAiMode !== '—' ? initialAiMode : 'full');
     // AI 连接状态（探测结果）独立于模式显示；完整模式 + AI 离线 → 自动降级规则兜底
     const aiStatus = computed(() => props.state.adminOverview?.ai || '');
-    const aiStatusText = computed(() => ({ UP: 'AI 在线', DOWN: 'AI 离线', DEGRADED: 'AI 降级' }[aiStatus.value] || ''));
+    const aiStatusText = computed(() => ({ UP: '智能模型在线', DOWN: '智能模型离线', DEGRADED: '智能模型降级' }[aiStatus.value] || ''));
     const aiStatusClass = computed(() => aiStatus.value === 'UP' ? 'online' : aiStatus.value === 'DOWN' ? 'offline' : aiStatus.value === 'DEGRADED' ? 'degraded' : '');
     const degradeNote = computed(() => (draftAiMode.value === 'full' && aiStatus.value && aiStatus.value !== 'UP')
-      ? `AI ${aiStatusText.value.replace('AI ', '')}，当前以规则兜底运行；AI 恢复后自动切回完整模式`
+      ? `${aiStatusText.value}，当前以规则兜底运行；智能模型恢复后自动切回完整模式`
       : '');
     watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
       if (mode) draftAiMode.value = mode;
@@ -1859,7 +1859,7 @@ const app = createApp({
     const ADMIN_BOOTSTRAP_BUDGET_MS = 2600;
     const deferNonCritical = (task) => {
       const run = () => {
-        try { task(); } catch (error) { console.warn('[AgriLoop] deferred refresh failed:', error); }
+        try { task(); } catch (error) { console.warn('[农智闭环] 延迟刷新失败：', error); }
       };
       if (typeof window.requestIdleCallback === 'function') {
         window.requestIdleCallback(run, { timeout: 1200 });
