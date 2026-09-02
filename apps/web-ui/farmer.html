@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260901-v600-motion-fix">
-  <link rel="stylesheet" href="css/farmer.css?v=20260902-merge-v1">
+  <link rel="stylesheet" href="css/farmer.css?v=20260902-card-fix-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260901-v5910-main-merge-v2">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260901-v5910-main-merge-v2">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260901-v5910-main-merge-v2">
@@ -615,6 +615,7 @@
                 v-for="card in risk_plot_cards"
                 :key="card.plotId"
                 class="farmer-risk-mini-card"
+                :aria-pressed="card.selected ? 'true' : 'false'"
                 :class="{
                   'is-warn': card.isWarn,
                   'is-alert': card.isAlert,
@@ -630,6 +631,7 @@
                     risk: card.isAlert
                   }">{{ card.bandLabel }}</span>
                 </div>
+                <span v-if="card.selected" class="farmer-risk-mini-selected-mark">当前选择</span>
                 <div class="farmer-risk-mini-body">
                   <span class="farmer-risk-mini-moist" :class="'metric-' + card.moistureStatus">{{ card.moisture }}<small>%</small></span>
                   <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.moistureTarget }}</span>
@@ -932,6 +934,7 @@
                   v-for="card in risk_plot_cards"
                   :key="'light-' + card.plotId"
                   class="farmer-risk-mini-card"
+                  :aria-pressed="card.selected ? 'true' : 'false'"
                   :class="{
                     'is-warn': card.lightStatus === 'WARN_LOW' || card.lightStatus === 'WARN_HIGH',
                     'is-alert': card.lightStatus === 'ALERT_LOW' || card.lightStatus === 'ALERT_HIGH',
@@ -945,8 +948,9 @@
                       normal: card.lightStatus === 'NORMAL',
                       warn: card.lightStatus === 'WARN_LOW' || card.lightStatus === 'WARN_HIGH',
                       risk: card.lightStatus === 'ALERT_LOW' || card.lightStatus === 'ALERT_HIGH'
-                    }">{{ card.lightLabel }}</span>
-                  </div>
+                  }">{{ card.lightLabel }}</span>
+                </div>
+                <span v-if="card.selected" class="farmer-risk-mini-selected-mark">当前选择</span>
                   <div class="farmer-risk-mini-body farmer-light-risk-body">
                     <span class="farmer-risk-mini-moist" :class="card.lightStatus.includes('LOW') ? 'metric-ALERT' : card.lightStatus.includes('HIGH') ? 'metric-WARN' : 'metric-NORMAL'">{{ card.lightValue ?? '—' }}<small> lux</small></span>
                     <span class="farmer-risk-mini-meta">{{ card.cropName }} · {{ card.stageLabel }}<br>目标 {{ card.lightTarget }}</span>

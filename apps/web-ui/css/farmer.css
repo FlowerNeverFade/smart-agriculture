@@ -2695,6 +2695,7 @@
   margin-bottom: 20px;
 }
 .farmer-risk-mini-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2724,7 +2725,19 @@
   justify-content: space-between;
   gap: 8px;
 }
-.farmer-risk-mini-name { font-size: 13px; font-weight: 600; color: var(--g-text-primary); }
+.farmer-risk-mini-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--g-text-primary);
+  overflow-wrap: anywhere;
+}
 .farmer-risk-mini-tag {
   flex-shrink: 0;
   padding: 2px 7px;
@@ -2750,9 +2763,24 @@
 .farmer-risk-mini-moist.metric-WARN { color: var(--g-warning); }
 .farmer-risk-mini-moist.metric-ALERT { color: var(--g-danger); }
 .farmer-risk-mini-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 11px;
   line-height: 1.4;
   color: var(--g-text-secondary);
+}
+.farmer-risk-mini-selected-mark {
+  align-self: flex-start;
+  margin-top: -2px;
+  padding: 2px 6px;
+  border-radius: var(--g-radius-pill);
+  color: var(--g-primary-strong, var(--g-primary));
+  background: var(--g-primary-bg);
+  font-size: 10px;
+  font-weight: 700;
 }
 .farmer-risk-mini-light-warning {
   display: flex;
@@ -2846,17 +2874,18 @@
 .farmer-band-status-hint.status-WARN { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-band-status-hint.status-ALERT { color: var(--g-danger); background: var(--g-danger-bg); }
 .farmer-risk-mini-card.is-selected {
-  border-color: var(--g-success);
+  border: 2px solid var(--g-primary);
   border-left-width: 4px;
-  box-shadow: inset 0 0 0 1px var(--g-success), var(--g-shadow-1);
+  background: color-mix(in srgb, var(--g-primary-bg) 45%, var(--g-bg-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-primary) 22%, transparent), var(--g-shadow-1);
 }
 .farmer-risk-mini-card.is-selected.is-warn {
   border-color: var(--g-warning);
-  box-shadow: inset 0 0 0 1px var(--g-warning), var(--g-shadow-1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-warning) 22%, transparent), var(--g-shadow-1);
 }
 .farmer-risk-mini-card.is-selected.is-alert {
   border-color: var(--g-danger);
-  box-shadow: inset 0 0 0 1px var(--g-danger), var(--g-shadow-1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-danger) 22%, transparent), var(--g-shadow-1);
 }
 
 @media (max-width: 1100px) {
