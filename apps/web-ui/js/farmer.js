@@ -3249,8 +3249,15 @@ const app = createApp({
     onMounted(() => window.addEventListener('keydown', handle_sidebar_keydown));
     onBeforeUnmount(() => window.removeEventListener('keydown', handle_sidebar_keydown));
 
+    const reset_farmer_main_scroll = () => {
+      if (typeof document === 'undefined') return;
+      const main = document.querySelector('#farmer_app .farmer-main');
+      if (main) main.scrollTop = 0;
+    };
+
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+      const view_changed = current_view.value !== next_view;
       current_view.value = next_view;
       close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
@@ -3277,6 +3284,10 @@ const app = createApp({
         show_inspection_form.value = false;
         show_evidence_form.value = false;
       }
+      // All farmer routes render inside one scroll container. Reset it after
+      // the hash update so browser anchor handling cannot restore the old
+      // route's scroll position.
+      if (view_changed) reset_farmer_main_scroll();
     };
 
     const apply_farmer_hash = () => {

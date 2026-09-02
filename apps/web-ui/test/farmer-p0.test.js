@@ -352,6 +352,23 @@ test('farmer message center shows unread dots and marks only opened messages as 
   assert.match(css, /\.farmer-message-unread-dot\s*\{[\s\S]*?background:\s*var\(--g-danger/);
 });
 
+test('farmer navigation resets the shared main scroll position for each logical page', async () => {
+  const source = await readFile(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const helperStart = source.indexOf('const reset_farmer_main_scroll =');
+  const navigateStart = source.indexOf('const navigate =', helperStart);
+  assert.ok(helperStart >= 0 && navigateStart > helperStart, 'farmer scroll reset helper should precede navigation');
+  const helper = source.slice(helperStart, navigateStart);
+  assert.match(helper, /querySelector\(['"]#farmer_app \.farmer-main['"]\)/);
+  assert.match(helper, /main\.scrollTop\s*=\s*0/);
+  const navigate = source.slice(navigateStart, source.indexOf('const apply_farmer_hash', navigateStart));
+  assert.match(navigate, /const view_changed\s*=\s*current_view\.value\s*!==\s*next_view;/);
+  assert.match(navigate, /current_view\.value\s*=\s*next_view;[\s\S]*?if \(view_changed\) reset_farmer_main_scroll\(\);/);
+  assert.ok(
+    navigate.lastIndexOf('if (view_changed) reset_farmer_main_scroll();') > navigate.indexOf('window.location.hash ='),
+    'farmer scroll reset should run after hash route updates'
+  );
+});
+
 test('farmer can read plot simulation strategy and forecast curve', async () => {
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read'] } });
