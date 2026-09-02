@@ -614,6 +614,87 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmerManualIrrigationCanStartFromNoActionAndUsesThePlotFarmWaterProfile() {
+        String suffix = String.valueOf(System.nanoTime());
+        String farmId = "farm-manual-normal-" + suffix;
+        String plotId = "plot-manual-normal-" + suffix;
+        String deviceId = "mock-" + plotId;
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", farmId, "name", "常规人工浇灌测试田",
+                "cropCode", "tomato", "stageCode", "vegetative", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", farmId, "plotId", plotId,
+                "status", "ONLINE", "bindingState", "BOUND", "sourceMode", "SIMULATION")));
+        store.save("resource-profile", "water-" + farmId, new java.util.LinkedHashMap<>(Map.of(
+                "resourceProfileId", "water-" + farmId, "farmId", farmId, "resourceType", "WATER",
+                "capacityLitres", 120.0, "dailyQuotaLitres", 120.0, "flowRateLitresPerMinute", 18.0,
+                "timezone", "Asia/Shanghai")));
+        Instant observedAt = Instant.now();
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "manual-normal-soil-" + suffix), Map.entry("farmId", farmId),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 42.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "normal"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .98))));
+
+        UserPrincipal farmer = new UserPrincipal("farmer-manual-normal-" + suffix, "manual-normal", "FARMER",
+                List.of(farmId), List.of(plotId));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of(
+                "plotId", plotId, "scenarioId", "normal", "traceId", "trace-manual-normal-" + suffix), farmer);
+        Map<String, Object> fallback = Jsons.map(new ObjectMapper(), plan.get("manualFallback"));
+        assertThat(plan).containsEntry("status", "NO_ACTION");
+        assertThat(fallback).containsEntry("available", true).containsEntry("reasonCode", "MANUAL_OPERATOR_REQUEST");
+
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        Map<String, Object> command = responseData(controller.manualIrrigation(new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "sourcePlanId", plan.get("planId"), "waterLitre", 10.0,
+                "idempotencyKey", "manual-normal-success-" + suffix, "confirmed", true)), authentication));
+        assertThat(command).containsEntry("manualOverride", true)
+                .containsEntry("confirmationMode", "OPERATOR_MANUAL_OVERRIDE")
+                .containsEntry("sourcePlanId", plan.get("planId"));
+    }
+
+    @Test
+    void directIrrigationDoesNotDoubleCountHistoricalSuccessfulCommandsAsCapacity() {
+        String suffix = String.valueOf(System.nanoTime());
+        String farmId = "farm-water-balance-" + suffix;
+        String plotId = "plot-water-balance-" + suffix;
+        String deviceId = "mock-" + plotId;
+        store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", farmId, "name", "水量余额测试田",
+                "cropCode", "tomato", "stageCode", "vegetative", "areaM2", 80, "status", "ACTIVE")));
+        store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                "deviceId", deviceId, "farmId", farmId, "plotId", plotId,
+                "status", "ONLINE", "bindingState", "BOUND", "sourceMode", "SIMULATION")));
+        store.save("resource-profile", "water-" + farmId, new java.util.LinkedHashMap<>(Map.of(
+                "resourceProfileId", "water-" + farmId, "farmId", farmId, "resourceType", "WATER",
+                "capacityLitres", 120.0, "dailyQuotaLitres", 120.0, "flowRateLitresPerMinute", 18.0,
+                "timezone", "Asia/Shanghai")));
+        store.save("command", "historical-water-" + suffix, new java.util.LinkedHashMap<>(Map.of(
+                "commandId", "historical-water-" + suffix, "plotId", plotId, "type", "IRRIGATION_START",
+                "status", "SUCCEEDED", "waterLitre", 115.0,
+                "ack", Map.of("status", "SUCCEEDED", "actualWaterLitre", 115.0, "receivedAt", Instant.now().toString()))));
+        Instant observedAt = Instant.now();
+        engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "water-balance-soil-" + suffix), Map.entry("farmId", farmId),
+                Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                Map.entry("value", 20.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.toString()),
+                Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "normal"),
+                Map.entry("quality", Map.of("status", "GOOD", "confidence", .98))));
+
+        UserPrincipal farmer = new UserPrincipal("farmer-water-balance-" + suffix, "water-balance", "FARMER",
+                List.of(farmId), List.of(plotId));
+        Map<String, Object> plan = engine.irrigationPlan(Map.of(
+                "plotId", plotId, "scenarioId", "normal", "traceId", "trace-water-balance-" + suffix), farmer);
+        assertThat(plan).containsEntry("readinessStatus", "READY").containsEntry("executable", true);
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(farmer, null, List.of());
+        Map<String, Object> command = responseData(controller.command(new java.util.LinkedHashMap<>(Map.of(
+                "planId", plan.get("planId"), "plotId", plotId,
+                "idempotencyKey", "water-balance-direct-" + suffix, "confirmed", true)), authentication));
+        assertThat(command).containsEntry("confirmationMode", "OPERATOR_CONFIRMED");
+    }
+
+    @Test
     void manualIrrigationEvaluationSeparatesPartialFailureTimeoutAndMissingBaseline() {
         String suffix = String.valueOf(System.nanoTime());
         String farmId = "farm-manual-evaluation-" + suffix;
