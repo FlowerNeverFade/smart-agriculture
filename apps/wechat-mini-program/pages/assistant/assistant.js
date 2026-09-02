@@ -382,7 +382,7 @@ Page({
       const nextId = response?.conversationId || conversationId;
       sessionStore.saveConversationId(currentUserId(), this.data.selectedPlotId, nextId);
       this.pendingImages = [];
-      this.setData({ conversationId: nextId, messages: this.data.messages.concat(assistant), imageItems: [], sending: false, serviceStatus: response?.degraded ? 'DEGRADED' : 'READY', serviceStatusLabel: response?.degraded ? '规则降级' : '服务正常' });
+      this.setData({ conversationId: nextId, messages: this.data.messages.concat(assistant), imageItems: [], sending: false, serviceStatus: response?.degraded ? 'DEGRADED' : 'READY', serviceStatusLabel: response?.degraded ? '安全降级回答' : '服务正常' });
       this.upsertConversation(response, displayMessage, nextId);
       this.scrollToBottom();
     }).catch((error) => {

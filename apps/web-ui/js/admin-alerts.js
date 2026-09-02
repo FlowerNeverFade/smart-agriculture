@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260902-v5911-zhcn-v1';
+import { api } from './api.js?v=20260902-ai-direct-v2';
 import { adminMetricLabel } from './admin-state.js?v=20260902-v5911-zhcn-v1';
-import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260902-v5911-zhcn-v1';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, inject, watch } = Vue;
 

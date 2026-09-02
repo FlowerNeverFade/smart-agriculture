@@ -1,10 +1,10 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-v5911-zhcn-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-ai-direct-v2';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-v5911-zhcn-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { orderedPlotMetrics, plotMetricValue, reconcilePlotOrder, stablePlotSort } from './plot-display.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
@@ -30,7 +30,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-v5911-zhcn-v1';
+} from './live-data.js?v=20260902-ai-direct-v2';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -2435,7 +2435,7 @@ const app = createApp({
     const qa_history = assistant_messages;
     const qa_audit = ref(null);
     const qa_details_open = ref(false);
-    const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示规则');
+    const qa_source_label = ref(is_formal_session ? '后端智能服务' : '演示助手（未连接模型）');
     const qa_busy = assistant_busy;
     const qa_plot_id = assistant_plot_id;
     const crop_manuals = ref([]);
@@ -4899,10 +4899,10 @@ const app = createApp({
       return `conversation-${identity}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`.slice(0, 116);
     };
     const assistant_service_label = computed(() => ({
-      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示规则'
+      CONNECTING: '连接中…', READY: '服务正常', DEGRADED: '服务降级', DEMO: '演示助手'
     }[assistant_service_status.value] || '服务状态未知'));
     const assistant_service_tone = computed(() => assistant_service_status.value === 'DEGRADED' ? 'is-degraded' : assistant_service_status.value === 'DEMO' ? 'is-demo' : 'is-ready');
-    const assistant_source_label = computed(() => is_formal_session ? (assistant_service_status.value === 'DEGRADED' ? '规则降级回答' : '后端智能服务') : '演示规则');
+    const assistant_source_label = computed(() => is_formal_session ? (assistant_service_status.value === 'DEGRADED' ? '安全降级回答' : '后端智能服务') : '演示助手（未连接模型）');
     const assistant_action_tone = (proposal) => String(proposal?.status || 'AWAITING_CONFIRMATION').toLowerCase().replaceAll('_', '-');
     const assistant_action_status_label = (status) => assistant_action_status_labels[String(status || '').toUpperCase()] || '待处理';
     const assistant_risk_label = (risk) => ({ LOW: '低风险', MEDIUM: '中风险', HIGH: '高风险', CRITICAL: '高风险' }[String(risk || 'LOW').toUpperCase()] || '需复核');
@@ -4911,7 +4911,7 @@ const app = createApp({
       ? '土壤含水量低于 10% 时触发虚拟浇水；系统会再次检查最新数据、设备健康和水量上限。'
       : '写操作仅在你确认后执行；确认时会再次检查权限、安全门和资源范围。';
     const assistant_tool_label = (tool) => assistant_tool_labels[tool] || tool || '受控操作';
-    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || '规则引擎');
+    const assistant_source_label_for = (source) => ({ SIMULATED: '模拟数据', SIMULATION: '模拟结果', USER_PROVIDED: '人工提供', DERIVED: '推导结果', OBSERVED: '观测数据', BACKEND: '后端记录' }[String(source || '').toUpperCase()] || '智能助手');
     const assistant_action_arguments = (proposal) => {
       const summary = proposal?.argumentSummary || proposal?.argumentsSummary || proposal?.parameterSummary;
       if (summary) return summary;

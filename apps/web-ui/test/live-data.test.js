@@ -71,7 +71,7 @@ test('agent surfaces show the generated narrative instead of the card summary', 
   };
   assert.equal(agentResponseText(response), '当前地块状态\n土壤湿度正常。');
   assert.equal(agentResponseSource(response), '实时模型回答');
-  assert.equal(agentResponseSource({ degraded: true, adapter: 'openai-compatible' }), '规则降级回答');
+  assert.equal(agentResponseSource({ degraded: true, adapter: 'openai-compatible' }), '安全降级回答');
   assert.equal(agentResponseText({ summary: '规则摘要' }), '规则摘要');
 });
 

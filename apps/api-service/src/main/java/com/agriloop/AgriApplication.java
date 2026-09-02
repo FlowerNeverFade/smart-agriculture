@@ -3937,7 +3937,7 @@ class AgriEngine {
 
         Map<String, Object> explanation = new LinkedHashMap<>();
         explanation.put("text", text);
-        explanation.put("sourceLabel", degraded ? (aiMode.equals("mock") ? "演示规则解释" : "规则降级解释") : "Qwen 实时解释");
+        explanation.put("sourceLabel", degraded ? (aiMode.equals("mock") ? "演示助手解释（未连接模型）" : "安全降级解释") : "Qwen 实时解释");
         explanation.put("adapter", adapter);
         explanation.put("degraded", degraded);
         explanation.put("provenance", "DERIVED");
@@ -7795,7 +7795,10 @@ class AgriEngine {
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         answer.put("adapter", adapter);
         answer.put("knowledgeEvidence", knowledgeEvidence(plotId));
-        boolean fastPath = false;
+        // Deterministic guards are kept for empty/identifier-only input and for
+        // deployments that explicitly have no model adapter.  They must not
+        // short-circuit normal conversation when the model is available.
+        boolean deterministicOnly = false;
         // A photo is evidence for a model-assisted observation, not a safe basis
         // for silently triggering the deterministic mutation parser.
         Map<String, Object> actionProposal = agentImages.isEmpty() ? planAgentAction(message, plotId, principal, traceId) : null;
@@ -7807,7 +7810,11 @@ class AgriEngine {
             if (hasPreview) answer.put("actionProposal", actionProposal);
             answer.put("summary", Jsons.text(actionProposal, "summary", "需要补充信息"));
             answer.put("narrative", Jsons.text(actionProposal, "clarification", Jsons.text(actionProposal, "summary", "已生成操作预览，等待确认执行。")));
-            answer.put("narrativeProvenance", "DERIVED"); answer.put("adapter", "rules-agent"); fastPath = true;
+            answer.put("narrativeProvenance", "DERIVED");
+            if (!openAiCompatible) {
+                answer.put("adapter", "rules-agent");
+                deterministicOnly = true;
+            }
         } else if (!agentImages.isEmpty()) {
             answer.put("intent", "IMAGE_ANALYSIS");
             answer.put("summary", "已读取 " + agentImages.size() + " 张用户图片并结合问题分析");
@@ -7825,8 +7832,8 @@ class AgriEngine {
             answer.put("narrative", agentGreeting(principal));
             answer.put("narrativeProvenance", "DERIVED");
             if (!openAiCompatible) {
-                answer.put("adapter", "rules-fast-path");
-                fastPath = true;
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
             }
         } else if (isContextualFollowUp(message) && !recentHistory.isEmpty()) {
             // Resolve short follow-ups from this conversation before the
@@ -7854,8 +7861,8 @@ class AgriEngine {
                     .replaceAll("[\\s，。！？,.!?、:：;；]+", "");
             boolean hardFastPath = compactInput.isBlank() || isNumberOrIdentifierInput(compactInput);
             if (hardFastPath || !openAiCompatible) {
-                answer.put("adapter", "rules-fast-path");
-                fastPath = true;
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
             }
         } else if (isCapabilityQuestion(message)) {
             answer.put("intent", "CAPABILITY_QUERY");
@@ -7871,8 +7878,8 @@ class AgriEngine {
             answer.put("narrative", agentCapabilityNarrative(principal, roleProfile));
             answer.put("narrativeProvenance", "DERIVED");
             if (!openAiCompatible) {
-                answer.put("adapter", "rules-fast-path");
-                fastPath = true;
+                answer.put("adapter", "deterministic-guard");
+                deterministicOnly = true;
             }
         } else if (principal.isSystemAdmin() && isPlatformStatusQuestion(message)) {
             boolean mqttCommandAvailable = mqttCommands.available();
@@ -7975,9 +7982,16 @@ class AgriEngine {
         boolean degraded = false;
         String degradationReason = null;
         String rawNarrative = null;
-        if (fastPath) {
-            // The deterministic answer above is intentional and is not presented as
-            // a fabricated model response.
+        if (deterministicOnly) {
+            // A guard response is intentionally short and is not presented as a
+            // model-generated answer.  An explicit non-model deployment is still
+            // marked degraded so the UI cannot mistake it for live AI.
+            if (!openAiCompatible) {
+                degraded = true;
+                degradationReason = aiMode.equals("rules-only")
+                        ? "RULES_ONLY_CONFIGURED"
+                        : aiMode.equals("mock") ? "DEMO_RULES_CONFIGURED" : "AI_ADAPTER_UNAVAILABLE_FALLBACK";
+            }
         } else if (aiMode.equals("rules-only")) {
             degraded = true;
             degradationReason = "RULES_ONLY_CONFIGURED";
@@ -7993,6 +8007,9 @@ class AgriEngine {
                 long latencyMs = Duration.ofNanos(System.nanoTime() - started).toMillis();
                 answer.put("narrative", narrative);
                 answer.put("narrativeProvenance", "DERIVED");
+                // A proposal is deterministic, but its human-facing explanation
+                // is still a real model response when the adapter is available.
+                answer.put("adapter", "openai-compatible");
                 answer.put("llm", Map.of("provider", "openai-compatible",
                         "model", agentImages.isEmpty() ? configuredLlmModel() : configuredVisionModel(),
                         "latencyMs", latencyMs,

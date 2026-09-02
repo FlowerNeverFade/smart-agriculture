@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-v5911-zhcn-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-ai-direct-v2';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
@@ -8,7 +8,7 @@ import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUser
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
 import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-v5911-zhcn-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
@@ -46,7 +46,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-v5911-zhcn-v1';
+} from './live-data.js?v=20260902-ai-direct-v2';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -1517,7 +1517,7 @@ const AdminSettingsView = {
     const aiStatusText = computed(() => ({ UP: '智能模型在线', DOWN: '智能模型离线', DEGRADED: '智能模型降级' }[aiStatus.value] || ''));
     const aiStatusClass = computed(() => aiStatus.value === 'UP' ? 'online' : aiStatus.value === 'DOWN' ? 'offline' : aiStatus.value === 'DEGRADED' ? 'degraded' : '');
     const degradeNote = computed(() => (draftAiMode.value === 'full' && aiStatus.value && aiStatus.value !== 'UP')
-      ? `${aiStatusText.value}，当前以规则兜底运行；智能模型恢复后自动切回完整模式`
+      ? `${aiStatusText.value}，当前启用安全降级；智能模型恢复后自动切回完整模式`
       : '');
     watch(() => props.state.adminOverview && props.state.adminOverview.aiMode, (mode) => {
       if (mode) draftAiMode.value = mode;

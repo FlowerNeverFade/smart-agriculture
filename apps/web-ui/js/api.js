@@ -3411,10 +3411,10 @@ export class ApiService {
       return persistDemoResponse({ traceId, plotId, mode: 'rules-agent', intent: 'CLARIFICATION', roleReason: 'FORBIDDEN', summary: '当前身份不能执行管理员操作', narrative: '', tools: [], confidence: 1 });
     }
     if (!asksMutation && /^(你好|您好|嗨|hello|hi|在吗|早上好|下午好|晚上好)(?:呀|啊|喽|there)?[！!。．,.， ]*$/i.test(String(message || '').trim())) {
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'GREETING', summary: '已识别为问候', narrative: '', tools: [], confidence: 1 });
+      return persistDemoResponse({ traceId, plotId, mode: 'deterministic-guard', intent: 'GREETING', summary: '已识别为问候', narrative: '', tools: [], confidence: 1 });
     }
     if (!asksMutation && /(你能做什么|你可以做什么|能力|功能|帮助|支持哪些|能帮我)/i.test(String(message || ''))) {
-      return persistDemoResponse({ traceId, plotId, mode: 'rules-fast-path', intent: 'CAPABILITY_QUERY', summary: '已读取农智助手能力范围', narrative: '', tools: [], confidence: 1 });
+      return persistDemoResponse({ traceId, plotId, mode: 'deterministic-guard', intent: 'CAPABILITY_QUERY', summary: '已读取农智助手能力范围', narrative: '', tools: [], confidence: 1 });
     }
     if (!asksMutation && isDemoContextualFollowUp(message) && demoHistory.length) {
       return persistDemoResponse({
@@ -3431,7 +3431,7 @@ export class ApiService {
       return persistDemoResponse({
         traceId,
         plotId,
-        mode: 'rules-fast-path',
+        mode: 'deterministic-guard',
         intent: 'CLARIFICATION',
         summary: '输入信息不足',
         narrative: demoAgentLowInformationNarrative(role, message),
@@ -3755,7 +3755,7 @@ export class ApiService {
       ...diagnosis,
       aiExplanation: {
         text,
-        sourceLabel: '演示规则解释',
+        sourceLabel: '演示助手解释（未连接模型）',
         adapter: 'mock',
         degraded: true,
         degradationReason: 'DEMO_RULES_CONFIGURED',

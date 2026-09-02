@@ -86,7 +86,7 @@ const SOURCE_LABELS = Object.freeze({
   AI: '智能模型', LLM: '智能模型', AGENT: '智能助手', ACCOUNT: '正式账号', SYSTEM: '系统',
   MANUAL: '人工录入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查',
   HUMAN_OBSERVATION: '人工观察', FIELD_INSPECTION: '现场巡田', CORE_AI: '智能内核',
-  LEARNING: '案例学习', RULES_FAST_PATH: '规则快捷路径', SENSOR: '传感器', DEVICE: '设备',
+  LEARNING: '案例学习', RULES_FAST_PATH: '安全澄清', SENSOR: '传感器', DEVICE: '设备',
   SOIL_MOISTURE: '土壤湿度', DEVICE_FRESHNESS: '设备数据新鲜度',
   WATER_DEFICIT_RULE: '缺水规则', SENSOR_DRIFT_RULE: '传感器漂移规则',
   DEVICE_FAULT_RULE: '设备异常规则', HEAT_STRESS_RULE: '高温胁迫规则',
@@ -388,13 +388,15 @@ export function agentHistoryUserText(value, fallback = '已上传现场图片') 
 }
 
 export function agentResponseSource(response = {}, sessionMode = 'live') {
-  if (sessionMode !== 'live') return '演示规则';
+  // Offline/demo data is explicit so it cannot be mistaken for a live model.
+  if (sessionMode !== 'live') return '演示助手（未连接模型）';
   const adapter = String(response?.adapter || '').trim().toLowerCase();
   if (adapter === 'openai-compatible' && response?.degraded === false) return '实时模型回答';
-  if (adapter === 'mock') return '模拟回答';
-  if (response?.degraded) return '规则降级回答';
-  if (adapter === 'rules-fast-path') return '规则快捷回答';
-  return adapter ? '规则与知识' : '智能助手';
+  if (adapter === 'mock') return '演示助手（未连接模型）';
+  if (response?.degraded) return '安全降级回答';
+  if (adapter === 'rules-fast-path' || adapter === 'deterministic-guard') return '安全澄清';
+  if (adapter === 'rules-agent') return '受控操作预览';
+  return '智能助手';
 }
 
 const AGENT_INTENT_LABELS = Object.freeze({
