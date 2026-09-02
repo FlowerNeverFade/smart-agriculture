@@ -28,6 +28,8 @@ const EVIDENCE_TYPE_LABELS = Object.freeze({
   DEVICE_CHECK: '设备检查'
 });
 
+const MANAGER_SECTION_IDS = Object.freeze(['tasks', 'evidence', 'inspections']);
+
 const WORK_ACTION_META = Object.freeze({
   SOWING: { label: '播种', title: '完成播种作业', reason: '按种植计划完成整地、播种并记录实际执行情况。', targetStageCode: 'seedling', targetStageLabel: '苗期' },
   TRANSPLANTING: { label: '移栽', title: '完成移栽作业', reason: '按定植要求完成移栽，检查缓苗和设施状态并记录结果。', targetStageCode: 'vegetative', targetStageLabel: '营养生长期' },
@@ -203,6 +205,7 @@ export const WorkOrderLifecycleView = {
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
     const showAllInspections = ref(false);
+    const activeManagerSection = ref('tasks');
     const lifecycleNow = ref(Date.now());
     const statusFilter = ref('IN_PROGRESS');
     const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
@@ -815,8 +818,31 @@ export const WorkOrderLifecycleView = {
       window.setTimeout(() => target?.classList.remove('is-highlighted'), 3200);
     };
 
+    const setManagerSection = (section) => {
+      if (!isEmbeddedManager.value || !MANAGER_SECTION_IDS.includes(section)) return;
+      activeManagerSection.value = section;
+    };
+
+    const onManagerSectionKeydown = (event, section) => {
+      const currentIndex = MANAGER_SECTION_IDS.indexOf(section);
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex;
+      if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % MANAGER_SECTION_IDS.length;
+      else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + MANAGER_SECTION_IDS.length) % MANAGER_SECTION_IDS.length;
+      else if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = MANAGER_SECTION_IDS.length - 1;
+      else return;
+      event.preventDefault();
+      const tabList = event.currentTarget?.closest('[role="tablist"]');
+      activeManagerSection.value = MANAGER_SECTION_IDS[nextIndex];
+      nextTick(() => tabList?.querySelectorAll('[role="tab"]')?.[nextIndex]?.focus());
+    };
+
     watch(() => props.routeParams, (params) => {
       const nextScope = normalizeWorkSummaryScope(params?.scope);
+      if (isEmbeddedManager.value && (params?.scope || params?.status || params?.assigneeId || params?.highlight || params?.openCreateTask)) {
+        activeManagerSection.value = 'tasks';
+      }
       scopeFilter.value = nextScope;
       const requestedAssignee = String(params?.assigneeId || '').trim();
       const hasLoadedMembers = props.state.farmMembers.length > 0;
@@ -877,6 +903,7 @@ export const WorkOrderLifecycleView = {
 
     return {
       role, canManage, canInspect, isFarmer, isAuditor, isEmbeddedManager, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
+      activeManagerSection, setManagerSection, onManagerSectionKeydown,
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
@@ -895,7 +922,7 @@ export const WorkOrderLifecycleView = {
   template: `
     <section class="work-lifecycle" :class="{ 'is-embedded-manager': isEmbeddedManager }"
       :aria-labelledby="isEmbeddedManager ? null : 'work-lifecycle-title'"
-      :aria-label="isEmbeddedManager ? '任务列表' : null">
+      :aria-label="isEmbeddedManager ? '任务中心' : null">
       <header class="work-lifecycle-header" :class="{ 'is-actions-only': isEmbeddedManager }">
         <div v-if="!isEmbeddedManager">
           <p class="work-lifecycle-kicker">WORK ORDERS</p>
@@ -908,44 +935,66 @@ export const WorkOrderLifecycleView = {
         </div>
       </header>
 
-      <div class="work-summary" aria-label="任务概况">
-        <button type="button" :class="{ 'is-active': statusFilter === 'IN_PROGRESS' && !scopeFilter }" @click="applyStatusFilter('IN_PROGRESS')"><span>进行中</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
-        <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'DONE' && !scopeFilter }" @click="applyStatusFilter('DONE')"><span>已完成</span><strong>{{ summary.completed }}</strong></button>
-      </div>
+      <nav v-if="isEmbeddedManager" class="work-manager-section-tabs" role="tablist" aria-label="任务中心内容">
+        <button id="manager-section-tab-tasks" type="button" role="tab" aria-controls="manager-section-panel-tasks"
+          :aria-selected="activeManagerSection === 'tasks'" :tabindex="activeManagerSection === 'tasks' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'tasks' }" @click="setManagerSection('tasks')" @keydown="onManagerSectionKeydown($event, 'tasks')">
+          <span>任务列表</span><strong>{{ scopedOrders.length }}</strong>
+        </button>
+        <button id="manager-section-tab-evidence" type="button" role="tab" aria-controls="manager-section-panel-evidence"
+          :aria-selected="activeManagerSection === 'evidence'" :tabindex="activeManagerSection === 'evidence' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'evidence' }" @click="setManagerSection('evidence')" @keydown="onManagerSectionKeydown($event, 'evidence')">
+          <span>补证申请</span><strong>{{ evidenceRequests.length }}</strong>
+        </button>
+        <button id="manager-section-tab-inspections" type="button" role="tab" aria-controls="manager-section-panel-inspections"
+          :aria-selected="activeManagerSection === 'inspections'" :tabindex="activeManagerSection === 'inspections' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'inspections' }" @click="setManagerSection('inspections')" @keydown="onManagerSectionKeydown($event, 'inspections')">
+          <span>巡田记录</span><strong>{{ inspections.length }}</strong>
+        </button>
+      </nav>
 
-      <div v-if="scopeFilter" class="work-route-filter" role="status">
-        <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
-        <button type="button" @click="clearSummaryScope">查看全部任务</button>
-      </div>
-
-      <div class="work-filters">
-        <label><span>任务状态</span><select class="g-select" v-model="statusFilter" @change="onStatusSelect">
-          <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option><option value="">全部状态</option>
-        </select></label>
-        <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-        <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter" @change="onAssigneeSelect"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
-        <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
-      </div>
-
-      <section v-if="canManage && (scopeFilter === 'unassigned' || (statusFilter === 'OPEN' && !scopeFilter))" class="work-unassigned-disposition" aria-label="待分配任务智能分配">
-        <div><strong>待分配任务</strong><span>农智助手将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
-        <button type="button" class="g-btn primary compact" :disabled="isBusy || !filteredOrders.some(order => workStatus(order.status) === 'OPEN' && !order.assigneeId)" @click="autoAssignUnassigned"><app-icon name="auto_awesome"></app-icon>{{ isBusy ? '分配中…' : 'AI一键分配任务' }}</button>
-      </section>
-
-      <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
-        <div><strong>逾期任务处置</strong><span>一键处置和一键重新分配都会转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
-        <div class="work-overdue-disposition-actions">
-          <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
-          <span>已选 {{ selectedOverdueOrders.length }} 项</span>
-          <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
-          <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
+      <section id="manager-section-panel-tasks" class="work-section-panel work-task-section"
+        v-show="!isEmbeddedManager || activeManagerSection === 'tasks'"
+        :role="isEmbeddedManager ? 'tabpanel' : null" :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-tasks' : null">
+        <div class="work-summary" aria-label="任务概况">
+          <button type="button" :class="{ 'is-active': statusFilter === 'IN_PROGRESS' && !scopeFilter }" @click="applyStatusFilter('IN_PROGRESS')"><span>进行中</span><strong>{{ summary.progressing }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+          <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'DONE' && !scopeFilter }" @click="applyStatusFilter('DONE')"><span>已完成</span><strong>{{ summary.completed }}</strong></button>
         </div>
-      </section>
 
-      <div v-if="filteredOrders.length" class="work-order-list" :class="{ 'is-manager-card-grid': canManage }">
+        <div v-if="scopeFilter" class="work-route-filter" role="status">
+          <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
+          <button type="button" @click="clearSummaryScope">查看全部任务</button>
+        </div>
+
+        <div class="work-filters">
+          <label><span>任务状态</span><select class="g-select" v-model="statusFilter" @change="onStatusSelect">
+            <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option><option value="">全部状态</option>
+          </select></label>
+          <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+          <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter" @change="onAssigneeSelect"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
+          <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
+        </div>
+
+        <section v-if="canManage && (scopeFilter === 'unassigned' || (statusFilter === 'OPEN' && !scopeFilter))" class="work-unassigned-disposition" aria-label="待分配任务智能分配">
+          <div><strong>待分配任务</strong><span>农智助手将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
+          <button type="button" class="g-btn primary compact" :disabled="isBusy || !filteredOrders.some(order => workStatus(order.status) === 'OPEN' && !order.assigneeId)" @click="autoAssignUnassigned"><app-icon name="auto_awesome"></app-icon>{{ isBusy ? '分配中…' : 'AI一键分配任务' }}</button>
+        </section>
+
+        <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
+          <div><strong>逾期任务处置</strong><span>一键处置和一键重新分配都会转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
+          <div class="work-overdue-disposition-actions">
+            <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
+            <span>已选 {{ selectedOverdueOrders.length }} 项</span>
+            <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
+            <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
+          </div>
+        </section>
+
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '任务列表滚动区域' : null">
+          <div v-if="filteredOrders.length" class="work-order-list" :class="{ 'is-manager-card-grid': canManage }">
         <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card"
           :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order), 'is-manager-summary': canManage }]"
           :data-work-order-id="order.workOrderId" :role="canManage ? 'button' : null" :tabindex="canManage ? 0 : null"
@@ -1000,54 +1049,64 @@ export const WorkOrderLifecycleView = {
             <span v-if="!isOverdueView">完整结果与操作记录</span>
             <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
           </footer>
-        </article>
-      </div>
-      <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
+          </article>
+          </div>
+          <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
+        </div>
+      </section>
 
-      <section v-if="canManage" class="evidence-request-history" aria-labelledby="evidence-request-history-title">
+      <section v-if="canManage" v-show="!isEmbeddedManager || activeManagerSection === 'evidence'" id="manager-section-panel-evidence"
+        class="evidence-request-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
+        :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-evidence' : 'evidence-request-history-title'">
         <header>
           <div><p class="work-lifecycle-kicker">READINESS REQUESTS</p><h2 id="evidence-request-history-title">补证申请</h2><span>独立于任务状态筛选，当前农场的新申请会直接显示在这里。</span></div>
           <span class="evidence-request-count">共 {{ evidenceRequests.length }} 条</span>
         </header>
-        <div v-if="evidenceRequests.length" class="evidence-request-list">
-          <article v-for="request in evidenceRequests" :key="request.workOrderId" class="evidence-request-card" @click="openDetail(request)">
-            <header>
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(request).tone">{{ statusMeta(request).label }}</span><span class="work-source">{{ evidenceTypeLabel(request.evidenceType) }}</span></div>
-              <time>{{ formatTime(request.createdAt) }}</time>
-            </header>
-            <h3>{{ request.title || evidenceTypeLabel(request.evidenceType) + '补证申请' }}</h3>
-            <p>{{ request.reason || '申请补充现场证据' }}</p>
-            <dl class="evidence-request-facts"><div><dt>提交人</dt><dd>{{ requesterName(request) }}</dd></div><div><dt>地块</dt><dd>{{ plotName(request.plotId) }}</dd></div></dl>
-            <footer>
-              <button type="button" class="g-btn secondary compact" @click.stop="openDetail(request)">查看详情</button>
-              <button v-if="workStatus(request.status) === 'OPEN'" type="button" class="g-btn primary compact" @click.stop="openAssign(request)">进入分配</button>
-            </footer>
-          </article>
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '补证申请滚动区域' : null">
+          <div v-if="evidenceRequests.length" class="evidence-request-list">
+            <article v-for="request in evidenceRequests" :key="request.workOrderId" class="evidence-request-card" @click="openDetail(request)">
+              <header>
+                <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(request).tone">{{ statusMeta(request).label }}</span><span class="work-source">{{ evidenceTypeLabel(request.evidenceType) }}</span></div>
+                <time>{{ formatTime(request.createdAt) }}</time>
+              </header>
+              <h3>{{ request.title || evidenceTypeLabel(request.evidenceType) + '补证申请' }}</h3>
+              <p>{{ request.reason || '申请补充现场证据' }}</p>
+              <dl class="evidence-request-facts"><div><dt>提交人</dt><dd>{{ requesterName(request) }}</dd></div><div><dt>地块</dt><dd>{{ plotName(request.plotId) }}</dd></div></dl>
+              <footer>
+                <button type="button" class="g-btn secondary compact" @click.stop="openDetail(request)">查看详情</button>
+                <button v-if="workStatus(request.status) === 'OPEN'" type="button" class="g-btn primary compact" @click.stop="openAssign(request)">进入分配</button>
+              </footer>
+            </article>
+          </div>
+          <div v-else class="inspection-empty-state"><app-icon name="assignment_late"></app-icon><strong>当前农场暂无补证申请</strong><span>农户提交后，新的 OPEN 申请会在这里显示。</span></div>
         </div>
-        <div v-else class="inspection-empty-state"><app-icon name="assignment_late"></app-icon><strong>当前农场暂无补证申请</strong><span>农户提交后，新的 OPEN 申请会在这里显示。</span></div>
       </section>
 
-      <section class="inspection-history" aria-labelledby="inspection-history-title">
+      <section v-show="!isEmbeddedManager || activeManagerSection === 'inspections'" id="manager-section-panel-inspections"
+        class="inspection-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
+        :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-inspections' : 'inspection-history-title'">
         <header>
           <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">巡田记录</h2><span>共 {{ inspections.length }} 条；默认展示最新 8 条，人工记录不会覆盖传感器数据。</span></div>
           <div class="inspection-history-actions"><button v-if="inspections.length > 8" type="button" class="g-btn secondary compact" @click="showAllInspections = !showAllInspections">{{ showAllInspections ? '收起记录' : '查看全部' }}</button><button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button></div>
         </header>
-        <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
-        <div v-if="visibleInspections.length" class="inspection-record-list">
-          <article v-for="record in visibleInspections" :key="record.inspectionId">
-            <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
-            <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
-            <div class="inspection-observations">
-              <span>土壤：{{ inspectionObservationLabel('soil', record.soilSurface) }}</span>
-              <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
-              <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
-              <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
-              <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
-            </div>
-            <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
-          </article>
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '巡田记录滚动区域' : null">
+          <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
+          <div v-if="visibleInspections.length" class="inspection-record-list">
+            <article v-for="record in visibleInspections" :key="record.inspectionId">
+              <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
+              <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
+              <div class="inspection-observations">
+                <span>土壤：{{ inspectionObservationLabel('soil', record.soilSurface) }}</span>
+                <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
+                <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
+                <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
+                <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
+              </div>
+              <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
+            </article>
+          </div>
+          <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
         </div>
-        <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
       </section>
 
       <div v-if="showDetailModal && activeOrder" class="g-modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">

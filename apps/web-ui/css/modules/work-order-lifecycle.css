@@ -32,6 +32,98 @@
   margin: 0;
 }
 
+.work-manager-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  overflow: hidden;
+  border: 1px solid var(--g-border);
+  border-radius: 12px;
+  background: var(--g-bg-subtle);
+}
+
+.work-manager-section-tabs button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--g-text-secondary);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.work-manager-section-tabs button:hover {
+  color: var(--g-text-primary);
+  background: var(--g-bg-hover);
+}
+
+.work-manager-section-tabs button.active {
+  border-color: color-mix(in srgb, var(--g-primary) 34%, var(--g-border));
+  color: var(--g-primary);
+  background: var(--g-bg-surface);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--g-text-primary) 8%, transparent);
+}
+
+.work-manager-section-tabs button:focus-visible,
+.work-lifecycle.is-embedded-manager .work-section-scroll:focus-visible,
+.work-lifecycle.is-embedded-manager .work-section-panel:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 32%, transparent);
+  outline-offset: 2px;
+}
+
+.work-manager-section-tabs strong {
+  display: inline-grid;
+  min-width: 24px;
+  min-height: 22px;
+  place-items: center;
+  padding: 1px 6px;
+  border-radius: 999px;
+  color: inherit;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.work-lifecycle.is-embedded-manager .work-section-panel {
+  display: flex;
+  height: clamp(620px, calc(100dvh - 190px), 900px);
+  min-height: 0;
+  margin-top: 0;
+  padding: 14px;
+  overflow: hidden;
+  border: 1px solid var(--g-border);
+  border-radius: 12px;
+  background: var(--g-bg-surface);
+  flex-direction: column;
+}
+
+.work-lifecycle.is-embedded-manager .work-section-panel > :not(.work-section-scroll) {
+  flex: 0 0 auto;
+}
+
+.work-lifecycle.is-embedded-manager .work-section-scroll {
+  min-height: 0;
+  padding: 2px 6px 2px 2px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  -webkit-overflow-scrolling: touch;
+  flex: 1 1 0;
+}
+
+.work-lifecycle.is-embedded-manager .work-section-scroll > .inspection-load-error {
+  margin-bottom: 10px;
+}
+
 .work-lifecycle-kicker {
   margin-bottom: 5px;
   color: var(--g-primary);
@@ -719,6 +811,28 @@
 }
 
 @media (max-width: 700px) {
+  .work-manager-section-tabs {
+    display: flex;
+    padding-bottom: 5px;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-gutter: auto;
+  }
+  .work-manager-section-tabs button { min-width: 124px; flex: 1 0 124px; }
+  .work-lifecycle.is-embedded-manager .work-section-panel {
+    display: block;
+    height: clamp(520px, 72dvh, 680px);
+    padding: 12px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    -webkit-overflow-scrolling: touch;
+  }
+  .work-lifecycle.is-embedded-manager .work-section-scroll {
+    min-height: auto;
+    padding: 0;
+    overflow: visible;
+  }
   .work-lifecycle-header { align-items: stretch; flex-direction: column; }
   .work-lifecycle-actions { flex-wrap: wrap; }
   .work-queue-heading { align-items: flex-start; }
