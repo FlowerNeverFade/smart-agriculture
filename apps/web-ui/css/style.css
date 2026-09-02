@@ -553,10 +553,15 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 .manager-create-task { min-height: 40px; padding: 9px 18px; white-space: nowrap; }
 .manager-create-task .material-symbols-outlined { font-size: 18px; }
 
-.manager-summary-strip { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; min-height: 54px; margin-bottom: 24px; padding: 8px; overflow: visible; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
+.manager-summary-strip { display: grid; grid-template-columns: repeat(6, minmax(0, 176px)); justify-content: space-between; gap: 8px; min-height: 54px; margin-bottom: 24px; padding: 8px; overflow: visible; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
 .manager-summary-item { position: relative; display: flex; align-items: center; justify-content: center; gap: 14px; min-width: 0; min-height: 46px; padding: 10px 16px; border: 1px solid transparent; border-radius: 10px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .manager-summary-item span { color: var(--g-text-secondary); font-size: 13px; font-weight: 500; }
 .manager-summary-item strong { color: var(--g-text-primary); font-size: 17px; font-weight: 600; }
+#app.role-farm-admin .manager-summary-strip { grid-template-columns: repeat(6, minmax(0, 176px)); justify-content: space-between; gap: 10px; min-height: 64px; }
+#app.role-farm-admin .manager-summary-item { gap: 9px; min-height: 64px; padding: 9px 11px; }
+#app.role-farm-admin .manager-summary-icon { width: 32px; height: 32px; border-radius: 10px; }
+#app.role-farm-admin .manager-summary-item .manager-summary-copy > span { overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+#app.role-farm-admin .manager-summary-item .manager-summary-copy > strong { font-size: 20px; }
 
 .manager-plot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 24px; }
 .manager-plot-card { min-width: 0; padding: 16px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); cursor: pointer; transition: border-color 160ms ease, box-shadow 160ms ease, transform 160ms ease; }
@@ -763,6 +768,8 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
 @media (max-width: 1180px) {
   .manager-dashboard-header { align-items: flex-start; }
   .manager-dashboard-heading { display: grid; gap: 5px; }
+  #app.role-farm-admin .manager-summary-item { min-height: 60px; padding: 8px 9px; }
+  #app.role-farm-admin .manager-summary-icon { width: 30px; height: 30px; }
   .manager-plot-grid { grid-template-columns: 1fr; }
   .simple-device-head, .simple-device-row { grid-template-columns: minmax(130px, 1fr) minmax(140px, 1.2fr) 90px 100px 70px 80px; gap: 10px; }
 }
@@ -771,7 +778,8 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   .g-grid-2, .g-grid-3, .g-grid-4 { grid-template-columns: 1fr; }
   .manager-dashboard-header { display: grid; }
   .manager-dashboard-actions { width: 100%; }
-  .manager-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .manager-summary-strip,
+  #app.role-farm-admin .manager-summary-strip { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .simple-device-head, .simple-member-head { display: none; }
   .simple-device-row, .simple-member-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px 18px; padding: 15px 16px; }
   .simple-device-row .text-action { justify-self: start; }
@@ -817,8 +825,10 @@ h1, h2, h3 { font-weight: 400; color: var(--g-text-primary); }
   .manager-dashboard-heading { gap: 3px; }
   .manager-dashboard-heading p { font-size: 12px; }
   .manager-create-task { width: 100%; }
-  .manager-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .manager-summary-strip,
+  #app.role-farm-admin .manager-summary-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .manager-summary-item:last-child { grid-column: 1 / -1; }
+  #app.role-farm-admin .manager-summary-item { min-height: 58px; }
   .manager-plot-card { padding: 13px; }
   .manager-plot-card-header { display: grid; gap: 5px; }
   .manager-plot-card-tools { width: 100%; justify-content: space-between; }
