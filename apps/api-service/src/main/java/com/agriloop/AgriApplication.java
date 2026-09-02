@@ -78,6 +78,7 @@ import java.sql.ResultSet;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -3050,6 +3051,39 @@ class AgriEngine {
         return switch (metric) { case "SOIL_MOISTURE", "WATER_LEVEL" -> "%"; case "AIR_HUMIDITY" -> "%RH"; case "AIR_TEMPERATURE" -> "°C"; case "LIGHT" -> "lux"; case "CO2" -> "ppm"; case "PH" -> "pH"; case "RAINFALL" -> "mm/h"; default -> "unit"; };
     }
 
+    private static final ZoneId LIGHT_TIME_ZONE = ZoneId.of("Asia/Shanghai");
+
+    private Instant parseInstant(String value, Instant fallback) {
+        if (value == null || value.isBlank()) return fallback;
+        try { return Instant.parse(value); } catch (Exception ignored) { return fallback; }
+    }
+
+    private Map<String, Object> lightTarget(Map<String, Object> context, Instant timestamp) {
+        Map<String, Object> target = Jsons.map(mapper, context.get("target"));
+        Map<String, Object> schedule = Jsons.map(mapper, target.get("lightSchedule"));
+        LocalTime dayStart = parseLightTime(Jsons.text(schedule, "dayStart", "06:00"), LocalTime.of(6, 0));
+        LocalTime dayEnd = parseLightTime(Jsons.text(schedule, "dayEnd", "18:00"), LocalTime.of(18, 0));
+        LocalTime local = (timestamp == null ? Instant.now() : timestamp).atZone(LIGHT_TIME_ZONE).toLocalTime();
+        boolean daytime = !local.isBefore(dayStart) && local.isBefore(dayEnd);
+        double dayLow = Jsons.number(target, "lightLow", 15000);
+        double dayHigh = Jsons.number(target, "lightHigh", 30000);
+        double nightLow = Jsons.number(schedule, "nightLow", 0);
+        double nightHigh = Jsons.number(schedule, "nightHigh", 1000);
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("phase", daytime ? "DAY" : "NIGHT");
+        result.put("phaseLabel", daytime ? "白天生长" : "夜间休息");
+        result.put("isNight", !daytime);
+        result.put("low", daytime ? dayLow : nightLow);
+        result.put("high", daytime ? dayHigh : nightHigh);
+        result.put("dayStart", dayStart.toString());
+        result.put("dayEnd", dayEnd.toString());
+        return result;
+    }
+
+    private LocalTime parseLightTime(String value, LocalTime fallback) {
+        try { return LocalTime.parse(value); } catch (Exception ignored) { return fallback; }
+    }
+
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
         String metric = Jsons.text(event, "metric", ""); double value = Jsons.number(event, "value", 0); String plotId = Jsons.text(event, "plotId", "");
         Map<String, Object> result = new LinkedHashMap<>(); result.put("metric", metric); result.put("value", value); result.put("evaluatedAt", Instant.now().toString());
@@ -3066,6 +3100,16 @@ class AgriEngine {
         double heatThreshold = Jsons.number(heatRule, "threshold", 35);
         double lightLowThreshold = Jsons.number(lightLowRule, "threshold", 15000);
         double lightHighThreshold = Jsons.number(lightHighRule, "threshold", 30000);
+        Instant eventTs = parseInstant(Jsons.text(event, "ts", ""), Instant.now());
+        Map<String, Object> lightTarget = lightTarget(context, eventTs);
+        if ("LIGHT".equals(metric)) {
+            lightLowThreshold = Jsons.number(lightTarget, "low", lightLowThreshold);
+            lightHighThreshold = Jsons.number(lightTarget, "high", lightHighThreshold);
+            result.put("lightPhase", lightTarget.get("phase"));
+            result.put("lightPhaseLabel", lightTarget.get("phaseLabel"));
+            result.put("lightTargetLow", lightLowThreshold);
+            result.put("lightTargetHigh", lightHighThreshold);
+        }
         int durationMinutes = (int) Jsons.whole(waterRule, "durationMinutes", 5);
         result.put("stageCode", context.get("stageCode"));
         result.put("cropPackVersion", context.get("cropPackVersion"));
@@ -3101,7 +3145,7 @@ class AgriEngine {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
         }
-        if ("LIGHT".equals(metric) && value < lightLowThreshold) {
+        if ("LIGHT".equals(metric) && !Jsons.bool(lightTarget, "isNight", false) && value < lightLowThreshold) {
             Instant now = Instant.now();
             int lightDuration = (int) Jsons.whole(lightLowRule, "durationMinutes", 5);
             Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|LIGHT_DEFICIT", ignored -> new ConcurrentLinkedDeque<>());
@@ -3775,6 +3819,9 @@ class AgriEngine {
         double heatThreshold = cropPackCatalog.threshold(cropContext, "HEAT_STRESS", 35);
         double lightLowThreshold = cropPackCatalog.threshold(cropContext, "LIGHT_DEFICIT", 15000);
         double lightHighThreshold = cropPackCatalog.threshold(cropContext, "LIGHT_EXCESS", 30000);
+        Map<String, Object> lightTarget = lightTarget(cropContext, parseInstant(Jsons.text(Jsons.map(mapper, latest.get("LIGHT")), "ts", ""), Instant.now()));
+        lightLowThreshold = Jsons.number(lightTarget, "low", lightLowThreshold);
+        lightHighThreshold = Jsons.number(lightTarget, "high", lightHighThreshold);
         double waterScore = Double.isNaN(moisture) ? 0.15 : Math.max(0, Math.min(0.95, (waterThreshold - moisture) / Math.max(1.0, waterThreshold) + 0.35));
         double driftScore = explicitDrift ? 0.92 : 0.08;
         double deviceScore = "OFFLINE".equals(Jsons.text(device, "status", "ONLINE")) ? 0.9 : 0.05;
@@ -3782,7 +3829,7 @@ class AgriEngine {
         if (Jsons.number(Jsons.map(mapper, latest.get("AIR_TEMPERATURE")), "value", 0) > heatThreshold) candidates.add(candidate("HEAT_STRESS", 0.76));
         Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
         double lightValue = Jsons.number(light, "value", Double.NaN);
-        if (Double.isFinite(lightValue) && lightValue < lightLowThreshold) {
+        if (Double.isFinite(lightValue) && !Jsons.bool(lightTarget, "isNight", false) && lightValue < lightLowThreshold) {
             double confidence = Math.max(.45, Math.min(.92, (lightLowThreshold - lightValue) / Math.max(1, lightLowThreshold) + .45));
             candidates.add(candidate("LIGHT_DEFICIT", confidence));
         }
@@ -3856,7 +3903,8 @@ class AgriEngine {
         diagnosis.put("ruleVersion", cropContext.get("ruleVersion")); diagnosis.put("cropPackVersion", cropContext.get("cropPackVersion"));
         diagnosis.put("knowledgeVersion", cropContext.get("knowledgeVersion")); diagnosis.put("stageCode", cropContext.get("stageCode"));
         diagnosis.put("stageLabel", cropContext.get("stageLabel")); diagnosis.put("thresholds", Map.of("WATER_DEFICIT", waterThreshold, "HEAT_STRESS", heatThreshold,
-                "LIGHT_DEFICIT", lightLowThreshold, "LIGHT_EXCESS", lightHighThreshold));
+                "LIGHT_DEFICIT", lightLowThreshold, "LIGHT_EXCESS", lightHighThreshold, "LIGHT_PHASE", lightTarget.get("phase"),
+                "LIGHT_PHASE_LABEL", lightTarget.get("phaseLabel"), "LIGHT_TARGET_LOW", lightLowThreshold, "LIGHT_TARGET_HIGH", lightHighThreshold));
         diagnosis.put("evaluatedAt", Instant.now().toString());
         store.save("diagnosis", Jsons.text(diagnosis, "diagnosisId", ""), diagnosis); events.publish("diagnosis.created", diagnosis); store.logEvent("diagnosis.created", diagnosis);
         return diagnosis;
@@ -4604,8 +4652,12 @@ class AgriEngine {
         if (!Double.isFinite(current)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "LIGHT_UNAVAILABLE", "当前没有可用的光照模拟值，暂不能补光");
         Map<String, Object> context = plotCropContext(plotId);
         Map<String, Object> target = Jsons.map(mapper, context.get("target"));
-        double low = Jsons.number(target, "lightLow", 15000);
-        double high = Jsons.number(target, "lightHigh", 30000);
+        Map<String, Object> lightTarget = lightTarget(context, parseInstant(Jsons.text(light, "ts", ""), Instant.now()));
+        if (Jsons.bool(lightTarget, "isNight", false)) {
+            throw new ApiException(HttpStatus.CONFLICT, "LIGHT_NOT_REQUIRED_AT_NIGHT", "当前处于夜间休息时段，无需补光");
+        }
+        double low = Jsons.number(lightTarget, "low", Jsons.number(target, "lightLow", 15000));
+        double high = Jsons.number(lightTarget, "high", Jsons.number(target, "lightHigh", 30000));
         if (current >= high && !Jsons.bool(input, "force", false)) {
             throw new ApiException(HttpStatus.CONFLICT, "LIGHT_ALREADY_HIGH", "当前光照已高于阶段目标，不应继续补光");
         }
@@ -4626,6 +4678,7 @@ class AgriEngine {
         command.put("deviceId", Jsons.text(device, "deviceId", "mock-" + plotId)); command.put("type", "LIGHT_BOOST");
         command.put("durationSeconds", duration); command.put("lightLux", requestedBoost); command.put("expectedLightBefore", current); command.put("expectedLightAfter", expectedAfter);
         command.put("targetLightLow", low); command.put("targetLightHigh", high); command.put("deviceStatusAtRequest", deviceStatus);
+        command.put("lightPhase", lightTarget.get("phase")); command.put("lightPhaseLabel", lightTarget.get("phaseLabel"));
         command.put("offlineDemoOverride", offlineDemo); command.put("virtualOnly", true); command.put("executionMode", "SIMULATED"); command.put("provenance", "SIMULATED");
         command.put("sourceMode", "SIMULATION"); command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
         command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false); command.put("confirmationMode", "OPERATOR_CONFIRMED");

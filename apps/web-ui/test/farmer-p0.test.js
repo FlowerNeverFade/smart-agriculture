@@ -238,6 +238,9 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(farmerSurface, /虚拟补光（离线演示）|light_operation_label/);
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /resolve_light_band_status/);
+  assert.match(farmerSurface, /夜间目标|夜间休息/);
+  assert.match(source, /light_target_context/);
+  assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
 });
 
 test('demo operation system can execute offline virtual lighting and write a light effect', async () => {

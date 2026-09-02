@@ -261,7 +261,9 @@ function crop_manual_metrics(pack, stage) {
     items.push({
       code: item.code,
       label: profile.label || labels[item.code] || item.code,
-      range: `${item.low ?? '—'}~${item.high ?? '—'}`,
+      range: item.code === 'LIGHT' && target.lightSchedule
+        ? `${item.low ?? '—'}~${item.high ?? '—'}（白天）/ ${target.lightSchedule.nightLow ?? 0}~${target.lightSchedule.nightHigh ?? 1000}（夜间）`
+        : `${item.low ?? '—'}~${item.high ?? '—'}`,
       unit: profile.unit || item.unit,
       availability: profile.availability || (item.code === 'WATER_LEVEL' ? 'SUPPORTED' : 'SIMULATION_ONLY'),
       note: item.note
@@ -293,7 +295,12 @@ function crop_manual_guide(pack, stage) {
     lines.push(`适宜空气湿度 ${target.airHumidityLow ?? '—'}%~${target.airHumidityHigh ?? '—'}%RH。`);
   }
   if (target.lightLow != null || target.lightHigh != null) {
-    lines.push(`本阶段光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux，CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
+    const schedule = target.lightSchedule || {};
+    const dayStart = schedule.dayStart || '06:00';
+    const dayEnd = schedule.dayEnd || '18:00';
+    const nightLow = schedule.nightLow ?? 0;
+    const nightHigh = schedule.nightHigh ?? 1000;
+    lines.push(`白天（${dayStart}—${dayEnd}）光照参考 ${target.lightLow ?? '—'}~${target.lightHigh ?? '—'} lux；夜间目标 ${nightLow}~${nightHigh} lux，处于休息时段时不触发缺光预警、不执行补光。CO₂ 参考 ${target.co2Low ?? '—'}~${target.co2High ?? '—'} ppm，土壤酸碱度参考 pH ${target.phLow ?? '—'}~${target.phHigh ?? '—'}；光照/CO₂/pH 当前为演示参考，不作为可执行处方输入。`);
   }
   if (stage?.riskFocus?.length) {
     lines.push(`本阶段重点防范：${stage.riskFocus.map((code) => CROP_MANUAL_RISK_LABELS[code] || code).join('、')}。`);
@@ -807,6 +814,33 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   ];
   const targetBand = stage_target_band(plot, code, stage_override);
   const span = Math.max(1, spec.max - spec.min);
+  const primarySamples = series[0]?.samples || [];
+  const targetSegments = code === 'LIGHT' && targetBand && primarySamples.length
+    ? (() => {
+      const segments = [];
+      let start = 0;
+      let previousPhase = light_target_context(plot, stage_override, primarySamples[0]?.ts).phase;
+      for (let index = 1; index <= primarySamples.length; index += 1) {
+        const phaseName = index < primarySamples.length
+          ? light_target_context(plot, stage_override, primarySamples[index]?.ts).phase
+          : previousPhase;
+        if (phaseName !== previousPhase || index === primarySamples.length) {
+          const left = primarySamples[start]?.ratio ?? 0;
+          const right = primarySamples[Math.max(start, index - 1)]?.ratio ?? 1;
+          const context = light_target_context(plot, stage_override, primarySamples[start]?.ts);
+          segments.push({
+            x1: chart_x_at_ratio(left), x2: chart_x_at_ratio(right),
+            yLow: 10 + (1 - ((context.low - spec.min) / span)) * 104,
+            yHigh: 10 + (1 - ((context.high - spec.min) / span)) * 104,
+            phase: context.phase, phaseLabel: context.phaseLabel,
+            low: context.low, high: context.high
+          });
+          start = index;
+          previousPhase = phaseName;
+        }
+      }
+      return segments;
+    })() : [];
   const quality = metric.quality || {};
   const isDemoMetric = plot?.dataOrigin !== 'BACKEND';
   const expectedSamples = Number(quality.expectedSamples ?? 90);
@@ -820,7 +854,6 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
   ));
   const confidence = Number(quality.confidence ?? (isDemoMetric ? (metric.status === 'ALERT' ? 0.91 : 0.97) : NaN));
   const axisLabels = range.labels || simulation_axis_labels(range.simHours);
-  const primarySamples = series[0]?.samples || [];
   const sampleLabels = primarySamples.map((sample) => format_sim_clock_label(sample.ratio * (range.simHours || 24), range.simHours));
 
   return {
@@ -832,6 +865,7 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
       yLow: 10 + (1 - ((targetBand[0] - spec.min) / span)) * 104,
       yHigh: 10 + (1 - ((targetBand[1] - spec.min) / span)) * 104
     } : null,
+    targetSegments,
     stageLabel: stage_override?.label || plot?.stageLabel || crop_stage_for(plot)?.label || '当前阶段',
     quality: {
       status: String(quality.status || metric.status || 'UNKNOWN').toUpperCase(),
@@ -956,10 +990,14 @@ function resolve_moisture_band_status(plot) {
 function resolve_light_band_status(plot) {
   const value = Number(plot?.metrics?.LIGHT?.value);
   if (!Number.isFinite(value)) return 'NORMAL';
-  const range = stage_target_band(plot, 'LIGHT');
-  if (!range) return 'NORMAL';
-  const [low, high] = range;
+  const context = light_target_context(plot);
+  const [low, high] = [context.low, context.high];
   const margin = Math.max(500, (high - low) * 0.08);
+  if (context.isNight) {
+    if (value > high + margin) return 'ALERT_HIGH';
+    if (value > high) return 'WARN_HIGH';
+    return 'NORMAL';
+  }
   if (value < low - margin) return 'ALERT_LOW';
   if (value < low) return 'WARN_LOW';
   if (value > high + margin) return 'ALERT_HIGH';
@@ -1027,6 +1065,37 @@ function parse_target_range(target) {
   return values.length >= 2 ? [values[0], values[1]] : null;
 }
 
+function parse_light_clock(value, fallback) {
+  const match = String(value || '').match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallback;
+  return Math.max(0, Math.min(23, Number(match[1]))) * 60 + Math.max(0, Math.min(59, Number(match[2])));
+}
+
+function light_target_context(plot, stage_override = null, at_ms = null) {
+  const target = (stage_override || crop_stage_for(plot))?.target || {};
+  const schedule = target.lightSchedule || {};
+  const start = parse_light_clock(schedule.dayStart, 6 * 60);
+  const end = parse_light_clock(schedule.dayEnd, 18 * 60);
+  const timestamp = Number.isFinite(Number(at_ms)) ? Number(at_ms) : (Date.parse(plot?.metrics?.LIGHT?.ts || '') || Date.now());
+  const date = new Date(timestamp);
+  const minute = date.getHours() * 60 + date.getMinutes();
+  const daytime = start < end ? minute >= start && minute < end : minute >= start || minute < end;
+  const dayLow = Number(target.lightLow);
+  const dayHigh = Number(target.lightHigh);
+  const nightLow = Number.isFinite(Number(schedule.nightLow)) ? Number(schedule.nightLow) : 0;
+  const nightHigh = Number.isFinite(Number(schedule.nightHigh)) ? Number(schedule.nightHigh) : 1000;
+  return {
+    low: daytime && Number.isFinite(dayLow) ? dayLow : nightLow,
+    high: daytime && Number.isFinite(dayHigh) ? dayHigh : nightHigh,
+    dayLow: Number.isFinite(dayLow) ? dayLow : null,
+    dayHigh: Number.isFinite(dayHigh) ? dayHigh : null,
+    nightLow, nightHigh, isNight: !daytime, phase: daytime ? 'DAY' : 'NIGHT',
+    phaseLabel: daytime ? '白天生长' : '夜间休息',
+    dayStart: `${String(Math.floor(start / 60)).padStart(2, '0')}:${String(start % 60).padStart(2, '0')}`,
+    dayEnd: `${String(Math.floor(end / 60)).padStart(2, '0')}:${String(end % 60).padStart(2, '0')}`
+  };
+}
+
 function stage_target_band(plot, code, stage_override = null) {
   const target = (stage_override || crop_stage_for(plot))?.target || {};
   if (code === 'SOIL_MOISTURE' && Number.isFinite(Number(target.soilMoistureLow)) && Number.isFinite(Number(target.soilMoistureHigh))) {
@@ -1038,8 +1107,9 @@ function stage_target_band(plot, code, stage_override = null) {
   if (code === 'AIR_HUMIDITY' && Number.isFinite(Number(target.airHumidityLow)) && Number.isFinite(Number(target.airHumidityHigh))) {
     return [Number(target.airHumidityLow), Number(target.airHumidityHigh)];
   }
-  if (code === 'LIGHT' && Number.isFinite(Number(target.lightLow)) && Number.isFinite(Number(target.lightHigh))) {
-    return [Number(target.lightLow), Number(target.lightHigh)];
+  if (code === 'LIGHT' && (Number.isFinite(Number(target.lightLow)) || target.lightSchedule)) {
+    const context = light_target_context(plot, stage_override);
+    return [context.low, context.high];
   }
   if (code === 'CO2' && Number.isFinite(Number(target.co2Low)) && Number.isFinite(Number(target.co2High))) {
     return [Number(target.co2Low), Number(target.co2High)];
@@ -1964,9 +2034,7 @@ const app = createApp({
         cropLabel: band?.cropLabel || plot.cropName,
         stageLabel: band?.stageLabel || chart.stageLabel,
         currentLight: plot.metrics?.LIGHT?.value,
-        currentTarget: Number.isFinite(Number(band?.lightLow)) && Number.isFinite(Number(band?.lightHigh))
-          ? `${Math.round(band.lightLow).toLocaleString()}~${Math.round(band.lightHigh).toLocaleString()} lux`
-          : (plot.metrics?.LIGHT?.target || '—')
+        currentTarget: `${chart.targetBand ? `${Math.round(chart.targetBand.low).toLocaleString()}~${Math.round(chart.targetBand.high).toLocaleString()} lux` : (plot.metrics?.LIGHT?.target || '—')}（${light_target_context(plot).phaseLabel}）`
       };
     });
 
@@ -2043,6 +2111,7 @@ const app = createApp({
       let alertThreshold = null;
       let lightLow = null;
       let lightHigh = null;
+      let lightSchedule = null;
       if (pack) {
         const stage = pack.stages?.find((s) => s.code === plot.stageCode) || pack.stages?.[pack.stages.length - 1];
         low = Number(stage?.target?.soilMoistureLow ?? 0);
@@ -2052,6 +2121,7 @@ const app = createApp({
         alertThreshold = resolve_water_deficit_threshold(pack, stage);
         lightLow = Number(stage?.target?.lightLow);
         lightHigh = Number(stage?.target?.lightHigh);
+        lightSchedule = stage?.target?.lightSchedule || null;
       } else {
         const targetText = plot.metrics?.SOIL_MOISTURE?.target || '';
         const nums = String(targetText).match(/(\d+(?:\.\d+)?)/g);
@@ -2071,25 +2141,34 @@ const app = createApp({
         targetText: `${low}~${high}%`,
         alertThreshold,
         lightLow: Number.isFinite(lightLow) ? lightLow : null,
-        lightHigh: Number.isFinite(lightHigh) ? lightHigh : null
+        lightHigh: Number.isFinite(lightHigh) ? lightHigh : null,
+        lightSchedule
       };
     });
     const advice_light_status = computed(() => {
       const plot = advice_plot.value;
       const status = resolve_light_band_status(plot);
       const metric = plot?.metrics?.LIGHT;
-      const range = stage_target_band(plot, 'LIGHT');
+      const context = light_target_context(plot);
       return {
         status,
-        label: LIGHT_STATUS_LABELS[status] || '光照正常',
+        label: context.isNight && status === 'NORMAL' ? '夜间休息（无需补光）' : (LIGHT_STATUS_LABELS[status] || '光照正常'),
         value: Number.isFinite(Number(metric?.value)) ? Number(metric.value) : null,
-        low: range?.[0] ?? null,
-        high: range?.[1] ?? null,
+        low: context.low,
+        high: context.high,
+        dayLow: context.dayLow,
+        dayHigh: context.dayHigh,
+        nightLow: context.nightLow,
+        nightHigh: context.nightHigh,
+        phase: context.phase,
+        phaseLabel: context.phaseLabel,
+        scheduleLabel: `${context.dayStart}—${context.dayEnd}`,
+        isNight: context.isNight,
         deviceOffline: String(plot?.deviceStatus || '').toUpperCase() === 'OFFLINE',
         needsAttention: status !== 'NORMAL'
       };
     });
-    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && Boolean(advice_plot.value?.plotId));
+    const light_operation_available = computed(() => advice_light_status.value.status === 'ALERT_LOW' && !advice_light_status.value.isNight && Boolean(advice_plot.value?.plotId));
     const light_operation_label = computed(() => advice_light_status.value.deviceOffline ? '虚拟补光（离线演示）' : '执行补光');
     const show_virtual_lighting = ref(false);
     const virtual_lighting_stage = ref('FORM');
@@ -4338,6 +4417,10 @@ const app = createApp({
     };
 
     const open_virtual_lighting = () => {
+      if (advice_light_status.value.isNight) {
+        show_toast('当前处于夜间休息时段，无需补光', 'warning');
+        return;
+      }
       if (!light_operation_available.value) {
         show_toast('只有光照不足时才可执行补光，请先确认当前光照状态', 'error');
         return;
@@ -4362,6 +4445,10 @@ const app = createApp({
       const plotId = advice_plot.value?.plotId;
       const preview = virtual_lighting_preview.value;
       virtual_lighting_error.value = '';
+      if (preview.isNight) {
+        virtual_lighting_error.value = '当前处于夜间休息时段，无需补光';
+        return;
+      }
       if (!light_operation_available.value || !plotId) {
         virtual_lighting_error.value = '当前地块不满足离线演示补光条件，请刷新后重试';
         return;

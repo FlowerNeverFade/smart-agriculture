@@ -525,9 +525,15 @@
                          @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                      <rect v-if="chart.targetBand" class="farmer-target-band-area" x="28" :y="Math.min(chart.targetBand.yLow, chart.targetBand.yHigh)" width="324" :height="Math.abs(chart.targetBand.yLow - chart.targetBand.yHigh)"></rect>
-                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yLow" x2="352" :y2="chart.targetBand.yLow"></line>
-                      <line v-if="chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yHigh" x2="352" :y2="chart.targetBand.yHigh"></line>
+                      <g v-if="chart.targetSegments && chart.targetSegments.length">
+                        <g v-for="(segment, index) in chart.targetSegments" :key="'plot-light-target-' + index">
+                          <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yLow" :x2="segment.x2" :y2="segment.yLow"></line>
+                          <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yHigh" :x2="segment.x2" :y2="segment.yHigh"></line>
+                        </g>
+                      </g>
+                      <rect v-else-if="chart.targetBand" class="farmer-target-band-area" x="28" :y="Math.min(chart.targetBand.yLow, chart.targetBand.yHigh)" width="324" :height="Math.abs(chart.targetBand.yLow - chart.targetBand.yHigh)"></rect>
+                      <line v-if="!chart.targetSegments?.length && chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yLow" x2="352" :y2="chart.targetBand.yLow"></line>
+                      <line v-if="!chart.targetSegments?.length && chart.targetBand" class="farmer-target-band-line" x1="28" :y1="chart.targetBand.yHigh" x2="352" :y2="chart.targetBand.yHigh"></line>
                       <polyline v-for="series in chart.series" :key="series.label" class="farmer-chart-line" :class="{'is-risk-line': chart.is_risk}" :points="series.points" :stroke="series.color"></polyline>
                     </svg>
                     <div v-if="chart_tooltip && chart_tooltip.key === chart.code" class="farmer-chart-tooltip"
@@ -964,7 +970,13 @@
                       <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
                         <line v-for="line in advice_light_chart.grid" :key="'lg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
                         <text v-for="line in advice_light_chart.grid" :key="'lt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
-                        <g v-if="advice_light_chart.targetBand">
+                        <g v-if="advice_light_chart.targetSegments && advice_light_chart.targetSegments.length">
+                          <g v-for="(segment, index) in advice_light_chart.targetSegments" :key="'light-target-' + index">
+                            <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yLow" :x2="segment.x2" :y2="segment.yLow"></line>
+                            <line class="farmer-target-band-line" :x1="segment.x1" :y1="segment.yHigh" :x2="segment.x2" :y2="segment.yHigh"></line>
+                          </g>
+                        </g>
+                        <g v-else-if="advice_light_chart.targetBand">
                           <line class="farmer-target-band-line" x1="32" :y1="advice_light_chart.targetBand.yLow" x2="350" :y2="advice_light_chart.targetBand.yLow"></line>
                           <line class="farmer-target-band-line" x1="32" :y1="advice_light_chart.targetBand.yHigh" x2="350" :y2="advice_light_chart.targetBand.yHigh"></line>
                         </g>
@@ -973,7 +985,7 @@
                       <div v-if="chart_tooltip && chart_tooltip.key === 'advice-light'" class="farmer-chart-tooltip" :style="{left: chart_tooltip.left + '%', top: chart_tooltip.top + '%'}"><strong>{{ chart_tooltip.label }}</strong><span v-for="item in chart_tooltip.values" :key="item.label"><i :style="{background: item.color}"></i>{{ item.label }}：{{ item.value }} lux</span></div>
                     </div>
                     <div class="farmer-chart-x-labels"><span>{{ advice_light_chart.labels[0] }}</span><span>{{ advice_light_chart.labels[3] }}</span><span>{{ advice_light_chart.labels[6] }}</span></div>
-                    <div class="farmer-threshold-legend"><span v-if="advice_light_chart.targetBand"><i class="legend-target"></i>{{ advice_light_chart.stageLabel }}目标值带 {{ advice_light_chart.targetBand.low.toLocaleString() }}~{{ advice_light_chart.targetBand.high.toLocaleString() }} lux</span></div>
+                    <div class="farmer-threshold-legend"><span v-if="advice_light_chart.targetBand"><i class="legend-target"></i>{{ advice_light_chart.stageLabel }}{{ advice_light_status.isNight ? '夜间目标' : '白天目标' }} {{ advice_light_chart.targetBand.low.toLocaleString() }}~{{ advice_light_chart.targetBand.high.toLocaleString() }} lux · {{ advice_light_status.phaseLabel }}</span></div>
                     <p class="farmer-chart-target">当前 {{ advice_light_chart.current_label }} · 时间范围：{{ advice_light_chart.range_title }} <span class="farmer-band-status-hint" :class="'status-' + (advice_light_status.status.includes('HIGH') ? 'ALERT' : advice_light_status.status.includes('LOW') ? 'ALERT' : 'NORMAL')">{{ advice_light_status.label }}</span></p>
                   </div>
                   <p v-else class="farmer-chart-unavailable">当前 Crop Pack 或遥测未提供光照指标，系统不会补造曲线。</p>
@@ -984,11 +996,11 @@
                     <div><span class="farmer-section-kicker">操作系统 · 光照系统</span><h3>{{ advice_plot?.name || '当前地块' }}补光控制</h3></div>
                     <span class="g-badge" :class="advice_light_status.needsAttention ? 'warning' : 'success'">{{ advice_light_status.label }}</span>
                   </div>
-                  <div class="farmer-light-control-metrics"><div><small>当前光照</small><strong>{{ advice_light_status.value === null ? '—' : advice_light_status.value.toLocaleString() }} lux</strong></div><div><small>阶段目标</small><strong>{{ advice_light_status.low === null ? '—' : advice_light_status.low.toLocaleString() }}~{{ advice_light_status.high === null ? '—' : advice_light_status.high.toLocaleString() }} lux</strong></div><div><small>设备状态</small><strong>{{ advice_light_status.deviceOffline ? '离线' : '在线' }}</strong></div></div>
+                  <div class="farmer-light-control-metrics"><div><small>当前光照</small><strong>{{ advice_light_status.value === null ? '—' : advice_light_status.value.toLocaleString() }} lux</strong></div><div><small>{{ advice_light_status.phaseLabel }}目标</small><strong>{{ advice_light_status.low === null ? '—' : advice_light_status.low.toLocaleString() }}~{{ advice_light_status.high === null ? '—' : advice_light_status.high.toLocaleString() }} lux</strong><em>白天 {{ advice_light_status.scheduleLabel }}</em></div><div><small>设备状态</small><strong>{{ advice_light_status.deviceOffline ? '离线' : '在线' }}</strong></div></div>
                   <div v-if="advice_light_status.status === 'ALERT_HIGH' || advice_light_status.status === 'WARN_HIGH'" class="farmer-light-system-notice is-high"><app-icon name="wb_sunny"></app-icon><span>光照过强，请检查遮阳和通风；系统不会在高光状态下继续补光。</span></div>
                   <div v-else-if="advice_light_status.status === 'WARN_LOW'" class="farmer-light-system-notice"><app-icon name="light_mode"></app-icon><span>光照略低于目标，建议先核对遮挡；达到告警阈值后才开放补光操作。</span></div>
                   <div v-else-if="advice_light_status.status === 'ALERT_LOW'" class="farmer-light-system-notice is-low"><app-icon name="light_mode"></app-icon><span>{{ advice_light_status.deviceOffline ? '设备离线，仅可在本地演示模式下虚拟补光。' : '光照低于告警阈值，可由当前操作人确认执行虚拟补光。' }}</span></div>
-                  <div v-else class="farmer-light-system-notice is-normal"><app-icon name="check_circle"></app-icon><span>当前光照处于阶段目标范围内，无需补光。</span></div>
+                  <div v-else class="farmer-light-system-notice is-normal"><app-icon name="check_circle"></app-icon><span>{{ advice_light_status.isNight ? '当前为夜间休息时段，作物不需要补光，系统已关闭缺光预警。' : '当前光照处于阶段目标范围内，无需补光。' }}</span></div>
                   <div class="farmer-light-control-actions"><button v-if="light_operation_available" type="button" class="g-btn primary farmer-btn-analyze" @click="open_virtual_lighting" :disabled="virtual_lighting_busy"><app-icon name="light_mode"></app-icon>{{ light_operation_label }}</button><button type="button" class="g-btn secondary farmer-btn-light" @click="open_plot(advice_plot)"><app-icon name="grass"></app-icon>查看地块详情</button></div>
                   <small class="farmer-case-note">补光动作仅走虚拟执行器；命令、ACK、效果评价和光照模拟遥测均保留来源标识。</small>
                 </article>
@@ -1939,6 +1951,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-merge-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260902-dynamic-light-v1"></script>
 </body>
 </html>

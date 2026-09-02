@@ -827,7 +827,7 @@ class AgriApplicationTest {
 
     @Test
     void lightTelemetryCreatesLowAndHighAlerts() {
-        Instant now = Instant.now();
+        Instant now = Instant.parse("2026-09-02T04:00:00Z"); // 12:00 Asia/Shanghai, daytime
         Map<String, Object> low = engine.ingest(Map.ofEntries(
                 Map.entry("eventId", "light-low-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
                 Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 1000.0), Map.entry("unit", "lux"),
@@ -843,6 +843,23 @@ class AgriApplicationTest {
                 Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
         Map<String, Object> highRule = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), high.get("ruleResult")));
         assertThat(highRule).containsEntry("risk", "LIGHT_EXCESS");
+    }
+
+    @Test
+    void nightLightingUsesRestBandAndDoesNotOpenFillLight() {
+        Instant night = Instant.parse("2026-09-01T18:00:00Z"); // 02:00 Asia/Shanghai
+        Map<String, Object> reading = engine.ingest(Map.ofEntries(
+                Map.entry("eventId", "light-night-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
+                Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 45.0), Map.entry("unit", "lux"),
+                Map.entry("ts", night.toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
+        Map<String, Object> result = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), reading.get("ruleResult")));
+        assertThat(result).doesNotContainKey("risk").containsEntry("lightPhase", "NIGHT").containsEntry("lightTargetLow", 0.0).containsEntry("lightTargetHigh", 1000.0);
+        UserPrincipal farmer = new UserPrincipal("user-farmer-night", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.virtualLighting(Map.of(
+                "plotId", "plot-a01", "idempotencyKey", "night-lighting-" + System.nanoTime(), "confirmed", true,
+                "allowOfflineDemo", true, "boostLux", 6000, "durationSeconds", 1), farmer))
+                .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("LIGHT_NOT_REQUIRED_AT_NIGHT"));
     }
 
     @Test
