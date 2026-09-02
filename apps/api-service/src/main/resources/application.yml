@@ -40,7 +40,9 @@ spring:
 
 agriloop:
   mode: ${APP_MODE:standalone}
-  ai-mode: ${AI_MODE:rules-only}
+  # Model-first by default; the service still degrades explicitly to rules
+  # when the configured OpenAI-compatible endpoint is unavailable.
+  ai-mode: ${AI_MODE:openai-compatible}
   llm-base-url: ${LLM_BASE_URL:http://127.0.0.1:8000/v1}
   llm-model: ${LLM_MODEL:Qwen3.8-27B}
   llm-vision-model: ${LLM_VISION_MODEL:Qwen3.8-27B}

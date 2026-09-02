@@ -108,7 +108,8 @@ public class AgriApplication {
 @ConfigurationProperties(prefix = "agriloop")
 class AgriProperties {
     private String mode = "standalone";
-    private String aiMode = "rules-only";
+    /** Prefer the configured OpenAI-compatible model; rules remain an explicit fallback. */
+    private String aiMode = "openai-compatible";
     /** OpenAI-compatible endpoint used by the optional Qwen/vLLM adapter. */
     private String llmBaseUrl = "http://127.0.0.1:8000/v1";
     private String llmModel = "Qwen3.8-27B";
@@ -2629,7 +2630,7 @@ class AgriEngine {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("farmId", farmId); result.put("plots", cards); result.put("activeAlertCount", activeAlerts);
         result.put("pendingWorkOrderCount", pendingTasks); result.put("eventCount", store.eventCount());
-        result.put("dataMode", properties.getMode()); result.put("aiMode", properties.getAiMode());
+        result.put("dataMode", properties.getMode()); result.put("aiMode", configuredAiMode());
         result.put("generatedAt", Instant.now().toString());
         return result;
     }
@@ -2878,7 +2879,7 @@ class AgriEngine {
         status.put("persistence", store.persistenceKind());
         // ai 字段为真实连通性探测结果（UP/DEGRADED/DOWN/规则模式），aiMode 保留配置模式
         status.put("ai", checkLlmHealth());
-        status.put("aiMode", properties.getAiMode());
+        status.put("aiMode", configuredAiMode());
         status.put("llmModel", properties.getLlmModel());
         // 运行时长（秒）与接口版本
         status.put("uptimeSeconds", Math.max(0, java.time.Duration.between(startedAt, java.time.Instant.now()).getSeconds()));
@@ -2895,6 +2896,13 @@ class AgriEngine {
     private volatile long llmHealthCheckedAt = 0L;
     private final Object llmHealthLock = new Object();
 
+    /** Resolve an omitted or blank mode to the model-first production default. */
+    private String configuredAiMode() {
+        String configured = properties.getAiMode();
+        if (configured == null || configured.isBlank()) return "openai-compatible";
+        return configured.trim().toLowerCase(Locale.ROOT);
+    }
+
     /**
      * 探测配置的外部 AI 服务是否真实在线。
      * - openai / openai-compatible：GET {baseUrl}/models，3 秒超时，2xx=UP，否则 DOWN
@@ -2902,7 +2910,7 @@ class AgriEngine {
      * - rules-only 等规则模式：不依赖外部 AI，返回配置模式（由前端展示为规则模式）
      */
     String checkLlmHealth() {
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        String aiMode = configuredAiMode();
         boolean needsExternal = isOpenAiCompatibleMode(aiMode);
         if (!needsExternal) {
             // 规则/演示/未接通适配：不探测，返回保守语义
@@ -3055,15 +3063,19 @@ class AgriEngine {
     private Map<String, Object> evaluateRuleForEvent(Map<String, Object> event) {
         String metric = Jsons.text(event, "metric", ""); double value = Jsons.number(event, "value", 0); String plotId = Jsons.text(event, "plotId", "");
         Map<String, Object> result = new LinkedHashMap<>(); result.put("metric", metric); result.put("value", value); result.put("evaluatedAt", Instant.now().toString());
-        // Only these two metrics participate in the current rules. Resolving
-        // crop packs and batch context for light/CO2/NPK/etc. performed a
-        // database query for every sample while producing no rule output.
-        if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE").contains(metric)) return result;
+        // Crop Pack rules cover soil moisture, temperature and the simulated
+        // light channel. Other metrics remain telemetry-only until a pack
+        // explicitly adds a deterministic rule for them.
+        if (!Set.of("SOIL_MOISTURE", "AIR_TEMPERATURE", "LIGHT").contains(metric)) return result;
         Map<String, Object> context = plotCropContext(plotId);
         Map<String, Object> waterRule = cropPackCatalog.rule(context, "WATER_DEFICIT");
         Map<String, Object> heatRule = cropPackCatalog.rule(context, "HEAT_STRESS");
+        Map<String, Object> lightLowRule = cropPackCatalog.rule(context, "LIGHT_DEFICIT");
+        Map<String, Object> lightHighRule = cropPackCatalog.rule(context, "LIGHT_EXCESS");
         double waterThreshold = Jsons.number(waterRule, "threshold", 20);
         double heatThreshold = Jsons.number(heatRule, "threshold", 35);
+        double lightLowThreshold = Jsons.number(lightLowRule, "threshold", 15000);
+        double lightHighThreshold = Jsons.number(lightHighRule, "threshold", 30000);
         int durationMinutes = (int) Jsons.whole(waterRule, "durationMinutes", 5);
         result.put("stageCode", context.get("stageCode"));
         result.put("cropPackVersion", context.get("cropPackVersion"));
@@ -3096,6 +3108,34 @@ class AgriEngine {
             result.put("risk", "HEAT_STRESS");
             result.put("alert", alert);
             if (!Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
+                result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
+            }
+        }
+        if ("LIGHT".equals(metric) && value < lightLowThreshold) {
+            Instant now = Instant.now();
+            int lightDuration = (int) Jsons.whole(lightLowRule, "durationMinutes", 5);
+            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|LIGHT_DEFICIT", ignored -> new ConcurrentLinkedDeque<>());
+            window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > lightDuration) window.removeFirst();
+            String message = "当前阶段「" + context.get("stageLabel") + "」光照强度仅 " + round(value)
+                    + " lux，低于参考下限 " + round(lightLowThreshold) + " lux。请检查遮挡或启用补光。";
+            Map<String, Object> alert = upsertRuleAlert(plotId, "LIGHT_DEFICIT_RULE", "MEDIUM", "光照不足", message, event, lightLowRule,
+                    lightLowThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+            result.put("risk", "LIGHT_DEFICIT"); result.put("alert", alert);
+            if (store.find("plot", plotId) != null && !Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
+                result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
+            }
+        }
+        if ("LIGHT".equals(metric) && value > lightHighThreshold) {
+            Instant now = Instant.now();
+            int lightDuration = (int) Jsons.whole(lightHighRule, "durationMinutes", 5);
+            Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|LIGHT_EXCESS", ignored -> new ConcurrentLinkedDeque<>());
+            window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > lightDuration) window.removeFirst();
+            String message = "当前阶段「" + context.get("stageLabel") + "」光照强度已达 " + round(value)
+                    + " lux，高于参考上限 " + round(lightHighThreshold) + " lux。请检查遮阳或通风。";
+            Map<String, Object> alert = upsertRuleAlert(plotId, "LIGHT_EXCESS_RULE", "MEDIUM", "光照过强", message, event, lightHighRule,
+                    lightHighThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
+            result.put("risk", "LIGHT_EXCESS"); result.put("alert", alert);
+            if (store.find("plot", plotId) != null && !Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
         }
@@ -3743,11 +3783,23 @@ class AgriEngine {
         Map<String, Object> cropContext = plotCropContext(plotId);
         double waterThreshold = cropPackCatalog.threshold(cropContext, "WATER_DEFICIT", 20);
         double heatThreshold = cropPackCatalog.threshold(cropContext, "HEAT_STRESS", 35);
+        double lightLowThreshold = cropPackCatalog.threshold(cropContext, "LIGHT_DEFICIT", 15000);
+        double lightHighThreshold = cropPackCatalog.threshold(cropContext, "LIGHT_EXCESS", 30000);
         double waterScore = Double.isNaN(moisture) ? 0.15 : Math.max(0, Math.min(0.95, (waterThreshold - moisture) / Math.max(1.0, waterThreshold) + 0.35));
         double driftScore = explicitDrift ? 0.92 : 0.08;
         double deviceScore = "OFFLINE".equals(Jsons.text(device, "status", "ONLINE")) ? 0.9 : 0.05;
         candidates.add(candidate("WATER_DEFICIT", waterScore)); candidates.add(candidate("SENSOR_DRIFT", driftScore)); candidates.add(candidate("DEVICE_FAULT", deviceScore));
         if (Jsons.number(Jsons.map(mapper, latest.get("AIR_TEMPERATURE")), "value", 0) > heatThreshold) candidates.add(candidate("HEAT_STRESS", 0.76));
+        Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        double lightValue = Jsons.number(light, "value", Double.NaN);
+        if (Double.isFinite(lightValue) && lightValue < lightLowThreshold) {
+            double confidence = Math.max(.45, Math.min(.92, (lightLowThreshold - lightValue) / Math.max(1, lightLowThreshold) + .45));
+            candidates.add(candidate("LIGHT_DEFICIT", confidence));
+        }
+        if (Double.isFinite(lightValue) && lightValue > lightHighThreshold) {
+            double confidence = Math.max(.45, Math.min(.92, (lightValue - lightHighThreshold) / Math.max(1, lightHighThreshold) + .45));
+            candidates.add(candidate("LIGHT_EXCESS", confidence));
+        }
         candidates.sort(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "confidence", 0)).reversed());
         String primary = Jsons.text(candidates.get(0), "code", "INSUFFICIENT_EVIDENCE");
         double confidence = Jsons.number(candidates.get(0), "confidence", 0.1);
@@ -3766,6 +3818,10 @@ class AgriEngine {
             opposing.add(Map.of("type", "rule", "reason", "当前没有形成明确的缺水或设备故障证据", "provenance", "DERIVED"));
         }
         if ("DEVICE_FAULT".equals(primary)) supporting.add(Map.of("type", "device", "status", "OFFLINE", "provenance", "OBSERVED"));
+        if ("LIGHT_DEFICIT".equals(primary) || "LIGHT_EXCESS".equals(primary)) {
+            supporting.add(Map.of("type", "telemetry", "metric", "LIGHT", "value", lightValue, "unit", "lux", "provenance", "OBSERVED"));
+            missing.add("现场遮挡/遮阳核验");
+        }
         if (waterScore < 0.4) opposing.add(Map.of("type", "rule", "reason", "湿度未持续低于目标", "provenance", "DERIVED"));
         List<Map<String, Object>> humanObservations = recentHumanObservations(plotId);
         List<Map<String, Object>> evidenceConflicts = new ArrayList<>();
@@ -3809,7 +3865,8 @@ class AgriEngine {
         diagnosis.put("scenarioId", scenario); if (request.containsKey("traceId")) diagnosis.put("traceId", request.get("traceId"));
         diagnosis.put("ruleVersion", cropContext.get("ruleVersion")); diagnosis.put("cropPackVersion", cropContext.get("cropPackVersion"));
         diagnosis.put("knowledgeVersion", cropContext.get("knowledgeVersion")); diagnosis.put("stageCode", cropContext.get("stageCode"));
-        diagnosis.put("stageLabel", cropContext.get("stageLabel")); diagnosis.put("thresholds", Map.of("WATER_DEFICIT", waterThreshold, "HEAT_STRESS", heatThreshold));
+        diagnosis.put("stageLabel", cropContext.get("stageLabel")); diagnosis.put("thresholds", Map.of("WATER_DEFICIT", waterThreshold, "HEAT_STRESS", heatThreshold,
+                "LIGHT_DEFICIT", lightLowThreshold, "LIGHT_EXCESS", lightHighThreshold));
         diagnosis.put("evaluatedAt", Instant.now().toString());
         store.save("diagnosis", Jsons.text(diagnosis, "diagnosisId", ""), diagnosis); events.publish("diagnosis.created", diagnosis); store.logEvent("diagnosis.created", diagnosis);
         return diagnosis;
@@ -3831,7 +3888,7 @@ class AgriEngine {
         if (!force && !Jsons.text(existing, "text", "").isBlank()) return diagnosis;
 
         String traceId = Jsons.id("run");
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        String aiMode = configuredAiMode();
         boolean openAiCompatible = isOpenAiCompatibleMode(aiMode);
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         Map<String, Object> facts = diagnosisExplanationFacts(diagnosis, plotId);
@@ -4523,6 +4580,73 @@ class AgriEngine {
         return commandEvaluation(Jsons.text(command, "commandId", commandId));
     }
 
+    /**
+     * Start a bounded virtual fill-light operation.  An offline device is
+     * accepted only for the local standalone/simulation demo and is explicitly
+     * marked as virtual; no hardware command is implied by this endpoint.
+     */
+    Map<String, Object> virtualLighting(Map<String, Object> request, UserPrincipal principal) {
+        Map<String, Object> input = request == null ? Map.of() : request;
+        String key = Jsons.text(input, "idempotencyKey", "").trim();
+        if (key.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "补光操作必须携带 idempotencyKey");
+        String plotId = Jsons.text(input, "plotId", "plot-a01");
+        ensurePlotAccess(principal, plotId);
+        if (!principal.canControl()) throw new ApiException(HttpStatus.FORBIDDEN, "CONTROL_FORBIDDEN", "当前角色无补光执行权限");
+
+        Map<String, Object> old = idempotentCommands.get(key);
+        if (old == null) {
+            Map<String, Object> durableKey = store.find("idempotency", key);
+            if (durableKey != null) old = store.find("command", Jsons.text(durableKey, "commandId", ""));
+            if (old != null) idempotentCommands.put(key, old);
+        }
+        if (old != null) {
+            if (!plotId.equals(Jsons.text(old, "plotId", ""))) throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_PLOT_MISMATCH", "幂等键已绑定其他地块的补光命令");
+            if (!"LIGHT_BOOST".equals(Jsons.text(old, "type", ""))) throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONTEXT_MISMATCH", "幂等键已绑定其他类型的操作");
+            return old;
+        }
+        if (!Jsons.bool(input, "confirmed", Jsons.bool(input, "approved", false))) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "CONFIRMATION_REQUIRED", "执行补光前需要当前操作人明确确认");
+        }
+
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        double current = Jsons.number(light, "value", Double.NaN);
+        if (!Double.isFinite(current)) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "LIGHT_UNAVAILABLE", "当前没有可用的光照模拟值，暂不能补光");
+        Map<String, Object> context = plotCropContext(plotId);
+        Map<String, Object> target = Jsons.map(mapper, context.get("target"));
+        double low = Jsons.number(target, "lightLow", 15000);
+        double high = Jsons.number(target, "lightHigh", 30000);
+        if (current >= high && !Jsons.bool(input, "force", false)) {
+            throw new ApiException(HttpStatus.CONFLICT, "LIGHT_ALREADY_HIGH", "当前光照已高于阶段目标，不应继续补光");
+        }
+        double requestedBoost = Jsons.number(input, "boostLux", Double.NaN);
+        if (!Double.isFinite(requestedBoost) || requestedBoost <= 0) requestedBoost = Math.max(1000, (low + high) / 2.0 - current);
+        requestedBoost = Math.min(50_000, requestedBoost);
+        long duration = Math.max(1, Math.min(900, Jsons.whole(input, "durationSeconds", 60)));
+        Map<String, Object> device = deviceForPlot(plotId);
+        String deviceStatus = Jsons.text(device, "status", "UNKNOWN").toUpperCase(Locale.ROOT);
+        boolean offline = "OFFLINE".equals(deviceStatus);
+        boolean demoMode = Set.of("standalone", "simulation").contains(String.valueOf(properties.getMode()).toLowerCase(Locale.ROOT));
+        boolean offlineDemo = offline && demoMode && Jsons.bool(input, "allowOfflineDemo", false);
+        if (offline && !offlineDemo) throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "DEVICE_OFFLINE", "补光设备离线；仅本地演示模式允许虚拟执行");
+        double expectedAfter = Math.min(high, current + requestedBoost);
+        Map<String, Object> plot = requireRecord("plot", plotId);
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("commandId", Jsons.id("cmd")); command.put("farmId", Jsons.text(plot, "farmId", "farm-demo")); command.put("plotId", plotId);
+        command.put("deviceId", Jsons.text(device, "deviceId", "mock-" + plotId)); command.put("type", "LIGHT_BOOST");
+        command.put("durationSeconds", duration); command.put("lightLux", requestedBoost); command.put("expectedLightBefore", current); command.put("expectedLightAfter", expectedAfter);
+        command.put("targetLightLow", low); command.put("targetLightHigh", high); command.put("deviceStatusAtRequest", deviceStatus);
+        command.put("offlineDemoOverride", offlineDemo); command.put("virtualOnly", true); command.put("executionMode", "SIMULATED"); command.put("provenance", "SIMULATED");
+        command.put("sourceMode", "SIMULATION"); command.put("idempotencyKey", key); command.put("status", "CONFIRMED"); command.put("requestedBy", principal.userId);
+        command.put("confirmedBy", principal.userId); command.put("confirmedAt", Instant.now().toString()); command.put("approvalRequired", false); command.put("confirmationMode", "OPERATOR_CONFIRMED");
+        command.put("riskLevel", "MEDIUM"); command.put("source", Jsons.text(input, "source", "farmer-operation-system"));
+        store.save("command", Jsons.text(command, "commandId", ""), command); idempotentCommands.put(key, command);
+        events.publish("lighting.virtual.confirmed", command); store.logEvent("lighting.virtual.confirmed", command);
+        store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", command.get("commandId"), "createdAt", Instant.now().toString()));
+        executeVirtual(command, input);
+        return command;
+    }
+
     Map<String, Object> createCommand(Map<String, Object> request, UserPrincipal principal) {
         String key = Jsons.text(request, "idempotencyKey", "");
         if (key.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "动作接口必须携带 idempotencyKey");
@@ -4724,8 +4848,15 @@ class AgriEngine {
             try { Thread.sleep(Math.min(1000, Math.max(50, Jsons.whole(command, "durationSeconds", 60) * 10))); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); }
             Map<String, Object> ack = new LinkedHashMap<>(); ack.put("ackId", Jsons.id("ack")); ack.put("commandId", command.get("commandId")); ack.put("plotId", command.get("plotId"));
             ack.put("status", Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT").contains(outcome) ? outcome : "SUCCEEDED"); ack.put("receivedAt", Instant.now().toString());
-            ack.put("actualWaterLitre", "SUCCEEDED".equals(outcome) ? Jsons.number(command, "waterLitre", 0) : "PARTIAL".equals(outcome) ? Jsons.number(command, "waterLitre", 0) * .55 : 0);
+            boolean lighting = "LIGHT_BOOST".equalsIgnoreCase(Jsons.text(command, "type", ""));
+            if (lighting) {
+                double requestedLight = Jsons.number(command, "lightLux", 0);
+                ack.put("actualLightLux", "SUCCEEDED".equals(outcome) ? requestedLight : "PARTIAL".equals(outcome) ? requestedLight * .55 : 0);
+            } else {
+                ack.put("actualWaterLitre", "SUCCEEDED".equals(outcome) ? Jsons.number(command, "waterLitre", 0) : "PARTIAL".equals(outcome) ? Jsons.number(command, "waterLitre", 0) * .55 : 0);
+            }
             ack.put("result", "SUCCEEDED".equals(outcome) ? "GOOD" : "TIMEOUT".equals(outcome) ? "NO_ACK" : "EXECUTION_FAILED");
+            if (lighting) { ack.put("executionMode", "SIMULATED"); ack.put("provenance", "SIMULATED"); ack.put("virtualOnly", true); }
             if (Jsons.bool(command, "manualOverride", false)) {
                 ack.put("executionMode", "SIMULATED");
                 ack.put("provenance", "SIMULATED");
@@ -4790,6 +4921,29 @@ class AgriEngine {
         }
     }
 
+    private void recordVirtualLightEffect(String plotId, String commandId, String outcome, double lightAfter) {
+        if (!Set.of("SUCCEEDED", "PARTIAL").contains(outcome) || !Double.isFinite(lightAfter)) return;
+        Map<String, Object> plot = store.find("plot", plotId);
+        Map<String, Object> device = deviceForPlot(plotId);
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        double before = Jsons.number(light, "value", Double.NaN);
+        if (!Double.isFinite(before)) return;
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("eventId", "virtual-lighting-" + commandId); event.put("farmId", Jsons.text(plot, "farmId", "farm-demo")); event.put("plotId", plotId);
+        event.put("deviceId", Jsons.text(device, "deviceId", "mock-" + plotId)); event.put("metric", "LIGHT"); event.put("value", Math.max(0, lightAfter));
+        event.put("unit", "lux"); event.put("ts", Instant.now().toString()); event.put("sourceMode", "SIMULATION"); event.put("provenance", "SIMULATED");
+        event.put("dataOrigin", "VIRTUAL_ACTUATOR"); event.put("scenarioId", "lighting-virtual"); event.put("quality", Map.of("status", "GOOD", "confidence", .98));
+        ingest(event);
+        Map<String, Object> command = store.find("command", commandId);
+        if (Jsons.bool(command, "offlineDemoOverride", false) && device != null) {
+            device.put("status", "OFFLINE");
+            device.put("lastSeen", Jsons.text(device, "lastSeen", Instant.now().toString()));
+            device.put("offlineDemoOverride", true);
+            store.save("device", Jsons.text(device, "deviceId", "mock-" + plotId), device);
+        }
+    }
+
     private void completeAgentActionFromCommand(Map<String, Object> command, Map<String, Object> ack, Map<String, Object> evaluation) {
         String actionId = Jsons.text(command, "agentActionId", "").trim();
         if (actionId.isBlank()) return;
@@ -4809,6 +4963,7 @@ class AgriEngine {
 
     Map<String, Object> evaluateCommand(Map<String, Object> command, Map<String, Object> ack) {
         String commandId = Jsons.text(command, "commandId", ""); String plotId = Jsons.text(command, "plotId", "");
+        if ("LIGHT_BOOST".equalsIgnoreCase(Jsons.text(command, "type", ""))) return evaluateLightCommand(command, ack);
         if (!evaluatedCommands.add(commandId)) return commandEvaluation(commandId);
         Map<String, Object> latest = latestMetrics(plotId); Map<String, Object> soil = latest.get("SOIL_MOISTURE") instanceof Map<?, ?> m ? Jsons.map(mapper, m) : Map.of();
         double observedBefore = Jsons.number(soil, "value", Double.NaN);
@@ -4854,6 +5009,36 @@ class AgriEngine {
         if (!manualResourceUsage.isEmpty()) evaluation.put("resourceUsage", manualResourceUsage);
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
         settleResourceAllocation(command, ack, evaluation);
+        return evaluation;
+    }
+
+    private Map<String, Object> evaluateLightCommand(Map<String, Object> command, Map<String, Object> ack) {
+        String commandId = Jsons.text(command, "commandId", "");
+        if (!evaluatedCommands.add(commandId)) return commandEvaluation(commandId);
+        String plotId = Jsons.text(command, "plotId", "");
+        Map<String, Object> latest = latestMetrics(plotId);
+        Map<String, Object> light = latest.get("LIGHT") instanceof Map<?, ?> value ? Jsons.map(mapper, value) : Map.of();
+        double before = Jsons.number(light, "value", Double.NaN);
+        double requested = Jsons.number(command, "lightLux", 0);
+        double actual = Jsons.number(ack, "actualLightLux", 0);
+        String ackStatus = Jsons.text(ack, "status", "TIMEOUT").toUpperCase(Locale.ROOT);
+        boolean success = Set.of("SUCCEEDED", "PARTIAL").contains(ackStatus) && Double.isFinite(before);
+        double after = success ? Math.min(Jsons.number(command, "targetLightHigh", before + requested), before + actual) : before;
+        String status = !Double.isFinite(before) || Set.of("FAILED", "TIMEOUT").contains(ackStatus) ? "INCONCLUSIVE" : "PARTIAL".equals(ackStatus) ? "PARTIAL" : "COMPLETED";
+        String result = !Double.isFinite(before) ? "BASELINE_UNAVAILABLE" : "SUCCEEDED".equals(ackStatus) && after > before ? "GOOD" : "PARTIAL".equals(ackStatus) ? "PARTIAL_EFFECT" : "EXECUTION_FAILED";
+        Map<String, Object> plot = store.find("plot", plotId);
+        Map<String, Object> evaluation = new LinkedHashMap<>();
+        evaluation.put("evaluationId", Jsons.id("eval")); evaluation.put("commandId", commandId); evaluation.put("plotId", plotId); evaluation.put("planId", command.get("planId"));
+        evaluation.put("farmId", plot == null ? null : Jsons.text(plot, "farmId", "")); evaluation.put("status", status);
+        Map<String, Object> expected = new LinkedHashMap<>(); expected.put("lightLuxBefore", Double.isFinite(before) ? before : null); expected.put("lightLuxAfter", Double.isFinite(before) ? Jsons.number(command, "expectedLightAfter", before + requested) : null); expected.put("lightLux", requested);
+        Map<String, Object> actualView = new LinkedHashMap<>(); actualView.put("lightLuxBefore", Double.isFinite(before) ? before : null); actualView.put("lightLuxAfter", Double.isFinite(after) ? after : null); actualView.put("lightLux", actual);
+        evaluation.put("expected", expected); evaluation.put("actual", actualView);
+        evaluation.put("effectivenessScore", "COMPLETED".equals(status) && "GOOD".equals(result) ? .94 : "PARTIAL".equals(status) ? .45 : 0.0);
+        evaluation.put("result", result); evaluation.put("executionMode", "SIMULATED"); evaluation.put("provenance", "SIMULATED"); evaluation.put("offlineDemoOverride", Jsons.bool(command, "offlineDemoOverride", false));
+        evaluation.put("evidenceWindow", Map.of("beforeMinutes", 10, "afterMinutes", 10)); evaluation.put("createdAt", Instant.now().toString());
+        if (success) recordVirtualLightEffect(plotId, commandId, ackStatus, after);
+        command.put("evaluation", evaluation); store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command);
+        events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
         return evaluation;
     }
 
@@ -7590,7 +7775,7 @@ class AgriEngine {
         answer.put("traceId", traceId);
         answer.put("conversationId", conversationId);
         answer.put("plotId", plotId);
-        answer.put("mode", properties.getAiMode());
+        answer.put("mode", configuredAiMode());
         answer.put("sourceLabels", List.of("OBSERVED", "DERIVED", "SIMULATED"));
         Map<String, Object> roleProfile = agentRoleProfile(principal);
         answer.put("role", principal.role);
@@ -7605,7 +7790,7 @@ class AgriEngine {
                     "images", agentImageMetadata(agentImages)));
         }
 
-        String aiMode = properties.getAiMode() == null ? "rules-only" : properties.getAiMode().toLowerCase(Locale.ROOT).trim();
+        String aiMode = configuredAiMode();
         boolean openAiCompatible = isOpenAiCompatibleMode(aiMode);
         String adapter = aiMode.equals("mock") ? "mock" : aiMode.equals("maxkb") ? "maxkb" : openAiCompatible ? "openai-compatible" : "rules";
         answer.put("adapter", adapter);
@@ -9784,6 +9969,11 @@ class AgriController {
         input.put("manualOverride", true);
         input.putIfAbsent("source", "farmer-manual-fallback");
         return ok(engine.createCommand(input, principal(a)));
+    }
+
+    @PostMapping("/lighting/virtual")
+    ResponseEntity<?> virtualLighting(@RequestBody(required = false) Map<String, Object> body, Authentication a) {
+        return ok(engine.virtualLighting(body == null ? Map.of() : body, principal(a)));
     }
 
     @PostMapping("/agent/chat")

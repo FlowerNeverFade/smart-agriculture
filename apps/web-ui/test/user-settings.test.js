@@ -66,7 +66,7 @@ test('三种角色入口都加载统一工作台主题桥接', () => {
   assert.match(sharedCss, /data-surface-style="glass-latest"/);
   for (const page of ['../index.html', '../farmer.html', '../sysadmin.html']) {
     const html = readFileSync(new URL(page, import.meta.url), 'utf8');
-    assert.match(html, /workspace-settings-shared\.css\?v=20260901-v5910-main-merge-v2/);
+    assert.match(html, /workspace-settings-shared\.css\?v=[^"']+/);
   }
 });
 

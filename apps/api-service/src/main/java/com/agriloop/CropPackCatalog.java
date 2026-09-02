@@ -51,6 +51,8 @@ class CropPackCatalog {
             "WATER_DEFICIT", "缺水风险",
             "HEAT_STRESS", "高温胁迫",
             "COLD_STRESS", "低温冷害",
+            "LIGHT_DEFICIT", "光照不足",
+            "LIGHT_EXCESS", "光照过强",
             "SENSOR_DRIFT", "传感器漂移",
             "DEVICE_FAULT", "设备异常");
     private static final Map<String, String> TASK_LABELS = Map.of(
@@ -362,7 +364,13 @@ class CropPackCatalog {
         pack.put("metrics", metrics);
 
         List<Map<String, Object>> rules = Jsons.maps(mapper, pack.get("rules"));
-        if (rules.isEmpty()) rules = defaultRules();
+        // Built-in packs may intentionally override only the rules they need.
+        // Always retain the kernel defaults so stage light bounds are enforced
+        // consistently without duplicating crop branches in Java/frontend.
+        Map<String, Map<String, Object>> mergedRules = new LinkedHashMap<>();
+        for (Map<String, Object> rule : defaultRules()) mergedRules.put(Jsons.text(rule, "code", ""), rule);
+        for (Map<String, Object> rule : rules) mergedRules.put(Jsons.text(rule, "code", ""), rule);
+        rules = new ArrayList<>(mergedRules.values());
         pack.put("rules", rules);
         if (!(pack.get("healthProfile") instanceof Map<?, ?>)) pack.put("healthProfile", defaultHealthProfile());
         if (!(pack.get("prescriptionConstraints") instanceof Map<?, ?>)) pack.put("prescriptionConstraints", defaultPrescriptionConstraints());
@@ -521,7 +529,9 @@ class CropPackCatalog {
         return List.of(
                 new LinkedHashMap<>(Map.of("code", "WATER_DEFICIT", "metric", "SOIL_MOISTURE", "operator", "LT", "threshold", 25, "durationMinutes", 5, "hysteresis", 2, "cooldownMinutes", 0, "alertCooldownMinutes", 120, "automaticWateringThreshold", 10)),
                 new LinkedHashMap<>(Map.of("code", "HEAT_STRESS", "metric", "AIR_TEMPERATURE", "operator", "GT", "threshold", 35, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
-                new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)));
+                new LinkedHashMap<>(Map.of("code", "COLD_STRESS", "metric", "AIR_TEMPERATURE", "operator", "LT", "threshold", 16, "durationMinutes", 10, "hysteresis", 1, "cooldownMinutes", 60)),
+                new LinkedHashMap<>(Map.of("code", "LIGHT_DEFICIT", "metric", "LIGHT", "operator", "LT", "threshold", 15000, "durationMinutes", 5, "hysteresis", 500, "cooldownMinutes", 30, "alertCooldownMinutes", 120)),
+                new LinkedHashMap<>(Map.of("code", "LIGHT_EXCESS", "metric", "LIGHT", "operator", "GT", "threshold", 30000, "durationMinutes", 5, "hysteresis", 500, "cooldownMinutes", 30, "alertCooldownMinutes", 120)));
     }
 
     private Map<String, Object> defaultPrescriptionConstraints() { return new LinkedHashMap<>(Map.of("maxDurationSeconds", 900, "cooldownMinutes", 0, "automaticWateringThreshold", 10, "maxDailyWaterLitres", 5000)); }
@@ -993,6 +1003,10 @@ class CropPackCatalog {
                 rule.put("threshold", Jsons.number(target, "airTemperatureHigh", 35));
             } else if ("COLD_STRESS".equals(code) && target.containsKey("airTemperatureLow")) {
                 rule.put("threshold", Jsons.number(target, "airTemperatureLow", 18));
+            } else if ("LIGHT_DEFICIT".equals(code) && target.containsKey("lightLow")) {
+                rule.put("threshold", Jsons.number(target, "lightLow", 15000));
+            } else if ("LIGHT_EXCESS".equals(code) && target.containsKey("lightHigh")) {
+                rule.put("threshold", Jsons.number(target, "lightHigh", 30000));
             } else if ("OVER_WET".equals(code) && target.containsKey("soilMoistureHigh")) {
                 rule.put("threshold", Jsons.number(target, "soilMoistureHigh", 50));
             }
