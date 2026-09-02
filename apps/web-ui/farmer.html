@@ -1931,10 +1931,11 @@
                 <div><small>当前光照</small><strong>{{ virtual_lighting_preview.value === null ? '—' : virtual_lighting_preview.value.toLocaleString() }} lux</strong></div>
                 <div><small>目标范围</small><strong>{{ virtual_lighting_preview.low === null ? '—' : virtual_lighting_preview.low.toLocaleString() }}~{{ virtual_lighting_preview.high === null ? '—' : virtual_lighting_preview.high.toLocaleString() }} lux</strong></div>
                 <div><small>预计补光后</small><strong>{{ virtual_lighting_preview.after === null ? '—' : virtual_lighting_preview.after.toLocaleString() }} lux</strong></div>
-                <div><small>本次补光时长</small><strong>{{ virtual_lighting_preview.durationLabel }}</strong></div>
+                <div><small>计划补光时段</small><strong>{{ virtual_lighting_preview.durationLabel }}</strong></div>
               </div>
               <label class="farmer-manual-water-input">模拟补光增量（lux）<input v-model.number="virtual_lighting_boost" type="number" min="1000" step="500" inputmode="numeric" required></label>
-              <label class="farmer-manual-water-input">选择补光时长<select v-model.number="virtual_lighting_duration_seconds"><option v-for="option in virtual_lighting_duration_options" :key="'light-duration-' + option.value" :value="option.value">{{ option.label }}</option></select></label>
+              <label class="farmer-manual-water-input">选择补光时段<select v-model.number="virtual_lighting_duration_seconds"><option v-for="option in virtual_lighting_duration_options" :key="'light-duration-' + option.value" :value="option.value">{{ option.label }}</option></select></label>
+              <p class="farmer-form-hint">时段按本机系统时间显示；执行记录仍保存对应秒数，最长不超过 15 分钟。</p>
               <p class="farmer-form-hint">光照指标当前属于 <b>SIMULATION_ONLY</b>，结果会以带有事件、命令 ACK 和效果评价的模拟遥测写回页面。</p>
               <label class="farmer-confirm-check farmer-suggestion-confirm-check"><input v-model="virtual_lighting_confirmed" type="checkbox"><span>我已确认地块和补光增量，并理解这是虚拟演示，不会控制真实补光灯。</span></label>
               <p v-if="virtual_lighting_error" class="farmer-form-error">{{ virtual_lighting_error }}</p>

@@ -245,8 +245,10 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /show_virtual_lighting,/);
   assert.match(source, /executeVirtualLighting/);
   assert.match(source, /virtual_lighting_duration_seconds/);
+  assert.match(source, /virtual_lighting_schedule_started_at/);
+  assert.match(source, /format_system_time/);
   assert.match(source, /durationSeconds: preview\.durationSeconds/);
-  assert.match(farmerSurface, /选择补光时长/);
+  assert.match(farmerSurface, /选择补光时段/);
   assert.match(source, /resolve_light_band_status/);
   assert.match(farmerSurface, /夜间目标|夜间休息/);
   assert.match(source, /light_target_context/);
