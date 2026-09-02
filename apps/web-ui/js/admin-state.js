@@ -429,8 +429,14 @@ export function adminCropEmoji(plot = {}) {
   return ADMIN_CROP_EMOJIS[adminCropKey(plot)] || ADMIN_CROP_EMOJIS.unknown;
 }
 
-export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {
+export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [], previousPlots = []) {
   const cards = new Map((overviewCards || []).map(card => [String(card.plotId), card]));
+  const facts = new Map((plotFacts || [])
+    .filter(fact => fact && (fact.plotId || fact.id))
+    .map(fact => [String(fact.plotId || fact.id), fact]));
+  const previous = new Map((previousPlots || [])
+    .filter(plot => plot && (plot.plotId || plot.id))
+    .map(plot => [String(plot.plotId || plot.id), plot]));
   const plotDevices = new Map();
   (devices || []).forEach(device => {
     const plotId = String(device?.plotId || '');
@@ -444,12 +450,18 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
       plotDevices.set(plotId, device);
     }
   });
-  return (plotFacts || []).map(fact => {
-    const card = cards.get(String(fact.plotId)) || {};
+  // /overview can arrive before /plots. Include card-only plots so a slow
+  // facts request cannot make an otherwise valid farm dashboard look empty.
+  const plotIds = new Set([...previous.keys(), ...facts.keys(), ...cards.keys()]);
+  return [...plotIds].map(plotId => {
+    const prior = previous.get(plotId) || {};
+    const fact = facts.get(plotId) || {};
+    const card = cards.get(plotId) || {};
     const cardDevice = card.device && Object.keys(card.device).length ? card.device : null;
-    const device = cardDevice || plotDevices.get(String(fact.plotId)) || null;
+    const priorDevice = prior.device && Object.keys(prior.device).length ? prior.device : null;
+    const device = cardDevice || plotDevices.get(plotId) || priorDevice || null;
     const hasBoundDevice = Boolean(device?.deviceId || device?.plotId);
-    const metrics = { ...(fact.metrics || {}), ...(card.metrics || {}) };
+    const metrics = { ...(prior.metrics || {}), ...(fact.metrics || {}), ...(card.metrics || {}) };
     Object.entries(card.latest || {}).forEach(([code, event]) => {
       if (!event || event.value === undefined) return;
       metrics[code] = {
@@ -464,27 +476,28 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
       };
     });
     return {
+      ...prior,
       ...fact,
       ...card,
       metrics,
-      history: fact.history || card.history || {},
-      facilityType: fact.facilityType || card.facilityType || 'OPEN_FIELD',
-      facilityLabel: fact.facilityLabel || card.facilityLabel || '露地（裸地）',
-      cultivationStatus: fact.cultivationStatus || card.cultivationStatus || 'GROWING',
-      cultivationStatusLabel: fact.cultivationStatusLabel || card.cultivationStatusLabel || '正常种植',
-      lastOperationType: fact.lastOperationType || card.lastOperationType || '',
-      lastOperationLabel: fact.lastOperationLabel || card.lastOperationLabel || '',
-      lastOperationAt: fact.lastOperationAt || card.lastOperationAt || '',
-      lastOperationBy: fact.lastOperationBy || card.lastOperationBy || '',
-      lastOperationSummary: fact.lastOperationSummary || card.lastOperationSummary || '',
-      operationRevision: Number(fact.operationRevision ?? card.operationRevision ?? 0),
-      operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : []),
-      deviceId: device?.deviceId || card.deviceId || fact.deviceId || null,
-      deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
-      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
-      lastSeen: device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)),
-      sourceMode: fact.sourceMode || card.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
-      dataOrigin: fact.dataOrigin || card.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
+      history: { ...(prior.history || {}), ...(fact.history || {}), ...(card.history || {}) },
+      facilityType: fact.facilityType || card.facilityType || prior.facilityType || 'OPEN_FIELD',
+      facilityLabel: fact.facilityLabel || card.facilityLabel || prior.facilityLabel || '露地（裸地）',
+      cultivationStatus: fact.cultivationStatus || card.cultivationStatus || prior.cultivationStatus || 'GROWING',
+      cultivationStatusLabel: fact.cultivationStatusLabel || card.cultivationStatusLabel || prior.cultivationStatusLabel || '正常种植',
+      lastOperationType: fact.lastOperationType || card.lastOperationType || prior.lastOperationType || '',
+      lastOperationLabel: fact.lastOperationLabel || card.lastOperationLabel || prior.lastOperationLabel || '',
+      lastOperationAt: fact.lastOperationAt || card.lastOperationAt || prior.lastOperationAt || '',
+      lastOperationBy: fact.lastOperationBy || card.lastOperationBy || prior.lastOperationBy || '',
+      lastOperationSummary: fact.lastOperationSummary || card.lastOperationSummary || prior.lastOperationSummary || '',
+      operationRevision: Number(fact.operationRevision ?? card.operationRevision ?? prior.operationRevision ?? 0),
+      operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : (Array.isArray(prior.operationHistory) ? prior.operationHistory : [])),
+      deviceId: device?.deviceId || card.deviceId || fact.deviceId || prior.deviceId || null,
+      deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || prior.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
+      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? prior.healthScore ?? null,
+      lastSeen: device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || prior.lastSeen || null)),
+      sourceMode: fact.sourceMode || card.sourceMode || prior.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
+      dataOrigin: fact.dataOrigin || card.dataOrigin || prior.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
     };
   });
 }

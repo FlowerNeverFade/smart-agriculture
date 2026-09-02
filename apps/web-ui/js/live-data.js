@@ -914,8 +914,8 @@ function metricFromLatest(code, event, current = {}) {
 }
 
 export function normalizePlot(plot = {}, overviewCard = {}) {
-  const metrics = { ...(plot.metrics || {}) };
-  const history = plot.history || overviewCard.history || {};
+  const metrics = { ...(plot.metrics || {}), ...(overviewCard.metrics || {}) };
+  const history = { ...(plot.history || {}), ...(overviewCard.history || {}) };
   Object.entries(history).forEach(([code, points]) => {
     if (!Array.isArray(points) || !points.length) return;
     metrics[code] = { ...(metrics[code] || { label: code, target: '—' }), history: points };
@@ -946,8 +946,8 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     name: text(plot.name || overviewCard.name, text(plot.plotId || overviewCard.plotId, '未命名地块')),
     cropCode,
     cropName: text(plot.cropName || overviewCard.cropName, CROP_LABELS[cropCode] || cropCode || '—'),
-    stageCode: text(plot.stageCode, ''),
-    stageLabel: text(plot.stageLabel, '—'),
+    stageCode: text(plot.stageCode || overviewCard.stageCode, ''),
+    stageLabel: text(plot.stageLabel || overviewCard.stageLabel, '—'),
     facilityType,
     facilityLabel,
     cultivationStatus: text(plot.cultivationStatus || overviewCard.cultivationStatus, 'GROWING').toUpperCase(),
@@ -965,12 +965,44 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     hardware,
     hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
-    healthScore: overviewCard.health?.score ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
     lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
+}
+
+/**
+ * Merge the lightweight /plots facts and the richer /overview cards by plot.
+ * A request can finish before the other one (or hit its UI budget), so keep
+ * the previously rendered fields for matching plots while allowing fresh
+ * facts/cards to replace them.  When both sources are unavailable the prior
+ * snapshot is retained; an explicit empty response still clears the list.
+ */
+export function mergeOverviewPlotRecords(plotFacts = [], overviewCards = [], previousPlots = []) {
+  const facts = Array.isArray(plotFacts) ? plotFacts : [];
+  const cards = Array.isArray(overviewCards) ? overviewCards : [];
+  const previous = Array.isArray(previousPlots) ? previousPlots : [];
+  const factMap = new Map(facts
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const cardMap = new Map(cards
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const previousMap = new Map(previous
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const freshIds = new Set([...factMap.keys(), ...cardMap.keys()]);
+  const ids = freshIds.size
+    ? [...freshIds]
+    : [...previousMap.keys()];
+  return ids.map((plotId) => {
+    const fact = factMap.get(plotId) || {};
+    const card = cardMap.get(plotId) || {};
+    const prior = previousMap.get(plotId) || {};
+    return normalizePlot({ ...prior, ...fact }, card);
+  });
 }
 
 /**

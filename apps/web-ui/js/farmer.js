@@ -16,6 +16,7 @@ import {
   buildFarmerProfile,
   dueLabel,
   displayText,
+  mergeOverviewPlotRecords,
   mergePlotTelemetryWindow,
   mergeFarmerWorkOrders,
   metricLabel,
@@ -30,7 +31,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-scenario-summary-v1';
+} from './live-data.js?v=20260902-performance-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -3624,7 +3625,7 @@ const app = createApp({
         return false;
       }
       const farms = results[0].status === 'fulfilled' ? results[0].value || [] : [];
-      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || plots.value || [] : plots.value || [];
+      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || [] : [];
       const overview = results[2].status === 'fulfilled' ? results[2].value || {} : {};
       const rawWorkOrders = mergeFarmerWorkOrders(
         results[3].status === 'fulfilled' ? results[3].value || [] : tasks.value || [],
@@ -3633,13 +3634,17 @@ const app = createApp({
       const rawAlerts = results[5].status === 'fulfilled' ? results[5].value || [] : [];
       const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
       const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
-      const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
-      let normalizedPlots = rawPlots
+      const previousPlots = results[1].status === 'fulfilled' && results[2].status === 'fulfilled'
+        ? []
+        : (plots.value || []);
+      const mergedPlotRecords = mergeOverviewPlotRecords(rawPlots, overview?.plots || [], previousPlots);
+      const buildNormalizedPlots = (records) => (records || [])
         .map((plot) => {
-          const normalized = normalizePlot(plot, cards.get(String(plot.plotId)) || {});
+          const normalized = normalizePlot(plot, {});
           return { ...normalized, healthScore: compute_plot_health_score(normalized) };
         })
         .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      let normalizedPlots = buildNormalizedPlots(mergedPlotRecords);
       normalizedPlots = replace_plots_in_order(normalizedPlots, { commitOrder: !plot_drag_state.value.active });
       const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
       const normalizedTasks = rawWorkOrders.map((work) => normalizeFarmerTask(work, plotMap));
@@ -3684,6 +3689,26 @@ const app = createApp({
       if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
       data_updated_label.value = '刚刚';
       if (showProgress) set_workspace_progress(86, '正在完成首屏…');
+      // If /overview or /plots exceeded the first-paint budget, enrich the
+      // already visible cards when that individual request eventually settles.
+      const applyLatePlotResponse = (records, overviewData) => {
+        if (version !== workspace_request_version || !is_formal_session) return;
+        const next = buildNormalizedPlots(mergeOverviewPlotRecords(
+          Array.isArray(records) ? records : plots.value,
+          overviewData?.plots || [],
+          plots.value
+        ));
+        const ordered = replace_plots_in_order(next, { commitOrder: false });
+        replace_ref_array(plots, ordered);
+        selected_plot.value = ordered.find((plot) => plot.plotId === selected_plot.value?.plotId) || ordered[0] || null;
+        advice_selected_plot.value = ordered.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || ordered[0] || null;
+      };
+      if (results[1]?.status === 'timeout') {
+        Promise.resolve(jobs[1]).then((value) => applyLatePlotResponse(value, overview)).catch(() => {});
+      }
+      if (results[2]?.status === 'timeout') {
+        Promise.resolve(jobs[2]).then((value) => applyLatePlotResponse(plots.value, value)).catch(() => {});
+      }
       return true;
     };
 
@@ -3742,9 +3767,16 @@ const app = createApp({
         crop_pack_catalog = Array.isArray(packs) ? packs : [];
         const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
         const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
-        const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
+        // Only discard the existing snapshot when both plot facts and the
+        // overview completed. A transient empty/failed response must not
+        // make the farmer workspace lose its last usable plot cards.
+        const previousPlots = plotsResult.status === 'fulfilled'
+          && overviewResult.status === 'fulfilled'
+          ? []
+          : (plots.value || []);
+        const mergedPlotRecords = mergeOverviewPlotRecords(rawPlots, overview?.plots || [], previousPlots);
         const batchMap = new Map((batches || []).map((batch) => [String(batch.plotId), batch]));
-        let normalizedPlots = (rawPlots || [])
+        let normalizedPlots = (mergedPlotRecords || [])
           .map((plot) => {
             const batch = batchMap.get(String(plot.plotId)) || {};
             const normalized = normalizePlot({
@@ -3752,7 +3784,7 @@ const app = createApp({
               stageCode: plot.stageCode || batch.stageCode,
               stageLabel: plot.stageLabel || batch.stageLabel,
               cropPackVersion: plot.cropPackVersion || batch.cropPackVersion
-            }, cards.get(String(plot.plotId)) || {});
+            }, {});
             return { ...normalized, healthScore: compute_plot_health_score(normalized) };
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');

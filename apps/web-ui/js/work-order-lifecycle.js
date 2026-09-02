@@ -1,5 +1,5 @@
 import { api } from './api.js?v=20260902-manager-plot-order-v1';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-performance-v1';
 import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;

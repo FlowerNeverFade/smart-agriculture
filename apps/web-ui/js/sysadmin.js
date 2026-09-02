@@ -14,7 +14,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -27,6 +27,7 @@ import {
   mapCropPack,
   mapStrategyCandidate,
   mapTimelineRecord,
+  mergeOverviewPlotRecords,
   normalizePlot,
   relativeTime,
   alertStatusLabel,
@@ -47,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-scenario-summary-v1';
+} from './live-data.js?v=20260902-performance-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -656,7 +657,9 @@ const AdminOverviewView = {
         const numeric = Number(plot.healthScore);
         if (Number.isFinite(numeric)) return Math.round(numeric <= 1 ? numeric * 100 : numeric);
       }
-      if (props.state.sessionMode === 'live') return 0;
+      // A live card without a health result is still loading (or its source
+      // timed out). Do not turn that unknown state into a misleading 0%.
+      if (props.state.sessionMode === 'live') return null;
       if (plot.status === 'HEALTHY') return 92;
       if (plot.status === 'WARNING') return 64;
       if (plot.status === 'CRITICAL') return 28;
@@ -2204,49 +2207,82 @@ const app = createApp({
             .flatMap((result) => result.value || []));
       }
       const entries = Object.entries(jobs);
+      const partialResults = {};
+      const applySnapshot = (results) => {
+        if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
+        const previousPlots = fulfilled('overview') && fulfilled('plots')
+          ? []
+          : (state.value.allPlots || state.value.plots || []);
+        const plotsReadSucceeded = fulfilled('plots');
+        const fetchedFacts = fulfilled('plots') && Array.isArray(results.plots.value) ? results.plots.value : [];
+        const refreshedDevices = fulfilled('devices') ? results.devices.value : state.value.devices;
+        if (fulfilled('overview')) state.value.overview = overview;
+        if (hasFarmPlotRefresh(results)) {
+          const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || item?.id || '')));
+          const now = Date.now();
+          const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
+          pending.forEach(([plotId, entry]) => {
+            if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
+          });
+          const pendingFacts = pending
+            .filter(([plotId]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
+            .map(([, entry]) => entry.plot);
+          const merged = mergeFarmPlots(
+            [...fetchedFacts, ...pendingFacts],
+            overview?.plots || [],
+            refreshedDevices || [],
+            previousPlots
+          );
+          state.value.allPlots = merged;
+          state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        }
+        if (fulfilled('workOrders')) state.value.workOrders = results.workOrders.value || [];
+        if (fulfilled('alerts')) state.value.alerts = results.alerts.value || [];
+        if (fulfilled('devices')) state.value.devices = results.devices.value || [];
+        if (fulfilled('members')) state.value.farmMembers = results.members.value || [];
+        if (fulfilled('batches')) state.value.cropBatches = results.batches.value || [];
+        if (fulfilled('ledgers')) state.value.valueLedgers = results.ledgers.value || [];
+        if (fulfilled('cropPacks')) {
+          state.value.cropPacks = results.cropPacks.value || [];
+          state.value.cropPackDetails = state.value.cropPacks;
+        }
+        if (fulfilled('adminLearningCases')) state.value.adminLearningCases = results.adminLearningCases.value || [];
+        if (fulfilled('simulator')) state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
+        if (fulfilled('inspections')) {
+          state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
+        }
+        state.value.feedItems = buildLiveFeedItems({
+          alerts: state.value.alerts,
+          workOrders: state.value.workOrders,
+          inspections: state.value.inspections,
+          plots: state.value.allPlots
+        });
+        if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
+      };
+      entries.forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+          applySnapshot(partialResults);
+        });
+      });
       const settled = await Promise.all(entries.map(async ([key, promise]) => [
         key,
         await settleWithinBudget(promise, budgetMs)
       ]));
-      if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
       const results = Object.fromEntries(settled);
+      Object.assign(partialResults, results);
+      applySnapshot(partialResults);
       const failed = [];
       const timedOut = [];
       Object.entries(results).forEach(([key, result]) => {
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
         if (result.status === 'timeout') timedOut.push(key);
       });
-      const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
-      const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
-      if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
-      if (hasFarmPlotRefresh(results)) {
-        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
-        state.value.allPlots = merged;
-        state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
-      }
-      if (results.workOrders?.status === 'fulfilled') state.value.workOrders = results.workOrders.value || [];
-      if (results.alerts?.status === 'fulfilled') state.value.alerts = results.alerts.value || [];
-      if (results.devices?.status === 'fulfilled') state.value.devices = results.devices.value || [];
-      if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
-      if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
-      if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
-      if (results.cropPacks?.status === 'fulfilled') {
-        state.value.cropPacks = results.cropPacks.value || [];
-        state.value.cropPackDetails = state.value.cropPacks;
-      }
-      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
-      if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
-      if (results.inspections?.status === 'fulfilled') {
-        state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
-      }
-      state.value.feedItems = buildLiveFeedItems({
-        alerts: state.value.alerts,
-        workOrders: state.value.workOrders,
-        inspections: state.value.inspections,
-        plots: state.value.allPlots
-      });
-      if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
       return { timedOut: timedOut.length > 0, failed: failed.length > 0 };
     };
@@ -2277,67 +2313,110 @@ const app = createApp({
           return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
         })()
       };
-      const settled = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
-        key,
-        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
-      ])).then(Object.fromEntries);
-      const applied = settled.then((results) => {
+      // Keep one mutable snapshot so fast responses can paint immediately and
+      // slower overview cards can enrich the same plots when they arrive.
+      const partialResults = {};
+      const applySnapshot = (results) => {
         if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
-        const failures = Object.entries(results)
-          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
-          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
-        const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
-        const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : (state.value.overview || {});
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const farms = fulfilled('farms') ? (results.farms.value || []) : (state.value.farms || []);
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
         const cards = Array.isArray(overview.plots) ? overview.plots : [];
-        const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
-        const rawPlots = results.plots?.status === 'fulfilled'
-          ? (results.plots.value || [])
+        const rawPlots = fulfilled('plots') ? (results.plots.value || []) : [];
+        const previousPlots = fulfilled('plots') && fulfilled('overview')
+          ? []
           : (state.value.allPlots || state.value.plots || []);
-        const plots = (rawPlots.length ? rawPlots : cards).map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+        const plots = mergeOverviewPlotRecords(rawPlots, cards, previousPlots);
         const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
         const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
-        const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : state.value.workOrders;
-        const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : state.value.alerts;
-        const simulator = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
-        const systemStatus = results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {};
+        const workOrders = fulfilled('workOrders') ? (results.workOrders.value || []) : (state.value.workOrders || []);
+        const alerts = fulfilled('alerts') ? (results.alerts.value || []) : (state.value.alerts || []);
+        const simulator = fulfilled('simulator') ? results.simulator.value : (state.value.simulatorStatus || {});
+        const systemStatus = fulfilled('systemStatus') ? (results.systemStatus.value || {}) : {};
         const cardDevices = cards.map((card) => card?.device && ({
           ...card.device,
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
         const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
-        state.value.farms = farms;
-        state.value.overview = overview;
+        state.value.farms = fulfilled('farms') ? farms : state.value.farms;
+        state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         state.value.allPlots = plots;
-        state.value.workOrders = workOrders || [];
-        state.value.alerts = alerts || [];
+        state.value.workOrders = fulfilled('workOrders') ? workOrders : state.value.workOrders;
+        state.value.alerts = fulfilled('alerts') ? alerts : state.value.alerts;
         state.value.devices = devices;
         state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
         state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
-        state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
-        state.value.simulatorStatus = simulator || state.value.simulatorStatus;
-        state.value.adminOverview = adminOverviewFromLive({
-            overview,
-            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
-            systemStatus,
-          simulator: simulator || {},
-          alerts: alerts || [],
+        state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
+        state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
+        const recentEvents = alerts.slice(0, 8).map((alert, index) => ({
+          id: `alert:${alert.alertId || alert.id || index}`,
+          category: 'alert', icon: 'warning',
+          title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
+        }));
+        const nextOverview = adminOverviewFromLive({
+          overview,
+          plots,
+          systemStatus,
+          simulator,
+          alerts,
           devices,
-          recentEvents: (alerts || []).slice(0, 8).map((alert, index) => ({
-            id: `alert:${alert.alertId || alert.id || index}`,
-            category: 'alert', icon: 'warning',
-            title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
-            time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
-            traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
-          }))
+          recentEvents
         });
+        // Partial application must not erase service health or SSE events that
+        // were already visible while the status/alert request is still pending.
+        if (!fulfilled('systemStatus') && state.value.adminOverview?.services) {
+          nextOverview.services = state.value.adminOverview.services;
+          nextOverview.uptime = state.value.adminOverview.uptime || nextOverview.uptime;
+          nextOverview.apiVersion = state.value.adminOverview.apiVersion || nextOverview.apiVersion;
+        }
+        if (!fulfilled('alerts') && !fulfilled('overview') && state.value.adminOverview?.recentEvents?.length) {
+          nextOverview.recentEvents = state.value.adminOverview.recentEvents;
+        }
+        state.value.adminOverview = { ...state.value.adminOverview, ...nextOverview };
         state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.allPlots });
+      };
+
+      // Attach handlers to the original requests as well as the budgeted
+      // wrappers.  A request that misses the 2.2s first-paint budget can still
+      // fill in metrics and health later without waiting for all other jobs.
+      Object.entries(jobs).forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+        });
+      });
+      const budgeted = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
+      ])).then(Object.fromEntries);
+      const applied = budgeted.then((results) => {
+        Object.assign(partialResults, results);
+        applySnapshot(partialResults);
+        const failures = Object.entries(results)
+          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
+          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
         if (failures.length && announceErrors && failures.length === Object.keys(jobs).length) {
           showToast(`平台核心数据暂不可用：${failures.join('；')}`, 'error');
         }
+        return results;
       });
-      return { visible: waitForBootstrapBudget(applied), settled: applied };
+      const settled = Promise.all(Object.entries(jobs).map(([key, promise]) =>
+        Promise.resolve(promise).then(
+          (value) => [key, { status: 'fulfilled', value }],
+          (reason) => [key, { status: 'rejected', reason }]
+        )
+      )).then((entries) => {
+        Object.assign(partialResults, Object.fromEntries(entries));
+        applySnapshot(partialResults);
+        return Object.fromEntries(entries);
+      });
+      return { visible: waitForBootstrapBudget(applied), settled };
     };
 
     const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {
@@ -2377,8 +2456,10 @@ const app = createApp({
       const rawPlots = results.plots?.status === 'fulfilled' ? (results.plots.value || []) : [];
       const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : {};
       const overviewCards = Array.isArray(overview.plots) ? overview.plots : [];
-      const cardMap = new Map(overviewCards.map((card) => [String(card.plotId), card]));
-      const plots = rawPlots.map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+      const previousPlots = results.plots?.status === 'fulfilled' && results.overview?.status === 'fulfilled'
+        ? []
+        : (state.value.allPlots || state.value.plots || []);
+      const plots = mergeOverviewPlotRecords(rawPlots, overviewCards, previousPlots);
       const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
       const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
       const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : [];
