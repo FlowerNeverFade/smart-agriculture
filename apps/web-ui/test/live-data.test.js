@@ -23,7 +23,7 @@ import {
 } from '../js/live-data.js';
 
 test('presentation helpers localize shared technical labels without changing identifiers', () => {
-  assert.equal(serviceNameLabel('MQTT Broker'), 'MQTT 消息代理');
+  assert.equal(serviceNameLabel('MQTT Broker'), '设备消息代理');
   assert.equal(serviceStatusLabel('DEGRADED'), '降级');
   assert.equal(sourceLabel('SIMULATED'), '模拟数据');
   assert.equal(scenarioLabel('SENSOR_DRIFT'), '传感器漂移');
@@ -58,7 +58,7 @@ test('timeline cards ignore epoch placeholders and keep actionable summaries', (
     at: '2026-08-26T10:00:00Z',
     record: { plotId: 'plot-a01', riskType: 'DEVICE_FAULT', diagnosisId: 'diag-1' }
   });
-  assert.equal(record.summary, '诊断完成：DEVICE_FAULT');
+  assert.equal(record.summary, '诊断完成：设备异常');
   assert.equal(record.typeLabel, '诊断');
 });
 
@@ -70,8 +70,8 @@ test('agent surfaces show the generated narrative instead of the card summary', 
     narrative: '**当前地块状态**\n土壤湿度正常。'
   };
   assert.equal(agentResponseText(response), '当前地块状态\n土壤湿度正常。');
-  assert.equal(agentResponseSource(response), 'Qwen 实时回答');
-  assert.equal(agentResponseSource({ degraded: true, adapter: 'openai-compatible' }), '规则降级回答');
+  assert.equal(agentResponseSource(response), '实时模型回答');
+  assert.equal(agentResponseSource({ degraded: true, adapter: 'openai-compatible' }), '安全降级回答');
   assert.equal(agentResponseText({ summary: '规则摘要' }), '规则摘要');
 });
 

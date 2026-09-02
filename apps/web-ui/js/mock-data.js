@@ -8,7 +8,7 @@ import { EXTENDED_CROP_PACK_DETAILS } from './crop-guidance-extended.js';
 export const MOCK_DATA = {
   system: {
     mode: "standalone",
-    aiMode: "rules-only",
+    aiMode: "openai-compatible",
     database: "UP",
     redis: "UP",
     redisStream: "agri.telemetry",
@@ -93,6 +93,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a01",
       name: "温室1",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "番茄",
       cropVariety: "示范番茄",
@@ -123,6 +124,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a02",
       name: "温室2",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "番茄",
       cropVariety: "示范番茄",
@@ -153,6 +155,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b01",
       name: "温室3",
+      facilityType: "GREENHOUSE",
       cropCode: "cucumber",
       cropName: "黄瓜",
       cropVariety: "示范黄瓜",
@@ -183,6 +186,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-a03",
       name: "A03 扩展玉米田",
+      facilityType: "OPEN_FIELD",
       cropCode: "corn",
       cropName: "鲜食玉米",
       cropVariety: "甜糯双色 8 号",
@@ -213,6 +217,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b02",
       name: "B02 向日葵花海",
+      facilityType: "OPEN_FIELD",
       cropCode: "sunflower",
       cropName: "油葵花海",
       cropVariety: "金色阳光 3 号",
@@ -243,6 +248,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-b03",
       name: "B03 草莓精品区",
+      facilityType: "SHADE_HOUSE",
       cropCode: "strawberry",
       cropName: "红颊草莓",
       cropVariety: "红颜高架草莓",
@@ -273,6 +279,7 @@ export const MOCK_DATA = {
     {
       plotId: "plot-c01",
       name: "C01 智能连栋温室",
+      facilityType: "GREENHOUSE",
       cropCode: "tomato",
       cropName: "设施番茄",
       cropVariety: "荷兰瑞克斯水果番茄",
@@ -313,7 +320,7 @@ export const MOCK_DATA = {
       timestamp: "5 分钟前",
       timeIso: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       badge: { text: "WATER_DEFICIT", color: "amber" },
-      author: { name: "AgriLoop 规则与诊断内核", tag: "智能内核", avatar: "🤖" },
+      author: { name: "农智闭环规则与诊断内核", tag: "智能内核", avatar: "🤖" },
       summary: "土壤湿度降至 16.8%（低于番茄结果期基线 20%），系统已完成干旱与传感器漂移分流校验，确认数据质量良好，置信度 92%。",
       details: {
         primaryCause: "缺水风险（真实土壤缺水）",
@@ -727,6 +734,49 @@ export const MOCK_DATA = {
     activeConflicts: 0,
     status: "FEASIBLE"
   },
+
+  resourceRequests: [
+    {
+      resourceRequestId: "resource-request-demo-a01",
+      farmId: "farm-demo",
+      plotId: "plot-a01",
+      requestedLitres: 120.0,
+      preferredStart: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      preferredEnd: new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString(),
+      constraints: "避开采摘时段，现场人员 14:00 后可配合",
+      note: "叶片轻微萎蔫，请结合最新湿度复核。",
+      status: "SUBMITTED",
+      requestedBy: "user-farmer",
+      requestedByName: "farmer",
+      requestedByRole: "FARMER",
+      revision: 1,
+      createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+      provenance: "USER_PROVIDED",
+      sourceMode: "SIMULATION",
+      history: []
+    },
+    {
+      resourceRequestId: "resource-request-demo-a02",
+      farmId: "farm-demo",
+      plotId: "plot-a02",
+      requestedLitres: 90.0,
+      allocatedLitres: 60.0,
+      preferredStart: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+      preferredEnd: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+      responseNote: "16:00 前温室有人作业，请调整到 16:30 后。",
+      status: "CONFLICT_REPORTED",
+      requestedBy: "user-farmer",
+      requestedByName: "farmer",
+      requestedByRole: "FARMER",
+      revision: 3,
+      createdAt: new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString(),
+      updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      provenance: "USER_PROVIDED",
+      sourceMode: "SIMULATION",
+      history: []
+    }
+  ],
 
   cropPacks: [
     {
@@ -1295,13 +1345,13 @@ export const MOCK_DATA = {
 
 
   adminGlobalPlots: [
-    { id: 'plot-a01', name: '一区', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%' } },
-    { id: 'plot-a02', name: '二区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%' } },
-    { id: 'plot-b01', name: '三区', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%' } },
-    { id: 'plot-a03', name: 'A03 展厅', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%' } },
-    { id: 'plot-b02', name: 'B02 水培区', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%' } },
-    { id: 'plot-b03', name: 'B03 草莓新品区', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%' } },
-    { id: 'plot-c01', name: 'C01 区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%' } }
+    { id: 'plot-a01', name: '一区', farm: '农智示范农场', crop: '番茄', status: 'CRITICAL', updated: '刚刚', issue: '土壤湿度偏低', metrics: { SOIL_MOISTURE: '16.8%', AIR_TEMPERATURE: '26.4°C', LIGHT: '43500 lux', CO2: '680 ppm', PH: '6.3', WATER_LEVEL: '42%', AIR_HUMIDITY: '64.2%RH', RAINFALL: '0.4mm/h', NITROGEN: '131mg/kg', PHOSPHORUS: '38mg/kg', POTASSIUM: '184mg/kg' } },
+    { id: 'plot-a02', name: '二区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '28.5%', AIR_TEMPERATURE: '27.2°C', LIGHT: '46800 lux', CO2: '710 ppm', PH: '6.4', WATER_LEVEL: '68%', AIR_HUMIDITY: '61.7%RH', RAINFALL: '0.2mm/h', NITROGEN: '125mg/kg', PHOSPHORUS: '42mg/kg', POTASSIUM: '176mg/kg' } },
+    { id: 'plot-b01', name: '三区', farm: '农智示范农场', crop: '黄瓜', status: 'WARNING', updated: '刚刚', issue: '湿度略低于目标', metrics: { SOIL_MOISTURE: '26.2%', AIR_TEMPERATURE: '25.8°C', LIGHT: '41200 lux', CO2: '660 ppm', PH: '6.2', WATER_LEVEL: '72%', AIR_HUMIDITY: '68.5%RH', RAINFALL: '0.6mm/h', NITROGEN: '142mg/kg', PHOSPHORUS: '50mg/kg', POTASSIUM: '192mg/kg' } },
+    { id: 'plot-a03', name: 'A03 展厅', farm: '农智示范农场', crop: '玉米', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '29%', AIR_TEMPERATURE: '27°C', LIGHT: '45000 lux', CO2: '700 ppm', PH: '6.5', WATER_LEVEL: '70%', AIR_HUMIDITY: '60.0%RH', RAINFALL: '0mm/h', NITROGEN: '155mg/kg', PHOSPHORUS: '46mg/kg', POTASSIUM: '205mg/kg' } },
+    { id: 'plot-b02', name: 'B02 水培区', farm: '农智示范农场', crop: '向日葵', status: 'HEALTHY', updated: '1分钟前', metrics: { SOIL_MOISTURE: '24.8%', AIR_TEMPERATURE: '27.6°C', LIGHT: '52000 lux', CO2: '690 ppm', PH: '6.4', WATER_LEVEL: '65%', AIR_HUMIDITY: '58.9%RH', RAINFALL: '0.1mm/h', NITROGEN: '118mg/kg', PHOSPHORUS: '36mg/kg', POTASSIUM: '214mg/kg' } },
+    { id: 'plot-b03', name: 'B03 草莓新品区', farm: '农智示范农场', crop: '草莓', status: 'HEALTHY', updated: '2分钟前', metrics: { SOIL_MOISTURE: '31%', AIR_TEMPERATURE: '23.8°C', LIGHT: '38000 lux', CO2: '740 ppm', PH: '6.1', WATER_LEVEL: '60%', AIR_HUMIDITY: '70.4%RH', RAINFALL: '0.3mm/h', NITROGEN: '109mg/kg', PHOSPHORUS: '43mg/kg', POTASSIUM: '168mg/kg' } },
+    { id: 'plot-c01', name: 'C01 区', farm: '农智示范农场', crop: '番茄', status: 'HEALTHY', updated: '刚刚', metrics: { SOIL_MOISTURE: '32.5%', AIR_TEMPERATURE: '24.5°C', LIGHT: '45000 lux', CO2: '820 ppm', PH: '6.3', WATER_LEVEL: '75%', AIR_HUMIDITY: '66.8%RH', RAINFALL: '0.2mm/h', NITROGEN: '136mg/kg', PHOSPHORUS: '40mg/kg', POTASSIUM: '188mg/kg' } }
   ],
 
   adminOverview: {
@@ -1324,7 +1374,7 @@ export const MOCK_DATA = {
       { name: 'Redis Streams', status: 'UP', pending: 12, lag: '0.2s' },
       { name: 'MQTT Broker', status: 'UP', connections: 8, messagesPerSec: 45 },
       { name: 'SSE Gateway', status: 'UP', activeSessions: 3 },
-      { name: 'API Service', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
+      { name: '接口服务', status: 'UP', requestsPerMin: 120, p99: '85ms', version: '1.4.0' },
       { name: '智能模型服务', status: 'UP', mode: 'full' }
     ],
     recentEvents: [
@@ -1431,11 +1481,11 @@ export const MOCK_DATA = {
   ],
 
   adminSimHistory: [
-    { scenarioId: 'sim-20260825-001', type: '正常运行', startTime: '08:00', endTime: null, events: 1847, status: 'RUNNING' },
-    { scenarioId: 'sim-20260824-003', type: '干旱场景', startTime: '前日 14:00', endTime: '前日 16:30', events: 892, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260824-002', type: '暴雨场景', startTime: '前日 10:00', endTime: '前日 12:15', events: 1203, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260824-001', type: '传感器漂移', startTime: '前日 07:00', endTime: '前日 08:30', events: 456, status: 'COMPLETED' },
-    { scenarioId: 'sim-20260823-001', type: '设备离线恢复', startTime: '前2日 15:00', endTime: '前2日 16:00', events: 312, status: 'COMPLETED' }
+    { scenarioId: 'sim-20260825-001', type: '正常运行', plotId: 'plot-a01', startTime: '08:00', endTime: null, events: 1847, status: 'RUNNING' },
+    { scenarioId: 'sim-20260824-003', type: '干旱场景', plotId: 'plot-a02', startTime: '前日 14:00', endTime: '前日 16:30', events: 892, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-002', type: '暴雨场景', plotId: 'plot-b01', startTime: '前日 10:00', endTime: '前日 12:15', events: 1203, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260824-001', type: '传感器漂移', plotId: 'plot-a01', startTime: '前日 07:00', endTime: '前日 08:30', events: 456, status: 'COMPLETED' },
+    { scenarioId: 'sim-20260823-001', type: '设备离线恢复', plotId: 'plot-b02', startTime: '前2日 15:00', endTime: '前2日 16:00', events: 312, status: 'COMPLETED' }
   ],
 
   adminCropPacks: [
@@ -1507,7 +1557,7 @@ export const MOCK_DATA = {
         "系统已完成干旱与传感器漂移分流校验，置信度 92%，判定为真实缺水。",
         "建议先结合现场巡田核实；安全门通过后，当前操作人可确认并执行补水处方。"
       ],
-      sender: "AgriLoop 监测内核",
+      sender: "农智闭环监测内核",
       read: false,
       time_iso: new Date(Date.now() - 8 * 60 * 1000).toISOString(),
       time_label: "8 分钟前"
@@ -1565,7 +1615,7 @@ export const MOCK_DATA = {
       body_paragraphs: [
         "系统已针对 温室1缺水风险生成结构化灌溉处方。",
         "建议时长 8.5 分钟，水量 153 升，预计土壤湿度由 16.8% 回升至 30.0%。",
-        "处方无需管理员审批；请核对地块、水量和安全门后确认执行，系统将回传虚拟命令 ACK 与效果评价。"
+        "处方无需管理员审批；请核对地块、水量和安全门后确认执行，系统将回传虚拟命令执行回执与效果评价。"
       ],
       sender: "处方决策引擎",
       read: false,

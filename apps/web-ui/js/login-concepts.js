@@ -4,6 +4,7 @@ const growthFrames = [...document.querySelectorAll('[data-growth-frame]')];
 const growthProgress = document.getElementById('growthProgress');
 const growthStatus = document.getElementById('growthStatus');
 const motionToggle = document.getElementById('motionToggle');
+const forgotPassword = document.getElementById('forgotPassword');
 const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 const GROWTH_DURATION = 9200;
@@ -116,5 +117,9 @@ document.addEventListener('visibilitychange', () => {
 });
 
 window.addEventListener('pagehide', () => cancelAnimationFrame(animationFrame));
+
+forgotPassword?.addEventListener('click', () => {
+  window.location.assign('login.html?view=recovery');
+});
 
 Promise.all(growthFrames.map((frame) => frame.decode().catch(() => null))).then(startGrowth);

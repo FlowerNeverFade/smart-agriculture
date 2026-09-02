@@ -1,6 +1,6 @@
-import { ApiError, api } from './api.js?v=20260831-sync-v1';
+import { ApiError, api } from './api.js?v=20260902-ai-direct-v2';
 import { createAmbientLiquidField } from './login-webgl.js';
-import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260831-sync-v1';
+import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 
 const authViews = [...document.querySelectorAll('[data-auth-view]')];
 const glassPanel = document.querySelector('.auth');
@@ -13,6 +13,12 @@ const loginError = document.getElementById('loginError');
 const registerForm = document.getElementById('registerForm');
 const registerUsername = document.getElementById('registerUsername');
 const registerRole = document.getElementById('registerRole');
+const registerRoleNote = document.getElementById('registerRoleNote');
+const registerFarmProfileFields = document.getElementById('registerFarmProfileFields');
+const registerFarmName = document.getElementById('registerFarmName');
+const registerFarmRegion = document.getElementById('registerFarmRegion');
+const systemAdminAuthorizationField = document.getElementById('systemAdminAuthorizationField');
+const registerAuthorizationCode = document.getElementById('registerAuthorizationCode');
 const registerPassword = document.getElementById('registerPassword');
 const registerConfirm = document.getElementById('registerConfirm');
 const registerButton = document.getElementById('registerButton');
@@ -48,6 +54,30 @@ let backgroundController = null;
 let pendingRegistration = null;
 let recoveryCodeContext = 'register';
 
+const REGISTRATION_ROLE_NOTES = Object.freeze({
+  FARMER: '种植农户将加入示范农场并获得默认地块；注册成功后会生成一次性账户恢复码。',
+  FARM_ADMIN: '农场管理员将获得独立的空农场；进入总览后可添加第一块地，也可以稍后配置。',
+  SYSTEM_ADMIN: '系统管理员拥有全平台范围，必须使用服务端配置的授权码；该账号创建后受永久保护。'
+});
+
+function syncRegistrationRole() {
+  if (!registerRole) return;
+  const role = registerRole.value || 'FARMER';
+  const needsAuthorization = role === 'SYSTEM_ADMIN';
+  const needsFarmProfile = role === 'FARM_ADMIN';
+  registerFarmProfileFields.hidden = !needsFarmProfile;
+  registerFarmName.required = needsFarmProfile;
+  registerFarmRegion.required = needsFarmProfile;
+  if (!needsFarmProfile) {
+    registerFarmName.value = '';
+    registerFarmRegion.value = '';
+  }
+  systemAdminAuthorizationField.hidden = !needsAuthorization;
+  registerAuthorizationCode.required = needsAuthorization;
+  if (!needsAuthorization) registerAuthorizationCode.value = '';
+  registerRoleNote.textContent = REGISTRATION_ROLE_NOTES[role] || REGISTRATION_ROLE_NOTES.FARMER;
+}
+
 function syncTaskMode() {
   const tasking = document.activeElement?.matches('.auth input, .auth select, .auth [role="combobox"]') ?? false;
   document.body.classList.toggle('is-tasking', tasking);
@@ -66,11 +96,13 @@ function showToast(message) {
 }
 
 function setFormError(form, target, message) {
+  if (!form || !target) return;
   target.textContent = message;
   form.classList.toggle('has-error', Boolean(message));
 }
 
 function setLoading(button, loading) {
+  if (!button) return;
   button.disabled = loading;
   button.classList.toggle('is-loading', loading);
 }
@@ -238,6 +270,7 @@ function enhanceRoleSelect(select) {
 }
 
 function focusRoleSelect(select) {
+  if (!select) return;
   const controller = customSelectControllers.get(select);
   if (controller) controller.focus();
   else select.focus();
@@ -246,9 +279,9 @@ function focusRoleSelect(select) {
 function switchView(name, focusTarget = null) {
   closeCustomSelects();
   authViews.forEach((view) => { view.hidden = view.dataset.authView !== name; });
-  glassPanel.dataset.view = name;
-  demoPanel.hidden = true;
-  demoToggle.setAttribute('aria-expanded', 'false');
+  if (glassPanel) glassPanel.dataset.view = name;
+  if (demoPanel) demoPanel.hidden = true;
+  demoToggle?.setAttribute('aria-expanded', 'false');
   setFormError(loginForm, loginError, '');
   setFormError(registerForm, registerError, '');
   setFormError(recoveryForm, recoveryError, '');
@@ -353,6 +386,9 @@ async function submitRegistration(event) {
   const account = registerUsername.value.trim().toLowerCase();
   const selectedRole = registerRole.value;
   const secret = registerPassword.value;
+  const authorizationCode = registerAuthorizationCode.value.trim();
+  const farmName = registerFarmName.value.trim();
+  const farmRegion = registerFarmRegion.value.trim();
 
   if (!validateUsername(account)) {
     setFormError(registerForm, registerError, '账号需为 4–32 位字母、数字、点、下划线或短横线');
@@ -374,14 +410,36 @@ async function submitRegistration(event) {
     registerConfirm.focus();
     return;
   }
+  if (selectedRole === 'SYSTEM_ADMIN' && !authorizationCode) {
+    setFormError(registerForm, registerError, '创建系统管理员必须填写服务端授权码');
+    registerAuthorizationCode.focus();
+    return;
+  }
+  if (selectedRole === 'FARM_ADMIN' && (farmName.length < 2 || farmName.length > 60)) {
+    setFormError(registerForm, registerError, '农场名称需为 2–60 个字符');
+    registerFarmName.focus();
+    return;
+  }
+  if (selectedRole === 'FARM_ADMIN' && (farmRegion.length < 2 || farmRegion.length > 80)) {
+    setFormError(registerForm, registerError, '所在地区需为 2–80 个字符');
+    registerFarmRegion.focus();
+    return;
+  }
 
   setFormError(registerForm, registerError, '');
   setLoading(registerButton, true);
   try {
-    const result = await api.register({ username: account, password: secret, role: selectedRole });
+    const result = await api.register({
+      username: account,
+      password: secret,
+      role: selectedRole,
+      authorizationCode,
+      farmProfile: selectedRole === 'FARM_ADMIN' ? { name: farmName, region: farmRegion } : undefined
+    });
     pendingRegistration = { token: result.accessToken, user: presentUser(result.user) };
     showRecoveryCode(result.recoveryCode, 'register');
     registerForm.reset();
+    syncRegistrationRole();
   } catch (error) {
     const message = error instanceof ApiError && error.isNetworkError
       ? '注册需要连接账户服务，请检查后端后重试'
@@ -492,8 +550,8 @@ document.querySelectorAll('[data-reveal]').forEach((button) => {
   });
 });
 
-document.getElementById('showRegister').addEventListener('click', () => switchView('register', registerUsername));
-document.getElementById('showRecovery').addEventListener('click', () => {
+document.getElementById('showRegister')?.addEventListener('click', () => switchView('register', registerUsername));
+document.getElementById('showRecovery')?.addEventListener('click', () => {
   recoveryUsername.value = username.value.trim();
   switchView('recovery', recoveryUsername.value ? recoveryCodeInput : recoveryUsername);
 });
@@ -501,13 +559,13 @@ document.querySelectorAll('[data-back-to-login]').forEach((button) => {
   button.addEventListener('click', () => switchView('login', username));
 });
 
-demoToggle.addEventListener('click', () => {
+demoToggle?.addEventListener('click', () => {
   const willOpen = demoPanel.hidden;
   demoPanel.hidden = !willOpen;
   demoToggle.setAttribute('aria-expanded', String(willOpen));
 });
 
-demoPanel.querySelectorAll('[data-user]').forEach((button) => {
+demoPanel?.querySelectorAll('[data-user]').forEach((button) => {
   button.addEventListener('click', () => {
     const account = button.dataset.user;
     const user = demoUserFor(account);
@@ -524,10 +582,13 @@ demoPanel.querySelectorAll('[data-user]').forEach((button) => {
   });
 });
 
-[loginRole, registerRole].forEach((select) => {
+[loginRole, registerRole].filter(Boolean).forEach((select) => {
   const controller = enhanceRoleSelect(select);
   if (controller) customSelectControllers.set(select, controller);
 });
+
+registerRole?.addEventListener('change', syncRegistrationRole);
+syncRegistrationRole();
 
 document.addEventListener('pointerdown', (event) => {
   customSelectControllers.forEach((controller, select) => {
@@ -535,17 +596,18 @@ document.addEventListener('pointerdown', (event) => {
   });
 });
 
-loginForm.addEventListener('submit', submitLogin);
-registerForm.addEventListener('submit', submitRegistration);
-recoveryForm.addEventListener('submit', submitRecovery);
-copyRecoveryCode.addEventListener('click', copyCode);
-recoveryCodeContinue.addEventListener('click', continueAfterRecoveryCode);
+loginForm?.addEventListener('submit', submitLogin);
+registerForm?.addEventListener('submit', submitRegistration);
+recoveryForm?.addEventListener('submit', submitRecovery);
+copyRecoveryCode?.addEventListener('click', copyCode);
+recoveryCodeContinue?.addEventListener('click', continueAfterRecoveryCode);
 
 [
   [loginForm, loginError],
   [registerForm, registerError],
   [recoveryForm, recoveryError]
 ].forEach(([form, error]) => {
+  if (!form || !error) return;
   form.addEventListener('input', () => {
     if (error.textContent) setFormError(form, error, '');
   });
@@ -575,11 +637,16 @@ if (previewUser) {
     window.location.replace(target);
   } else {
     if (storedSession?.mode === 'demo') api.clearSession();
-    backgroundController = createAmbientLiquidField({
-      canvas: liquidCanvas,
-      fallback: liquidFallback,
-      glassPanel
-    });
+    if (liquidCanvas && liquidFallback) {
+      backgroundController = createAmbientLiquidField({
+        canvas: liquidCanvas,
+        fallback: liquidFallback,
+        glassPanel
+      });
+    }
+    if (previewParams.get('view') === 'recovery' && recoveryUsername) {
+      switchView('recovery', recoveryUsername);
+    }
     syncTaskMode();
     requestAnimationFrame(() => document.body.classList.add('is-mounted'));
   }

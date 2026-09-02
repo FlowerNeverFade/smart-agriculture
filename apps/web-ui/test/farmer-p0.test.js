@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { metricLabel } from '../js/live-data.js';
+import { buildLiveFeedItems, metricLabel, normalizeFarmerTask } from '../js/live-data.js';
+import { loadReadMessageIds, messageReadStorageKey, saveReadMessageIds } from '../js/message-read-state.js';
 import { MOCK_DATA } from '../js/mock-data.js';
 import { canExecuteIrrigation, roleCan } from '../js/roles.js';
 
@@ -12,7 +13,64 @@ globalThis.localStorage ||= {
   removeItem: (key) => storage.delete(key)
 };
 
+function memoryStorage() {
+  const values = new Map();
+  return {
+    getItem: (key) => values.get(key) || null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: (key) => values.delete(key)
+  };
+}
+
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
+
+test('farmer message read state is account-scoped, durable and tolerant of bad storage', () => {
+  const store = memoryStorage();
+  const demoKey = messageReadStorageKey('demo', 'farmer:one');
+  const liveKey = messageReadStorageKey('live', 'farmer:one');
+  const otherAccountKey = messageReadStorageKey('demo', 'farmer:two');
+
+  assert.equal(demoKey, 'agriloop_read_messages:demo:farmer%3Aone');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+  store.setItem(demoKey, '{not-json');
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], []);
+
+  assert.equal(saveReadMessageIds(demoKey, ['msg-2', 'msg-1', 'msg-2', ''], store), true);
+  assert.deepEqual([...loadReadMessageIds(demoKey, store)], ['msg-1', 'msg-2']);
+  assert.deepEqual([...loadReadMessageIds(liveKey, store)], []);
+  assert.deepEqual([...loadReadMessageIds(otherAccountKey, store)], []);
+  assert.equal(saveReadMessageIds(demoKey, ['msg-3'], { setItem() { throw new Error('quota'); } }), false);
+});
+
+test('legacy farmer task records retain an actionable work-order identity', () => {
+  const task = normalizeFarmerTask({ id: 'ft-demo', status: 'IN_PROGRESS', title: '演示任务' });
+  assert.equal(task.id, 'ft-demo');
+  assert.equal(task.workOrderId, 'ft-demo');
+});
+
+test('demo farmer task issue reporting keeps task state and admin visibility in one idempotent flow', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', permissions: [] } });
+  const created = await service.createWorkOrder({ farmId: 'farm-demo', plotId: 'plot-a01', title: '问题上报演示任务', reason: '检查滴灌设施', actionType: 'INSPECTION', priority: 'HIGH' });
+  await service.assignWorkOrder(created.workOrderId, { assigneeId: 'user-farmer' });
+  service.saveSession({ mode: 'demo', user: { userId: 'user-farmer', username: 'farmer', role: 'FARMER', permissions: [] } });
+
+  const report = await service.reportWorkOrderIssue(created.workOrderId, { description: '北侧滴灌管接头持续漏水，无法按计划完成补水' });
+  assert.equal(report.sourceType, 'FARMER_REPORT');
+  assert.equal(report.reason, '北侧滴灌管接头持续漏水，无法按计划完成补水');
+  assert.equal(report.sourceWorkOrderId, created.workOrderId);
+  assert.equal(report.reused, false);
+  const repeated = await service.reportWorkOrderIssue(created.workOrderId, { description: '北侧滴灌管接头持续漏水，无法按计划完成补水' });
+  assert.equal(repeated.workOrderId, report.workOrderId);
+  assert.equal(repeated.reused, true);
+  assert.equal((await service.getWorkOrders()).some((item) => item.workOrderId === report.workOrderId), false);
+
+  service.saveSession({ mode: 'demo', user: { userId: 'user-admin', username: 'admin', role: 'FARM_ADMIN', permissions: [] } });
+  assert.equal((await service.getWorkOrders()).some((item) => item.workOrderId === report.workOrderId), true);
+  const feed = buildLiveFeedItems({ workOrders: [report] });
+  assert.equal(feed[0].category, '农户问题上报');
+  assert.match(feed[0].summary, /北侧滴灌管接头持续漏水/);
+});
 
 test('demo P0 contracts expose deterministic guard, dual branches and direct farmer execution', async () => {
   const service = new ApiService();
@@ -56,6 +114,7 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(plan.executable, true);
   const beforeMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
   const beforeTelemetry = (await service.getTelemetry(plan.plotId, 'SOIL_MOISTURE', 1))[0].value;
+  const beforeWaterBalance = (await service.getWaterResourceProfile()).remainingLitres;
   await assert.rejects(
     () => service.executeIrrigation(plan.planId, plan.plotId, { idempotencyKey: 'direct-farmer-key' }),
     (error) => error.code === 'CONFIRMATION_REQUIRED'
@@ -72,6 +131,8 @@ test('demo P0 contracts expose deterministic guard, dual branches and direct far
   assert.equal(firstCommand.approvalRequired, false);
   assert.equal(firstCommand.confirmationMode, 'OPERATOR_CONFIRMED');
   assert.equal(firstCommand.ack.status, 'SUCCEEDED');
+  const afterWaterBalance = (await service.getWaterResourceProfile()).remainingLitres;
+  assert.equal(afterWaterBalance, Number((beforeWaterBalance - firstCommand.ack.actualWaterLitre).toFixed(1)));
   const afterMoisture = (await service.getPlots()).find((plot) => plot.plotId === plan.plotId).metrics.SOIL_MOISTURE.value;
   const expectedDelta = moistureDeltaFromWater(firstCommand.ack.actualWaterLitre, 80);
   assert.ok(Math.abs(afterMoisture - (beforeMoisture + expectedDelta)) < 0.2);
@@ -128,12 +189,12 @@ test('demo blocked irrigation exposes manual fallback and updates virtual soil m
   assert.notEqual(second.commandId, command.commandId);
 });
 
-test('demo normal and no-action irrigation never expose manual fallback', async () => {
+test('demo normal and no-action irrigation keep the manual irrigation entry available', async () => {
   storage.clear();
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'manual-fallback-gates', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:request', 'irrigation:execute'] } });
   const normal = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-normal-gate' });
-  assert.equal(normal.manualFallback.available, false);
+  assert.equal(normal.manualFallback.available, true);
 
   const plot = service.demoPlots.get('plot-a01');
   service.demoPlots.set('plot-a01', {
@@ -142,23 +203,34 @@ test('demo normal and no-action irrigation never expose manual fallback', async 
   });
   const noAction = await service.estimateIrrigation({ plotId: 'plot-a01', scenarioId: 'normal', traceId: 'manual-no-action-gate' });
   assert.equal(noAction.status, 'NO_ACTION');
-  assert.equal(noAction.manualFallback.available, false);
+  assert.equal(noAction.manualFallback.available, true);
+  const beforeBalance = (await service.getWaterResourceProfile()).remainingLitres;
+  const manual = await service.executeManualIrrigation({
+    plotId: 'plot-a01',
+    sourcePlanId: noAction.planId,
+    waterLitre: 10,
+    confirmed: true,
+    idempotencyKey: 'manual-no-action-execution'
+  });
+  assert.equal(manual.manualOverride, true);
+  assert.equal((await service.getWaterResourceProfile()).remainingLitres, beforeBalance - 10);
 });
 
 test('farmer page keeps P0 evidence and exposes risk prediction under more tools', async () => {
-  const [html, source, presentation] = await Promise.all([
+  const [html, source, presentation, css] = await Promise.all([
     readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
     readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
-    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8')
+    readFile(new URL('../js/agent-presentation.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
   ]);
   const farmerSurface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功']) {
+  for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '常规处方需要人工复核', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
-  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测', 'executeManualIrrigation', 'manualFallback', 'show_no_action_reason', 'manual_irrigation_water']) {
+  for (const marker of ['更多工具', '风险预测', '作物培养手册', '未来预测', '历史 \\+ 策略预测', '参数尚未保存', 'plot_simulation_form', 'risk_tool_plot_id', 'wait_for_irrigation_completion', 'refresh_plot_telemetry', '双轨对比', '措施后预测', '不干预预测', 'executeManualIrrigation', 'manualFallback', 'show_no_action_reason', 'manual_irrigation_water', 'sync_task_references', 'reportWorkOrderIssue', 'task_has_active_issue_report']) {
     assert.match(html + source, new RegExp(marker));
   }
   // 双轨对比必须走后端 compareScenario（同一冻结快照与随机种子，只读不回写）。
@@ -178,6 +250,9 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /getIrrigationGuard/);
   assert.match(source, /getDecisionPassport/);
   assert.match(source, /request_missing_evidence/);
+  assert.match(source, /HUMAN_EVIDENCE_REVIEW: '复核人工现场证据'/);
+  assert.match(source, /\['NEEDS_EVIDENCE', 'UNAVAILABLE', 'BLOCKED', 'HUMAN_REVIEW'\]\.includes\(readinessGate\)/);
+  assert.match(source, /status === 'HUMAN_REVIEW'/);
   assert.match(source, /api\.executeIrrigation\(plan\.planId/);
   assert.match(source, /farmer-irrigation-\$\{plan\.planId\}/);
   assert.match(source, /load_plot_simulation/);
@@ -190,10 +265,91 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /setAutomaticWateringSetting/);
   assert.match(source, /if \(advice_is_no_action\.value\)/);
   assert.match(source, /open_no_action_reason\(\)/);
-  assert.match(html, /v-if="manual_irrigation_available"/);
+  assert.match(html, /class="g-btn secondary farmer-btn-light farmer-btn-manual-irrigation"/);
+  assert.doesNotMatch(html, /v-if="manual_irrigation_available"/);
+  assert.match(html, /farmer-irrigation-advice-grid/);
+  assert.doesNotMatch(html, /class="g-card farmer-advice-card farmer-moisture-chart-card"/);
   assert.match(html, /farmer-no-action-modal/);
   assert.match(html, /farmer-manual-irrigation-modal/);
   assert.match(html, /仅提供关闭操作|本面板不会直接执行浇灌/);
+  assert.match(html, /操作系统/);
+  assert.match(html, /farmer-operation-subsystem-tabs/);
+  assert.match(farmerSurface, /灌溉系统/);
+  assert.match(farmerSurface, /光照系统/);
+  assert.match(source, /operation_subsystem/);
+  assert.match(source, /select_operation_subsystem/);
+  assert.match(html + source, /advice_light_chart/);
+  assert.match(farmerSurface, /光照不足|光照过强/);
+  assert.match(farmerSurface, /虚拟补光（离线演示）|light_operation_label/);
+  assert.match(farmerSurface, /查看建议并执行/);
+  assert.match(farmerSurface, /查看智能诊断/);
+  assert.match(source, /open_light_advice/);
+  assert.match(source, /open_lighting_diagnosis/);
+  assert.match(source, /lighting_advice_summary/);
+  assert.match(source, /estimateLighting/);
+  assert.match(source, /getLightingGuard/);
+  assert.match(source, /lighting_readiness_summary/);
+  assert.match(source, /refresh_virtual_lighting_recovery/);
+  assert.match(source, /open_light_reinspection/);
+  assert.match(farmerSurface, /刷新回执与效果/);
+  assert.match(farmerSurface, /提交巡田复测/);
+  assert.match(source, /show_virtual_lighting,/);
+  assert.match(source, /executeVirtualLighting/);
+  assert.match(source, /virtual_lighting_duration_seconds/);
+  assert.match(source, /1 \* 60 \* 60/);
+  assert.match(source, /8 \* 60 \* 60/);
+  assert.match(source, /1h/);
+  assert.match(source, /8h/);
+  assert.match(source, /durationSeconds: preview\.durationSeconds/);
+  assert.match(farmerSurface, /选择补光时段/);
+  assert.match(source, /resolve_light_band_status/);
+  assert.match(farmerSurface, /夜间目标|夜间休息/);
+  assert.match(source, /light_target_context/);
+  assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
+  assert.match(css, /\.g-btn:not\(:disabled\):active/);
+  assert.match(css, /\.farmer-risk-mini-card:focus-visible/);
+  assert.match(css, /\.farmer-operation-subsystem-tab:not\(\.active\):hover/);
+});
+
+test('demo operation system can execute offline virtual lighting and write a light effect', async () => {
+  const service = new ApiService();
+  service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read', 'irrigation:execute'] } });
+  const plot = service.demoPlots.get('plot-a01');
+  service.demoPlots.set('plot-a01', {
+    ...plot,
+    deviceStatus: 'OFFLINE',
+    metrics: { ...plot.metrics, LIGHT: { ...plot.metrics.LIGHT, value: 1000 } }
+  });
+  try {
+    const command = await service.executeVirtualLighting({ plotId: 'plot-a01', boostLux: 6000, durationSeconds: 8 * 60 * 60, confirmed: true, allowOfflineDemo: true, idempotencyKey: `lighting-test-${Date.now()}` });
+    assert.equal(command.type, 'LIGHT_BOOST');
+    assert.equal(command.durationSeconds, 8 * 60 * 60);
+    assert.equal(command.executionMode, 'SIMULATED');
+    assert.equal(command.offlineDemoOverride, true);
+    assert.equal(service.demoPlots.get('plot-a01').metrics.LIGHT.value, 7000);
+  } finally {
+    service.demoPlots.set('plot-a01', plot);
+    service._demoSaveWorkspaceState();
+  }
+});
+
+test('farmer message center shows unread dots and marks only opened messages as read', async () => {
+  const [html, source, css] = await Promise.all([
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8'),
+    readFile(new URL('../js/farmer.js', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8')
+  ]);
+  assert.match(html, /v-if="!msg\.read" class="farmer-message-unread-dot" role="img" aria-label="未读"/);
+  assert.doesNotMatch(html, /标记已读/);
+  assert.doesNotMatch(html, /@click="mark_read/);
+  assert.match(source, /messageReadStorageKey/);
+  assert.match(source, /saveReadMessageIds/);
+  const openStart = source.indexOf('const open_message =');
+  const openEnd = source.indexOf('const open_message_from_dashboard', openStart);
+  assert.ok(openStart >= 0 && openEnd > openStart, 'single-message open handler should exist');
+  assert.match(source.slice(openStart, openEnd), /mark_message_read\(msg\)/);
+  assert.match(source, /const mark_message_read = \(msg\) =>/);
+  assert.match(css, /\.farmer-message-unread-dot\s*\{[\s\S]*?background:\s*var\(--g-danger/);
 });
 
 test('farmer can read plot simulation strategy and forecast curve', async () => {
@@ -238,8 +394,10 @@ test('farmer plot cards hide soil EC charts and localize metric codes', async ()
   ]);
   assert.doesNotMatch(source, /code:\s*['"]SOIL_EC['"]/);
   assert.doesNotMatch(html, /I-19\s*·/);
-  assert.match(html, /metric_label\(code, metric\.label\)/);
+  assert.match(html, /plot_metrics\(plot\)/);
   assert.match(html, /metric_label\(metric\.code, metric\.label\)/);
+  assert.match(html, /data-farmer-plot-id/);
+  assert.match(source, /load_plot_order_preference/);
   assert.equal(metricLabel('AIR_HUMIDITY'), '空气湿度');
   assert.equal(metricLabel('LIGHT'), '光照');
   assert.equal(metricLabel('PH'), '酸碱度');
@@ -256,10 +414,10 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(html, /current_view === 'assistant'/);
   assert.doesNotMatch(html, /farmer-ai-dock|farmer-ai-consult|show_ai_consult/);
   const surface = `${html}\n${source}\n${presentation}`;
-  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', 'Enter 发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
+  for (const marker of ['农智助手', '查看今天待办', '当前地块有什么风险', '生成当前地块补水建议', '帮我记录一次巡田', '历史对话', '新对话', '查看依据与执行记录', '回车发送', '待确认', '执行中', '已完成', '已取消', '已过期']) {
     assert.match(surface, new RegExp(marker));
   }
-  assert.match(surface, /Shift\+Enter 换行/);
+  assert.match(surface, /组合键换行/);
   assert.match(source, /id: 'assistant', label: '农智助手'/);
   assert.match(source, /assistant_drawer_open/);
   assert.match(source, /getAgentConversations/);

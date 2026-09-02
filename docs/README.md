@@ -1,8 +1,10 @@
 # AgriLoop 文档索引
 
-> 更新时间：2026-08-30
+> 更新时间：2026-09-02
 
 当前工作树只保留仍用于开发、运行、合同核对或验收追溯的文档。已完成的阶段分工、旧界面验收和截图证据由 Git 历史保存，不再与当前事实混放。
+
+当前硬件口径：BearPi E53_IA1 的串口 -> MQTT -> API -> SSE 真实遥测链路已接入并有实测记录；模拟器仍负责未接入指标和情景演示，灌溉执行仍走虚拟执行器。各文档若描述更窄的历史验收范围，应以其记录日期为准，不覆盖上述当前口径。
 
 ## 项目基线
 
@@ -23,6 +25,7 @@
 - [账号管理](account-management.md)
 - [BearPi E53_IA1 接入](hardware/bearpi-e53-ia1.md)
 - [农务执行前端说明](../apps/web-ui/FARM_OPERATIONS.md)
+- [基于合格经验的受控学习](controlled-learning.md)
 
 ## 当前验收证据
 
@@ -33,6 +36,8 @@
 - [农户端 P0 创新闭环](acceptance/FARMER_P0_ACCEPTANCE.md)
 - [农户主面板信息层级](acceptance/FARMER_DASHBOARD_ACCEPTANCE.md)
 - [农户端农智助手](acceptance/FARMER_ASSISTANT_ACCEPTANCE.md)
+- [农户端地块排序与拖拽排序](acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md)
+- [巡田记录与补证申请双角色可见](acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md)
 
 ## 历史材料
 

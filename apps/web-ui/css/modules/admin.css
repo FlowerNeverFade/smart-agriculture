@@ -663,6 +663,34 @@
 .admin-doc-editor textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-surface); color: var(--g-text-primary); font: 13px/1.5 var(--g-font-family); }
 .danger-text { color: var(--g-danger) !important; }
 .admin-form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+/* V5.9.9 controlled account creation */
+.admin-account-create-modal .admin-modal-body { max-height: min(68vh, 680px); overflow-y: auto; }
+.admin-account-scope,
+.admin-account-system-fields { display: grid; gap: 10px; margin-top: 14px; }
+.admin-account-scope { padding: 13px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-subtle); }
+.admin-account-scope > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.admin-account-scope > header div,
+.admin-account-plot-grid label span { display: grid; gap: 2px; }
+.admin-account-scope > header strong,
+.admin-account-plot-grid strong { color: var(--g-text-primary); font-size: 12px; }
+.admin-account-scope > header small,
+.admin-account-plot-grid small,
+.admin-account-scope > p { color: var(--g-text-secondary); font-size: 11px; }
+.admin-account-scope > header > span { flex: 0 0 auto; color: var(--g-primary); font-size: 11px; font-weight: 700; }
+.admin-account-scope > p { margin: 0; }
+.admin-account-plot-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px; }
+.admin-account-plot-grid label { display: flex; align-items: center; gap: 8px; margin: 0; padding: 9px 10px; border: 1px solid var(--g-border-subtle); border-radius: 7px; background: var(--g-bg-surface); cursor: pointer; }
+.admin-account-plot-grid input { width: 16px; height: 16px; margin: 0; }
+.admin-account-role-note { display: flex; align-items: flex-start; gap: 10px; margin-top: 14px; padding: 12px 13px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-subtle); }
+.admin-account-role-note > .material-symbols-outlined { flex: 0 0 auto; color: var(--g-primary); font-size: 20px; }
+.admin-account-role-note strong { color: var(--g-text-primary); font-size: 12px; }
+.admin-account-role-note p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.55; }
+.admin-account-role-note.warning { border-color: color-mix(in srgb, var(--g-warning) 36%, var(--g-border)); background: color-mix(in srgb, var(--g-warning) 8%, var(--g-bg-surface)); }
+.admin-account-role-note.warning > .material-symbols-outlined { color: var(--g-warning); }
+.admin-account-system-fields > label { display: grid; gap: 6px; }
+.admin-account-system-fields > label > span { color: var(--g-text-secondary); font-size: 13px; font-weight: 600; }
+.admin-account-recovery-modal { width: min(520px, calc(100vw - 28px)); }
+.admin-account-recovery-code { display: block; margin: 16px 0 12px; padding: 17px; border: 1px solid color-mix(in srgb, var(--g-primary) 38%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 72%, var(--g-bg-surface)); color: var(--g-text-primary); font-family: var(--g-mono); font-size: clamp(18px, 4vw, 25px); font-weight: 700; letter-spacing: .08em; text-align: center; overflow-wrap: anywhere; user-select: all; }
 .admin-checkbox { display: flex !important; align-items: center; gap: 8px; cursor: pointer; }
 .admin-checkbox input { width: auto; }
 .admin-pack-form textarea { width: 100%; box-sizing: border-box; resize: vertical; padding: 10px 12px; border: 1px solid var(--g-border); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font: 13px/1.5 var(--g-font-family); }
@@ -708,6 +736,10 @@
   .admin-plot-summary { gap: 10px; flex-wrap: wrap; }
   .admin-pack-toolbar { align-items: flex-start; flex-direction: column; }
   .admin-metric-picker { grid-template-columns: 1fr; }
+  .admin-account-create-modal .admin-form-grid,
+  .admin-account-plot-grid { grid-template-columns: 1fr; }
+  .admin-account-create-modal .admin-modal-body { max-height: 64vh; }
+  .admin-account-recovery-code { letter-spacing: .04em; }
 }
 
 /* Compact admin overview */
@@ -966,14 +998,18 @@
   border-radius: 16px;
 }
 
-.role-farm-admin .g-nav-item {
+.role-farm-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
   border-radius: 14px;
   margin-bottom: 8px;
   background: var(--admin-liquid-control);
   font-weight: 600;
 }
 
-.role-farm-admin .g-nav-item.active {
+.role-farm-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
   border-color: color-mix(in srgb, var(--g-primary) 34%, var(--admin-glass-control-outline));
   background:
     linear-gradient(145deg, rgba(255, 255, 255, .82), rgba(255, 255, 255, .32)),
@@ -1004,7 +1040,15 @@
 }
 
 [data-theme="dark"] .role-farm-admin .g-nav-item.active,
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
 [data-theme="dark"] .role-farm-admin :is(
+  .admin-local-tabs button.active,
+  .admin-alert-tabs button.active,
+  .admin-tab.active,
+  .admin-icon-picker button.selected
+),
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+[data-theme="dark"] html[data-surface-style="classic"] .role-system-admin :is(
   .admin-local-tabs button.active,
   .admin-alert-tabs button.active,
   .admin-tab.active,
@@ -1211,6 +1255,64 @@
   background-color: color-mix(in srgb, var(--g-primary-bg) 72%, transparent);
 }
 
+.role-farm-admin .manager-plot-empty {
+  gap: 10px;
+  min-height: 360px;
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--g-primary) 22%, var(--g-border));
+  background:
+    radial-gradient(circle at 50% 0%, color-mix(in srgb, var(--g-primary-bg) 78%, transparent), transparent 54%),
+    var(--admin-glass-surface-soft);
+  box-shadow: 0 16px 36px rgba(24, 56, 39, .06), inset 0 1px 0 rgba(255, 255, 255, .72);
+}
+
+.role-farm-admin .manager-plot-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 58px;
+  height: 58px;
+  margin-bottom: 4px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 22%, var(--g-border));
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--g-primary-bg) 78%, var(--g-bg-surface));
+  color: var(--g-primary);
+}
+
+.role-farm-admin .manager-plot-empty-icon .material-symbols-outlined {
+  margin: 0;
+  color: inherit;
+  font-size: 30px;
+}
+
+.role-farm-admin .manager-plot-empty .manager-plot-empty-eyebrow {
+  margin: 0;
+  color: var(--g-primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: .04em;
+}
+
+.role-farm-admin .manager-plot-empty h2 {
+  margin: 0;
+  font-size: clamp(22px, 2vw, 28px);
+  font-weight: 700;
+}
+
+.role-farm-admin .manager-plot-empty > p:not(.manager-plot-empty-eyebrow) {
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+
+.role-farm-admin .manager-first-plot-button {
+  min-width: 180px;
+  justify-content: center;
+}
+
+.role-farm-admin .manager-plot-empty > small {
+  color: var(--g-text-tertiary);
+  font-size: 11px;
+}
+
 .role-farm-admin :is(.admin-local-tabs, .admin-alert-tabs) {
   border-color: var(--admin-glass-outline);
   background: var(--admin-glass-surface-soft);
@@ -1378,7 +1480,9 @@
   backdrop-filter: blur(24px) saturate(128%);
 }
 
-.role-farm-admin .g-nav-item {
+.role-farm-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item {
   --nav-accent: var(--g-primary);
   --nav-tint: var(--g-primary-bg);
   position: relative;
@@ -1394,19 +1498,25 @@
   backdrop-filter: none;
 }
 
-.role-farm-admin .g-nav-item[data-nav="work-orders"] {
+.role-farm-admin .g-nav-item[data-nav="work-orders"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="work-orders"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="work-orders"] {
   --nav-accent: var(--admin-blue);
   --nav-tint: var(--admin-blue-bg);
 }
 
-.role-farm-admin .g-nav-item[data-nav="decision-console"] {
+.role-farm-admin .g-nav-item[data-nav="decision-console"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] {
   --nav-accent: var(--admin-orange);
   --nav-tint: var(--admin-orange-bg);
   gap: 10px;
   padding-inline: 12px;
 }
 
-.role-farm-admin .g-nav-item[data-nav="decision-console"] .g-nav-label {
+.role-farm-admin .g-nav-item[data-nav="decision-console"] .g-nav-label,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] .g-nav-label,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="decision-console"] .g-nav-label {
   overflow: hidden;
   font-size: 13px;
   letter-spacing: -.025em;
@@ -1414,21 +1524,29 @@
   white-space: nowrap;
 }
 
-.role-farm-admin .g-nav-item[data-nav="resource-coordination"] {
+.role-farm-admin .g-nav-item[data-nav="resource-coordination"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="resource-coordination"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="resource-coordination"] {
   --nav-accent: var(--admin-teal);
   --nav-tint: var(--admin-teal-bg);
 }
 
-.role-farm-admin .g-nav-item[data-nav="farm-members"] {
+.role-farm-admin .g-nav-item[data-nav="farm-members"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="farm-members"],
+html[data-surface-style="classic"] .role-system-admin .g-nav-item[data-nav="farm-members"] {
   --nav-accent: var(--admin-purple);
   --nav-tint: var(--admin-purple-bg);
 }
 
-.role-farm-admin .g-nav-item .material-symbols-outlined {
+.role-farm-admin .g-nav-item .material-symbols-outlined,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item .material-symbols-outlined,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item .material-symbols-outlined {
   color: var(--nav-accent);
 }
 
-.role-farm-admin .g-nav-item:not(:disabled):hover {
+.role-farm-admin .g-nav-item:not(:disabled):hover,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:not(:disabled):hover,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:not(:disabled):hover {
   border-color: color-mix(in srgb, var(--nav-accent) 18%, var(--g-border));
   background: color-mix(in srgb, var(--nav-tint) 82%, var(--g-bg-surface));
   box-shadow: none;
@@ -1436,14 +1554,18 @@
   transform: none;
 }
 
-.role-farm-admin .g-nav-item.active {
+.role-farm-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
   border-color: color-mix(in srgb, var(--nav-accent) 28%, var(--g-border));
   background: color-mix(in srgb, var(--nav-tint) 92%, var(--g-bg-surface));
   box-shadow: inset 3px 0 0 var(--nav-accent), 0 5px 14px color-mix(in srgb, var(--nav-accent) 9%, transparent);
   color: var(--nav-accent);
 }
 
-.role-farm-admin .g-nav-item:focus-visible {
+.role-farm-admin .g-nav-item:focus-visible,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:focus-visible,
+html[data-surface-style="classic"] .role-system-admin .g-nav-item:focus-visible {
   outline-color: color-mix(in srgb, var(--nav-accent) 38%, transparent);
 }
 
@@ -2518,7 +2640,7 @@
  * colours (summary cards, warning borders and role accents) remain intact.
  */
 html[data-surface-style="classic"] .role-farm-admin,
-html[data-surface-style="classic"] .role-system-admin {
+html[data-surface-style="minimal"] .role-system-admin {
   background: var(--agriloop-appearance-base) !important;
   background-attachment: initial !important;
 }
@@ -2561,7 +2683,7 @@ html[data-surface-style="classic"] .role-farm-admin :is(
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
 
-html[data-surface-style="classic"] .role-system-admin {
+html[data-surface-style="minimal"] .role-system-admin {
   --g-bg-base: var(--agriloop-appearance-base);
   --g-bg-surface: var(--agriloop-appearance-surface-strong);
   --g-bg-subtle: var(--agriloop-appearance-surface-soft);
@@ -2581,29 +2703,47 @@ html[data-surface-style="classic"] .role-system-admin {
   --system-liquid-control: var(--agriloop-appearance-control);
   --system-liquid-control-hover: var(--agriloop-appearance-control-hover);
 }
-html[data-surface-style="classic"] .role-system-admin .g-main {
+html[data-surface-style="minimal"] .role-system-admin .g-main {
   background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
 }
-html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+html[data-surface-style="minimal"] .role-system-admin :is(.g-header, .g-sidebar) {
   background: var(--system-glass-surface-strong) !important;
   border-color: var(--system-glass-outline) !important;
   box-shadow: var(--agriloop-appearance-shadow-1) !important;
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
-html[data-surface-style="classic"] .role-system-admin .g-nav-item {
+
+html[data-surface-style="classic"] .role-system-admin :is(.g-header, .g-sidebar) {
+  background: var(--agriloop-appearance-surface-strong) !important;
+  border-color: var(--agriloop-appearance-border) !important;
+  box-shadow: var(--agriloop-appearance-shadow-1) !important;
+  -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
+  backdrop-filter: blur(24px) saturate(132%) !important;
+}
+/* classic 下 system-admin 与 minimal 对齐：header/sidebar 是半透明白，若
+   #app 与 .g-main 仍保持淡绿渐变会透出来，视觉上导航栏发绿。必须把容器
+   背景换成近白的 appearance-base，nav 才能显示干净的白色。 */
+html[data-surface-style="classic"] .role-system-admin {
+  background: var(--agriloop-appearance-base) !important;
+  background-attachment: initial !important;
+}
+html[data-surface-style="classic"] .role-system-admin .g-main {
+  background: var(--agriloop-appearance-main-highlight), var(--agriloop-appearance-base) !important;
+}
+html[data-surface-style="minimal"] .role-system-admin .g-nav-item {
   background: var(--system-liquid-control) !important;
   border-color: var(--system-glass-control-outline) !important;
   box-shadow: var(--agriloop-appearance-control-shadow) !important;
   text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
-html[data-surface-style="classic"] .role-system-admin .g-nav-item.active {
+html[data-surface-style="minimal"] .role-system-admin .g-nav-item.active {
   background: var(--system-liquid-control), color-mix(in srgb, var(--g-primary-bg) 88%, transparent) !important;
   border-color: color-mix(in srgb, var(--g-primary) 34%, var(--system-glass-control-outline)) !important;
   box-shadow: var(--agriloop-appearance-control-shadow-hover) !important;
   color: var(--g-primary) !important;
 }
-html[data-surface-style="classic"] .role-system-admin :is(
+html[data-surface-style="minimal"] .role-system-admin :is(
   .g-card, .admin-metric-card, .service-card, .sim-control-bar, .sim-settings-panel, .pack-card,
   .admin-plot-card, .passport-panel, .admin-table-wrap, .admin-modal,
   .g-modal, .account-profile-popover, .g-header-farm-menu
@@ -2613,7 +2753,7 @@ html[data-surface-style="classic"] .role-system-admin :is(
   -webkit-backdrop-filter: blur(24px) saturate(132%) !important;
   backdrop-filter: blur(24px) saturate(132%) !important;
 }
-html[data-surface-style="classic"] .role-system-admin :is(
+html[data-surface-style="minimal"] .role-system-admin :is(
   .g-btn, .account-profile-trigger, .admin-tab, .admin-knowledge-chip,
   .admin-icon-picker button
 ) {
@@ -2621,14 +2761,14 @@ html[data-surface-style="classic"] .role-system-admin :is(
   box-shadow: var(--agriloop-appearance-control-shadow) !important;
   text-shadow: var(--agriloop-appearance-control-text-shadow) !important;
 }
-html[data-surface-style="classic"] .role-system-admin .admin-tabs {
+html[data-surface-style="minimal"] .role-system-admin .admin-tabs {
   background: var(--system-glass-surface-soft) !important;
   border-color: var(--system-glass-outline) !important;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .64) !important;
   -webkit-backdrop-filter: blur(24px) saturate(128%) !important;
   backdrop-filter: blur(24px) saturate(128%) !important;
 }
-html[data-surface-style="classic"] .role-system-admin :is(
+html[data-surface-style="minimal"] .role-system-admin :is(
   .admin-filter-bar select, .admin-filter-bar input,
   .admin-landscape-actions select, .admin-modal-body input,
   .admin-modal-body select, .admin-modal-body textarea,
@@ -2641,7 +2781,7 @@ html[data-surface-style="classic"] .role-system-admin :is(
   -webkit-backdrop-filter: blur(20px) saturate(126%) !important;
   backdrop-filter: blur(20px) saturate(126%) !important;
 }
-html[data-surface-style="classic"] .role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+html[data-surface-style="minimal"] .role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
   background: var(--system-glass-surface-strong) !important;
   box-shadow: var(--agriloop-appearance-shadow-3) !important;
   -webkit-backdrop-filter: blur(42px) saturate(138%) !important;
@@ -2827,28 +2967,52 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
    have a later glass-surface rule, so keep the crop photography and the
    readability overlay at the role-specific layer as well. */
 .role-farm-admin article.manager-plot-card {
+  --manager-data-surface: #f8fbf9;
+  --manager-data-divider: #cbd6d0;
+  --manager-section-border: #aebdb5;
   position: relative;
   isolation: isolate;
+  container: manager-plot-card / inline-size;
   overflow: hidden;
-  min-height: 286px;
-  border-color: rgba(255,255,255,.22);
-  background-color: var(--g-bg-surface);
-  background-image: var(--plot-background, none);
-  background-position: center;
-  background-size: cover;
-  color: #f6fbf7;
-  text-shadow: 0 1px 2px rgba(0,0,0,.22);
+  min-height: 0;
+  padding: 14px;
+  border: 1px solid color-mix(in srgb, #71877b 52%, var(--g-border));
+  border-top: 4px solid var(--admin-mint);
+  background: linear-gradient(145deg, rgba(255, 255, 255, .96), rgba(244, 250, 246, .91));
+  color: var(--g-text-primary);
+  text-shadow: none;
+  box-shadow: 0 12px 30px rgba(24, 59, 39, .10);
 }
 
+.role-farm-admin article.manager-plot-card.is-attention {
+  border-color: color-mix(in srgb, var(--admin-orange) 35%, #9caaa2);
+  border-top-color: var(--admin-orange);
+}
+.role-farm-admin article.manager-plot-card.is-inactive {
+  border-color: color-mix(in srgb, var(--g-text-secondary) 38%, var(--g-border));
+  border-top-color: var(--g-text-secondary);
+}
 .role-farm-admin article.manager-plot-card > * { position: relative; z-index: 1; }
 .role-farm-admin article.manager-plot-card .manager-plot-title h2,
 .role-farm-admin article.manager-plot-card .manager-plot-title span,
-.role-farm-admin article.manager-plot-card .manager-health-score,
-.role-farm-admin article.manager-plot-card .manager-health-score strong,
-.role-farm-admin article.manager-plot-card .manager-plot-meta { color: #f6fbf7; }
-.role-farm-admin article.manager-plot-card .manager-more-button { color: rgba(246,251,247,.88); }
-.role-farm-admin article.manager-plot-card .manager-more-button:hover,
-.role-farm-admin article.manager-plot-card .manager-more-button[aria-expanded="true"] { background: rgba(255,255,255,.18); color: #fff; }
+.role-farm-admin article.manager-plot-card .manager-health-score { color: var(--g-text-secondary); }
+
+.role-farm-admin article.manager-plot-card .manager-plot-card-header {
+  position: relative;
+  margin-bottom: 10px;
+}
+
+.role-farm-admin article.manager-plot-card .manager-plot-card-header::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  bottom: -5px;
+  left: 0;
+  height: 1px;
+  border-radius: 999px;
+  background: var(--manager-data-divider);
+}
+
 .role-farm-admin article.manager-plot-card .manager-more-button {
   width: 32px;
   height: 32px;
@@ -3021,7 +3185,7 @@ html[data-workspace-preset][data-surface-style="classic"] #app.role-farm-admin :
 }
 
 /* --- Restore SysAdmin UI original simple style when Classic Card is selected --- */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin {
   --g-bg-base: #f8f9fa !important;
   --g-bg-surface: #ffffff !important;
   --g-bg-subtle: #f1f3f4 !important;
@@ -3048,21 +3212,21 @@ html[data-theme="dark"][data-surface-style="classic"] .role-system-admin.role-sy
   --g-warning: #fdd663 !important;
   --g-warning-bg: #5c4f24 !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-main {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-main {
   background: var(--g-bg-base) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-header,
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-sidebar {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-header,
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-sidebar {
   background: var(--g-bg-surface) !important;
   border-color: var(--g-border) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-sidebar {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-sidebar {
   border-right: 1px solid var(--g-border) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-nav-item {
   border: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
@@ -3070,24 +3234,24 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-i
   border-radius: var(--g-radius-pill) !important;
   text-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-nav-item:hover {
   background: var(--g-bg-hover) !important;
   border: 0 !important;
   box-shadow: none !important;
   transform: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item.active {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-nav-item.active {
   background: var(--g-primary-bg) !important;
   border: 0 !important;
   box-shadow: none !important;
   color: var(--g-primary) !important;
 }
 /* Fix nav item icon size - Phosphor icons optically look smaller, 24px matches the old 21px Material */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-nav-item .material-symbols-outlined {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-nav-item .material-symbols-outlined {
   font-size: 24px !important;
 }
 /* Group A: g-card (Shadow 1) */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-card {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-card {
   background: var(--g-bg-surface) !important;
   box-shadow: var(--g-shadow-1) !important;
   -webkit-backdrop-filter: none !important;
@@ -3095,15 +3259,15 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-card 
   border: 1px solid var(--g-border) !important;
   border-radius: var(--g-radius) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-card:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-card:hover {
   box-shadow: var(--g-shadow-2) !important;
 }
 /* Exclude Recent System Events g-card from having a default shadow */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-overview-events > .g-card {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-overview-events > .g-card {
   box-shadow: none !important;
 }
 /* Group B: Modals and Popovers (Shadow 3) */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin :is(.admin-modal, .g-modal, .account-profile-popover, .g-header-farm-menu) {
   background: var(--g-bg-surface) !important;
   box-shadow: var(--g-shadow-3) !important;
   -webkit-backdrop-filter: none !important;
@@ -3112,42 +3276,42 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.adm
   border-radius: var(--g-radius-lg) !important;
 }
 /* Group C: Panels with No Shadow normally */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap, .sim-control-bar, .sim-settings-panel, .passport-panel) {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap, .sim-control-bar, .sim-settings-panel, .passport-panel) {
   background: var(--g-bg-surface) !important;
   box-shadow: none !important;
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
   border-radius: var(--g-radius) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap) {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin :is(.admin-metric-card, .service-card, .pack-card, .admin-plot-card, .admin-table-wrap) {
   border: 1px solid var(--g-border-subtle) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.sim-control-bar, .sim-settings-panel, .passport-panel) {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin :is(.sim-control-bar, .sim-settings-panel, .passport-panel) {
   border: 1px solid var(--g-border) !important;
 }
 /* Hover states for Group C */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-metric-card:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-metric-card:hover {
   box-shadow: var(--g-shadow-2) !important;
   transform: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .pack-card:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .pack-card:hover {
   box-shadow: var(--g-shadow-2) !important;
   border-color: var(--g-primary) !important;
   transform: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-plot-card {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-plot-card {
   border-left: 3px solid var(--g-success) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-plot-card:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-plot-card:hover {
   box-shadow: var(--g-shadow-2) !important;
   transform: translateY(-2px) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .service-card:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .service-card:hover {
   box-shadow: var(--g-shadow-1) !important;
   transform: none !important;
 }
 /* Tabs exactly matching 02d935e - COMPLETELY NUKING BROWSER DEFAULTS AND GLASS */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tabs {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tabs {
   display: flex !important;
   gap: 4px !important;
   margin-bottom: 20px !important;
@@ -3161,7 +3325,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-t
   -webkit-backdrop-filter: none !important;
   backdrop-filter: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tab {
   appearance: none !important;
   -webkit-appearance: none !important;
   padding: 10px 20px !important;
@@ -3182,7 +3346,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-t
   color: var(--g-text-secondary) !important;
   transition: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tab:hover {
   background: var(--g-primary-bg) !important;
   color: var(--g-primary) !important;
   box-shadow: none !important;
@@ -3190,7 +3354,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-t
   transform: none !important;
   outline: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab.active {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tab.active {
   background: transparent !important;
   border: 0 !important;
   border-bottom: 2px solid var(--g-primary) !important;
@@ -3198,7 +3362,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-t
   box-shadow: none !important;
   outline: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab.active:hover {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tab.active:hover {
   background: transparent !important;
   border-bottom: 2px solid var(--g-primary) !important;
   color: var(--g-primary) !important;
@@ -3206,42 +3370,42 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-t
   transform: none !important;
   outline: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-tab:focus-visible {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-tab:focus-visible {
   outline: none !important;
 }
 /* FIX FOR BUTTONS: Recreating exact 02d935e base button styles and overriding team leader's glass */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   text-shadow: none !important;
   color: var(--g-text-secondary) !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.primary {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn.primary {
   background: var(--g-primary) !important;
   color: #fff !important;
   border: none !important;
   box-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.secondary {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn.secondary {
   background: transparent !important;
   border: 1px solid var(--g-border) !important;
   color: var(--g-primary) !important;
   box-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.danger {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn.danger {
   background: var(--g-danger) !important;
   color: #fff !important;
   border: none !important;
   box-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.text {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn.text {
   background: transparent !important;
   border: none !important;
   color: var(--g-primary) !important;
   box-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.icon-only {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-btn.icon-only {
   background: transparent !important;
   border: none !important;
   border-radius: 50% !important;
@@ -3249,7 +3413,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-btn.i
   color: var(--g-text-secondary) !important;
 }
 /* Account profile trigger exactly like 02d935e */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .account-profile-trigger {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .account-profile-trigger {
   background: transparent !important;
   border: 1px solid transparent !important;
   border-radius: var(--g-radius-pill) !important;
@@ -3257,7 +3421,7 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .account
   text-shadow: none !important;
 }
 /* Admin knowledge chip */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-knowledge-chip {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-knowledge-chip {
   background: var(--g-bg-base) !important;
   border: 1px solid var(--g-border) !important;
   border-radius: var(--g-radius-pill) !important;
@@ -3265,14 +3429,14 @@ html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-k
   text-shadow: none !important;
 }
 /* Admin icon picker */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .admin-icon-picker button {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .admin-icon-picker button {
   background: var(--g-bg-base) !important;
   border: 1px solid var(--g-border) !important;
   border-radius: var(--g-radius) !important;
   box-shadow: none !important;
   text-shadow: none !important;
 }
-html[data-surface-style="classic"] .role-system-admin.role-system-admin :is(.admin-filter-bar select, .admin-filter-bar input, .admin-landscape-actions select, .admin-modal-body input, .admin-modal-body select, .admin-modal-body textarea, .admin-doc-editor, .admin-doc-editor textarea, .admin-pack-form textarea, .admin-metric-picker label, .g-input, .g-select) {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin :is(.admin-filter-bar select, .admin-filter-bar input, .admin-landscape-actions select, .admin-modal-body input, .admin-modal-body select, .admin-modal-body textarea, .admin-doc-editor, .admin-doc-editor textarea, .admin-pack-form textarea, .admin-metric-picker label, .g-input, .g-select) {
   background: var(--g-bg-surface) !important;
   border-color: var(--g-border) !important;
   box-shadow: none !important;
@@ -3396,25 +3560,25 @@ html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-s
 }
 .role-farm-admin .manager-plot-context {
   display: grid;
-  grid-template-columns: minmax(180px, .9fr) minmax(0, 1.6fr);
-  gap: 12px;
-  margin-bottom: 14px;
+  grid-template-columns: minmax(160px, .78fr) minmax(0, 1.72fr);
+  gap: 10px;
+  margin-bottom: 10px;
 }
 .role-farm-admin .manager-crop-identity {
   --crop-accent: #4b8f66;
   --crop-soft: #eaf5ed;
   display: grid;
-  grid-template-columns: 74px minmax(0, 1fr);
+  grid-template-columns: 62px minmax(0, 1fr);
   align-items: center;
-  gap: 11px;
+  gap: 9px;
   min-width: 0;
-  min-height: 96px;
-  padding: 10px;
+  min-height: 80px;
+  padding: 8px;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, var(--g-border));
-  border-radius: 14px;
-  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, var(--g-bg-surface)), color-mix(in srgb, var(--g-bg-surface) 80%, transparent));
-  box-shadow: inset 0 1px 0 rgba(255,255,255,.92);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 36%, #a7b4ad);
+  border-radius: 12px;
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-soft) 88%, white), rgba(255, 255, 255, .8));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .92);
 }
 .role-farm-admin .manager-crop-identity[data-crop="tomato"] { --crop-accent: #c9554f; --crop-soft: #fff0ed; }
 .role-farm-admin .manager-crop-identity[data-crop="corn"] { --crop-accent: #b57918; --crop-soft: #fff6dc; }
@@ -3424,55 +3588,261 @@ html[data-workspace-preset] #app.role-farm-admin .settings-surface-option[data-s
 .role-farm-admin .manager-crop-identity[data-crop="strawberry"] { --crop-accent: #c34e5a; --crop-soft: #fff0f2; }
 .role-farm-admin .manager-crop-identity[data-crop="pepper"] { --crop-accent: #bc4e43; --crop-soft: #fff0ec; }
 .role-farm-admin .manager-crop-art {
+  width: 62px;
+  height: 62px;
   display: grid;
   place-items: center;
-  width: 74px;
-  height: 74px;
-  border: 1px solid color-mix(in srgb, var(--crop-accent) 20%, var(--g-bg-surface));
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--g-bg-surface) 72%, transparent);
+  border: 1px solid color-mix(in srgb, var(--crop-accent) 26%, white);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, .72);
   color: var(--g-text-primary);
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 44px;
+  font-size: 38px;
   line-height: 1;
   box-shadow: 0 8px 18px color-mix(in srgb, var(--crop-accent) 14%, transparent), inset 0 1px 0 rgba(255,255,255,.92);
 }
-.role-farm-admin .manager-crop-copy { display: grid; min-width: 0; gap: 3px; }
-.role-farm-admin .manager-crop-copy > span { color: var(--g-text-secondary); font-size: 10px; font-weight: 650; letter-spacing: .04em; }
-.role-farm-admin .manager-crop-copy strong { overflow: hidden; color: var(--g-text-primary); font-size: 16px; line-height: 1.25; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
-.role-farm-admin .manager-crop-copy small { overflow: hidden; color: var(--crop-accent); font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
-.role-farm-admin .manager-plot-facts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); min-width: 0; overflow: hidden; border: 1px solid var(--g-border-subtle); border-radius: 14px; background: var(--g-border-subtle); }
-.role-farm-admin .manager-plot-facts > div { display: grid; align-content: center; min-width: 0; padding: 12px; background: color-mix(in srgb, var(--g-bg-surface) 82%, transparent); }
-.role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right: 1px solid var(--g-border-subtle); }
+.role-farm-admin .manager-crop-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.role-farm-admin .manager-crop-copy > span {
+  color: var(--g-text-secondary);
+  font-size: 10px;
+  font-weight: 650;
+  letter-spacing: .04em;
+}
+
+.role-farm-admin .manager-crop-copy strong {
+  overflow: hidden;
+  color: var(--g-text-primary);
+  font-size: 15px;
+  line-height: 1.25;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .manager-crop-copy small {
+  overflow: hidden;
+  color: var(--crop-accent);
+  font-size: 11px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.role-farm-admin .manager-plot-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--manager-section-border);
+  border-radius: 12px;
+  background: var(--manager-data-divider);
+  box-shadow: none;
+}
+
+.role-farm-admin .manager-plot-facts > div {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  padding: 10px;
+  background: var(--manager-data-surface);
+}
+
+.role-farm-admin .manager-plot-facts > div:not(:last-child) {
+  border-right: 1px solid var(--manager-data-divider);
+}
 .role-farm-admin .manager-plot-facts dt { color: var(--g-text-secondary); font-size: 10px; font-weight: 600; }
-.role-farm-admin .manager-plot-facts dd { margin-top: 7px; overflow: hidden; color: var(--g-text-primary); font-size: 13px; line-height: 1.35; font-weight: 650; text-overflow: ellipsis; }
-.role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); border-color: var(--g-border-subtle); background: var(--g-border-subtle); box-shadow: inset 0 1px 0 rgba(255,255,255,.82); }
-.role-farm-admin article.manager-plot-card .manager-metric { grid-column: span 2; background: color-mix(in srgb, var(--g-bg-surface) 92%, transparent); box-shadow: inset 0 1px 0 rgba(255,255,255,.78); backdrop-filter: none; }
-.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
-.role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
-.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: color-mix(in srgb, var(--g-bg-subtle) 88%, transparent); }
+.role-farm-admin .manager-plot-facts dd {
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--g-text-primary);
+  font-size: 13px;
+  line-height: 1.35;
+  font-weight: 650;
+  text-overflow: ellipsis;
+}
+
+.role-farm-admin article.manager-plot-card .manager-metric-grid {
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 1px;
+  border: 1px solid var(--manager-section-border);
+  background: var(--manager-data-divider);
+  box-shadow: none;
+}
+.role-farm-admin article.manager-plot-card .manager-metric {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  grid-column: span 3;
+  column-gap: 8px;
+  row-gap: 4px;
+  align-content: center;
+  min-height: 70px;
+  padding: 8px 10px;
+  background: var(--manager-data-surface);
+  box-shadow: none;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+.role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+.role-farm-admin article.manager-plot-card .manager-metric.is-unavailable {
+  background: var(--manager-data-surface);
+}
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"],
+.role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: span 4; }
+.role-farm-admin article.manager-plot-card .manager-metric-label { grid-column: 1 / -1; }
+.role-farm-admin article.manager-plot-card .manager-metric-value {
+  grid-column: 1;
+  align-self: end;
+  margin-top: 0;
+  white-space: nowrap;
+}
+.role-farm-admin article.manager-plot-card .manager-metric-target {
+  grid-column: 2;
+  align-self: end;
+  min-width: 0;
+  margin-top: 0;
+  text-align: right;
+}
 .role-farm-admin article.manager-plot-card .manager-metric-label,
 .role-farm-admin article.manager-plot-card .manager-metric-target,
 .role-farm-admin article.manager-plot-card .manager-metric-value small { color: var(--g-text-secondary); }
 .role-farm-admin article.manager-plot-card .manager-metric-value { color: var(--g-text-primary); }
-@media (max-width: 700px) {
+/* Keep the plot lifecycle badge readable over every crop photograph. */
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  padding: 3px 9px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--g-primary-bg) 72%, white);
+  color: var(--g-primary);
+  font-size: 12px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: .01em;
+  text-shadow: none;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .8);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status::before {
+  content: '';
+  width: 7px;
+  height: 7px;
+  flex: 0 0 7px;
+  border-radius: 50%;
+  background: var(--g-success);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-success) 14%, transparent);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive {
+  border-color: color-mix(in srgb, var(--g-warning) 36%, var(--g-border));
+  background: color-mix(in srgb, var(--g-warning-bg) 72%, white);
+  color: var(--g-warning);
+}
+
+.role-farm-admin article.manager-plot-card .manager-lifecycle-status.inactive::before {
+  background: var(--g-warning);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-warning) 14%, transparent);
+}
+
+[data-theme="dark"] .role-farm-admin article.manager-plot-card {
+  --manager-data-surface: #1e2f26;
+  --manager-data-divider: #42564b;
+  --manager-section-border: #53685c;
+  border-color: #53685c;
+  border-top-color: var(--admin-mint);
+  background: linear-gradient(145deg, rgba(27, 43, 34, .96), rgba(20, 35, 27, .94));
+  box-shadow: 0 15px 34px rgba(0, 0, 0, .30);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-attention {
+  border-color: color-mix(in srgb, var(--admin-orange) 46%, #53685c);
+  border-top-color: var(--admin-orange);
+}
+[data-theme="dark"] .role-farm-admin article.manager-plot-card.is-inactive {
+  border-color: color-mix(in srgb, var(--g-text-secondary) 46%, #53685c);
+  border-top-color: var(--g-text-secondary);
+}
+[data-theme="dark"] .role-farm-admin .manager-crop-identity {
+  border-color: color-mix(in srgb, var(--crop-accent) 58%, #66756d);
+  background: linear-gradient(140deg, color-mix(in srgb, var(--crop-accent) 18%, #21352a), rgba(29, 45, 36, .92));
+}
+[data-theme="dark"] .role-farm-admin .manager-crop-art { background: rgba(244, 250, 246, .88); }
+[data-theme="dark"] .role-farm-admin .manager-plot-facts {
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
+}
+[data-theme="dark"] .role-farm-admin .manager-plot-facts > div:not(:last-child) { border-right-color: var(--manager-data-divider); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric-grid {
+  border-color: var(--manager-section-border);
+  background: var(--manager-data-divider);
+}
+[data-theme="dark"] .role-farm-admin .manager-plot-facts > div,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-warning,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-danger,
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-metric.is-unavailable { background: var(--manager-data-surface); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-more-button { background: rgba(33, 51, 41, .94); }
+[data-theme="dark"] .role-farm-admin article.manager-plot-card .manager-plot-menu { background: rgba(25, 39, 32, .98); }
+
+@container manager-plot-card (max-width: 820px) {
+  .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  .role-farm-admin article.manager-plot-card .manager-metric,
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto auto;
+    grid-column: span 2;
+    row-gap: 3px;
+    min-height: 76px;
+  }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 3; }
+  .role-farm-admin article.manager-plot-card .manager-metric-label,
+  .role-farm-admin article.manager-plot-card .manager-metric-value,
+  .role-farm-admin article.manager-plot-card .manager-metric-target { grid-column: 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric-target { text-align: left; }
+}
+
+@container manager-plot-card (max-width: 519px) {
   .role-farm-admin .manager-plot-context { grid-template-columns: 1fr; }
-  .role-farm-admin .manager-crop-identity { grid-template-columns: 68px minmax(0, 1fr); min-height: 88px; }
-  .role-farm-admin .manager-crop-art { width: 68px; height: 68px; }
+  .role-farm-admin .manager-crop-identity { grid-template-columns: 58px minmax(0, 1fr); min-height: 76px; }
+  .role-farm-admin .manager-crop-art { width: 58px; height: 58px; font-size: 36px; }
   .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .role-farm-admin article.manager-plot-card .manager-metric,
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PH"],
-  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"] { grid-column: span 1; }
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="WATER_LEVEL"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="NITROGEN"],
+  .role-farm-admin article.manager-plot-card .manager-metric[data-metric="PHOSPHORUS"] { grid-column: span 1; }
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: 1 / -1; }
 }
 
-@media (max-width: 440px) {
+@container manager-plot-card (max-width: 359px) {
   .role-farm-admin article.manager-plot-card .manager-metric-grid { grid-template-columns: 1fr; }
   .role-farm-admin article.manager-plot-card .manager-metric[data-metric="POTASSIUM"] { grid-column: auto; }
 }
 
+@media (max-width: 420px) {
+  .role-farm-admin .g-header .g-header-farm-select-btn {
+    width: 100%;
+    min-width: 0;
+    padding-inline: 8px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
 /* User explicitly asked to remove shadow from the two large config cards */
-html[data-surface-style="classic"] .role-system-admin.role-system-admin .g-grid .g-card {
+html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-grid .g-card {
   box-shadow: none !important;
 }
 

@@ -2,7 +2,7 @@
   "name": "agriloop-web-ui",
   "private": true,
   "version": "0.1.0",
-  "description": "AgriLoop static web interface and WebGL login experience",
+  "description": "农智闭环静态网页界面与登录体验",
   "type": "module",
   "scripts": {
     "test": "node --test"

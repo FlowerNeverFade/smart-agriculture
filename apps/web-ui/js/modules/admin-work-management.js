@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260831-sync-v1';
-import { adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260831-sync-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260901-admin-ops-v1';
-import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260831-sync-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260831-sync-v1';
+import { api } from '../api.js?v=20260902-ai-direct-v2';
+import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
+import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 
@@ -303,10 +303,11 @@ export const AdminWorkManagementView = {
     const value = input => input === undefined || input === null || input === '' ? '—' : input;
     const plotName = plotId => activePlots.value.find(plot => plot.plotId === plotId)?.name || plotId || '—';
     const cropName = cropCode => packs.value.find(pack => pack.cropCode === cropCode)?.identity?.name || cropCode || '—';
+    const cropEmoji = pack => String(pack?.icon || '').trim() || adminCropEmoji({ cropCode: pack?.cropCode, cropName: pack?.identity?.name, cropVariety: pack?.identity?.variety });
     const dateLabel = input => input ? String(input).slice(0, 10).replaceAll('-', '/') : '—';
     const batchStatusLabel = status => ({ ACTIVE: '进行中', PLANNED: '待执行', COMPLETED: '已完成', INACTIVE: '已停用' }[String(status || '').toUpperCase()] || statusLabel(status, '进行中'));
     const batchStatusTone = status => ({ ACTIVE: 'active', PLANNED: 'planned', COMPLETED: 'completed', INACTIVE: 'inactive' }[String(status || '').toUpperCase()] || 'neutral');
-    const planStatusLabel = status => ({ DRAFT: '待审批', APPROVED: '已审批', REJECTED: '已驳回' }[String(status || '').toUpperCase()] || status || '—');
+    const planStatusLabel = status => ({ DRAFT: '待审批', APPROVED: '已审批', REJECTED: '已驳回' }[String(status || '').toUpperCase()] || '—');
 
     return {
       activeTab, busy, farmId, activePlots, batches, packs, selectedPack, selectedBatch, selectedBatchId, selectedPackCode, preview, form,
@@ -316,18 +317,18 @@ export const AdminWorkManagementView = {
       validateSelectedPack, activateSelectedPack, nextPackStep, previousPackStep, addStage, removeStage, addRule, removeRule, addTaskTemplate, removeTaskTemplate, addKnowledge, removeKnowledge,
       closePlanCreateOnBackdrop, closePlanDetailOnBackdrop, closePackDetailOnBackdrop,
       submitPlanCreate,
-      taskLabel, stageLabel, metricLabel, value, plotName, cropName, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
+      taskLabel, stageLabel, metricLabel, value, plotName, cropName, cropEmoji, dateLabel, batchStatusLabel, batchStatusTone, planStatusLabel,
       metricStatusLabel, priorityLabel, provenanceLabel, statusLabel
     };
   },
   template: `
     <section class="admin-management-page">
-      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、资源安排与 Crop Pack 使用同一农场上下文。</p></div></header>
+      <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、灌溉调度与作物模型包使用同一农场上下文。</p></div></header>
       <nav class="admin-local-tabs" aria-label="农务任务页签">
         <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务列表</button>
         <button :class="{active: activeTab === 'plans'}" @click="setTab('plans')">生产计划</button>
-        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">资源安排</button>
-        <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">Crop Pack</button>
+        <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">灌溉调度</button>
+        <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">作物模型包</button>
       </nav>
 
       <work-order-lifecycle v-if="activeTab === 'tasks'" :state="state" :route-params="routeParams" :embedded="true"
@@ -352,7 +353,7 @@ export const AdminWorkManagementView = {
               <p>{{ cropName(batch.cropCode) }} · {{ batch.cropCode || '—' }}</p>
             </div>
             <dl class="admin-work-card-facts">
-              <div><dt>Crop Pack</dt><dd>{{ batch.cropPackVersion || '—' }}</dd></div>
+              <div><dt>作物模型包</dt><dd>{{ batch.cropPackVersion || '—' }}</dd></div>
               <div><dt>计划开始日</dt><dd>{{ dateLabel(batch.plantedAt) }}</dd></div>
               <div><dt>计划周期</dt><dd>{{ batch.plannedCycleDays ? batch.plannedCycleDays + ' 天' : '—' }}</dd></div>
               <div><dt>批次编号</dt><dd :title="batch.batchId">{{ batch.batchId }}</dd></div>
@@ -374,15 +375,15 @@ export const AdminWorkManagementView = {
 
       <section v-else class="admin-panel admin-work-collection" aria-labelledby="admin-pack-collection-title">
         <div class="admin-work-collection-header">
-          <div><span>农场级作物模型与告警治理</span><h2 id="admin-pack-collection-title">Crop Pack</h2></div>
+          <div><span>农场级作物模型与告警治理</span><h2 id="admin-pack-collection-title">作物模型包</h2></div>
           <em>{{ packs.length }} 个版本</em>
         </div>
         <div class="admin-pack-card-grid">
           <article v-for="pack in packs" :key="packKey(pack)" class="admin-pack-summary-card"
-            :data-crop="pack.cropCode" :aria-label="'查看 Crop Pack：' + (pack.identity?.name || pack.cropCode)" role="button" tabindex="0"
+            :data-crop="pack.cropCode" :aria-label="'查看作物模型包：' + (pack.identity?.name || pack.cropCode)" role="button" tabindex="0"
             @click="openPackDetail(pack)" @keydown.enter="openPackDetail(pack)" @keydown.space.prevent="openPackDetail(pack)">
             <header>
-              <span class="admin-pack-glyph">{{ (pack.identity?.name || pack.cropCode || 'P').slice(0, 1) }}</span>
+              <span class="admin-pack-glyph" aria-hidden="true">{{ cropEmoji(pack) }}</span>
               <span>{{ pack.farmId ? (String(pack.status || 'DRAFT').toUpperCase() === 'ACTIVE' ? '已启用' : '农场草稿') : '全局' }} · v{{ pack.version || '—' }}</span>
               <div class="admin-pack-menu-wrap" @click.stop>
                 <button type="button" class="admin-pack-menu-trigger" aria-label="打开作物包菜单" :aria-expanded="packMenuId === packKey(pack)" @click.stop="togglePackMenu(pack)"><app-icon name="more_vertical"></app-icon></button>
@@ -409,10 +410,10 @@ export const AdminWorkManagementView = {
           <button type="button" class="admin-pack-summary-card admin-add-work-card" @click="openPackCreate">
             <span class="admin-add-work-icon"><app-icon name="add"></app-icon></span>
             <strong>添加作物</strong>
-            <small>创建当前农场专属 Crop Pack 草稿</small>
+            <small>创建当前农场专属作物模型包草稿</small>
           </button>
         </div>
-        <p v-if="!packs.length" class="admin-empty">后端没有返回 Crop Pack，可使用“添加作物”创建农场草稿。</p>
+        <p v-if="!packs.length" class="admin-empty">后端没有返回作物模型包，可使用“添加作物”创建农场草稿。</p>
       </section>
 
       <div v-if="showPlanCreate" class="g-modal-overlay admin-work-dialog-overlay" @click="closePlanCreateOnBackdrop">
@@ -425,7 +426,7 @@ export const AdminWorkManagementView = {
               <label><span>计划开始日</span><input type="date" v-model="form.plantedAt"></label>
               <label><span>计划周期（天）</span><input type="number" min="1" max="1000" v-model.number="form.plannedCycleDays"></label>
             </div>
-            <p class="admin-hint">阶段区间按周期与 Crop Pack 顺序等分，仅作为可编辑的 DERIVED 默认排期。</p>
+            <p class="admin-hint">阶段区间按周期与作物模型包顺序等分，仅作为可编辑的推导默认排期。</p>
           </div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" :disabled="busy" @click="closePlanCreate">取消</button><button type="submit" class="g-btn primary" :disabled="busy">{{ busy ? '处理中…' : '生成预览' }}</button></div>
         </form>
@@ -439,7 +440,7 @@ export const AdminWorkManagementView = {
             <dl class="admin-work-detail-facts">
               <div><dt>地块</dt><dd>{{ plotName(preview.plotId || selectedBatch?.plotId) }}</dd></div>
               <div><dt>作物</dt><dd>{{ cropName(preview.cropCode || selectedBatch?.cropCode) }}</dd></div>
-              <div><dt>Crop Pack</dt><dd>{{ preview.cropPackVersion || '—' }}</dd></div>
+              <div><dt>作物模型包</dt><dd>{{ preview.cropPackVersion || '—' }}</dd></div>
               <div><dt>计划周期</dt><dd>{{ preview.plannedCycleDays || '—' }} 天</dd></div>
             </dl>
             <div class="admin-work-detail-heading"><div><h4>任务排期</h4><p>审批前可调整日期或标记“不派发”。</p></div><em>{{ preview.tasks?.length || 0 }} 项</em></div>
@@ -458,7 +459,7 @@ export const AdminWorkManagementView = {
 
       <div v-if="showPackDetail && selectedPack" class="g-modal-overlay admin-work-dialog-overlay" @click="closePackDetailOnBackdrop">
         <section class="g-modal admin-work-data-dialog admin-pack-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pack-detail-title">
-          <div class="g-modal-header"><div><small>Crop Pack 详情 · {{ selectedPack.cropCode }}</small><h3 id="admin-pack-detail-title">{{ selectedPack.identity?.name || '—' }}</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePackDetail"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>作物模型包详情 · {{ selectedPack.cropCode }}</small><h3 id="admin-pack-detail-title">{{ selectedPack.identity?.name || '—' }}</h3></div><button type="button" class="g-btn icon-only" aria-label="关闭" @click="closePackDetail"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body admin-work-detail-body">
             <div class="admin-plan-detail-status"><span class="admin-work-status-chip tone-active">版本 {{ selectedPack.version || '—' }}</span><span>后端事实</span></div>
             <dl class="admin-work-detail-facts"><div><dt>规则版本</dt><dd>{{ value(selectedPack.ruleVersion) }}</dd></div><div><dt>知识版本</dt><dd>{{ value(selectedPack.knowledgeVersion) }}</dd></div><div><dt>地区</dt><dd>{{ value(selectedPack.identity?.region) }}</dd></div><div><dt>品种</dt><dd>{{ value(selectedPack.identity?.variety) }}</dd></div></dl>

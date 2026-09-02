@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260831-sync-v1';
-import { adminMetricLabel } from './admin-state.js?v=20260831-sync-v1';
-import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260831-sync-v1';
+import { api } from './api.js?v=20260902-ai-direct-v2';
+import { adminMetricLabel } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, inject, watch } = Vue;
 
@@ -231,7 +231,7 @@ export const AdminAlertCenter = {
       if (isVerificationTask(existingTask(alert))) return '核查任务已下发，等待现场结果';
       if (isDispatched(alert)) return '处置任务已下发，等待农户处理';
       if (auditFor(alert) && !auditFor(alert).highConfidence) return '证据不确定，需发布现场核查任务';
-      return '等待 AI 智能处理';
+      return '等待农智助手处理';
     };
 
     const toggleSelectAll = () => {
@@ -318,7 +318,7 @@ export const AdminAlertCenter = {
       }
       const requested = hasExplicitTargets ? targetAlerts : selectedAlerts.value;
       const alerts = requested.filter(alert => !isClosed(alert) && !existingTask(alert)?.assigneeId);
-      if (!alerts.length) return toast('请先选择需要现场核查的告警，或先运行 AI 智能处理', 'error');
+      if (!alerts.length) return toast('请先选择需要现场核查的告警，或先运行农智助手处理', 'error');
       if (busyKey.value) return;
       busyKey.value = alerts.length === 1 ? `${alertKey(alerts[0])}:verify` : 'batch:verify';
       let published = 0;
@@ -570,7 +570,7 @@ export const AdminAlertCenter = {
         </div>
         <div class="admin-alert-batch-actions">
           <button class="g-btn primary" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="aiProcess">
-            <app-icon name="auto_awesome"></app-icon><span>{{ busyKey === 'batch:ai' ? '正在分析…' : 'AI智能处理' }}</span>
+            <app-icon name="auto_awesome"></app-icon><span>{{ busyKey === 'batch:ai' ? '正在分析…' : '农智助手处理' }}</span>
           </button>
           <button class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== '' || !selectedAlerts.length" @click="publishVerificationTasks()">
             <app-icon name="fact_check"></app-icon><span>{{ busyKey === 'batch:verify' ? '正在发布…' : '一键发布核查任务' }}</span>
@@ -643,7 +643,7 @@ export const AdminAlertCenter = {
               <div><dt>关联任务</dt><dd>{{ existingTask(activeAlert)?.title || '尚未下发' }}</dd></div>
             </dl>
             <div class="admin-alert-audit admin-alert-detail-audit" v-if="auditFor(activeAlert)" :class="auditFor(activeAlert).highConfidence ? 'is-ready' : 'needs-review'">
-              <strong>AI 分析可信度 {{ confidenceText(auditFor(activeAlert)) }} · {{ auditFor(activeAlert).label }}</strong>
+              <strong>农智助手分析可信度 {{ confidenceText(auditFor(activeAlert)) }} · {{ auditFor(activeAlert).label }}</strong>
               <span>{{ auditFor(activeAlert).farmerName ? '已下发给 ' + auditFor(activeAlert).farmerName + '。' : '' }}{{ auditFor(activeAlert).reason }}</span>
               <span v-if="auditFor(activeAlert).strategyMatched">命中已启用策略：{{ strategyText(auditFor(activeAlert)) }}{{ auditFor(activeAlert).strategyEvidenceCount ? ' · ' + auditFor(activeAlert).strategyEvidenceCount + ' 条合格案例' : '' }}。该结果只参与处置预览，不替代诊断与人工确认。</span>
             </div>
@@ -653,7 +653,7 @@ export const AdminAlertCenter = {
             <button class="g-btn secondary" type="button" @click="closeDetail">返回</button>
             <template v-if="reviewActionsVisible(activeAlert)">
               <button v-if="!existingTask(activeAlert)?.assigneeId && (!auditFor(activeAlert) || auditFor(activeAlert).highConfidence)" class="g-btn primary" type="button" :disabled="busyKey !== ''" @click="aiProcess([activeAlert])">
-                <app-icon name="auto_awesome"></app-icon><span>AI智能处理</span>
+                <app-icon name="auto_awesome"></app-icon><span>农智助手处理</span>
               </button>
               <button v-if="!existingTask(activeAlert)?.assigneeId" class="g-btn secondary admin-alert-verify-action" type="button" :disabled="busyKey !== ''" @click="publishVerificationTasks([activeAlert])">
                 <app-icon name="fact_check"></app-icon><span>发布核查任务</span>

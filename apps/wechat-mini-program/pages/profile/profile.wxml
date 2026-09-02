@@ -1,0 +1,36 @@
+<view class="page profile-page">
+  <view class="profile-hero">
+    <view class="avatar">{{roleInitial}}</view>
+    <view class="profile-identity"><view class="profile-name">{{user.displayName || user.username || '未登录'}}</view><view class="profile-role">{{roleLabel}}</view></view>
+  </view>
+
+  <view wx:if="{{loading}}" class="loading">正在读取账号信息…</view>
+  <view wx:if="{{error}}" class="error-box">{{error}}<button class="secondary retry-button" bindtap="loadProfile">重新加载</button></view>
+  <view wx:if="{{notice}}" class="notice-box">{{notice}}</view>
+
+  <view class="profile-section card">
+    <view class="section-title">账号范围</view>
+    <view class="profile-row"><text>账号</text><text class="profile-value">{{user.username || '—'}}</text></view>
+    <view class="profile-row"><text>农场权限</text><text class="profile-value">{{farmScope}}</text></view>
+    <view class="profile-row"><text>地块权限</text><text class="profile-value">{{plotScope}}</text></view>
+    <view wx:if="{{permissions.length}}" class="permission-wrap"><text wx:for="{{permissions}}" wx:key="*this" class="permission-chip">{{item}}</text></view>
+  </view>
+
+  <view class="profile-section card">
+    <view class="section-title">使用设置</view>
+    <view class="setting-row"><view><view class="setting-title">自动刷新数据</view><view class="setting-sub">总览、地块和任务页每 15 秒读取一次</view></view><switch checked="{{autoRefresh}}" color="#197a55" bindchange="onAutoRefreshChange"></switch></view>
+    <view class="setting-row api-row"><view class="setting-copy"><view class="setting-title">接口地址</view><view class="setting-sub api-value">{{apiBaseUrl}}</view></view><button class="ghost copy-button" bindtap="copyApiUrl">复制</button></view>
+  </view>
+
+  <view class="profile-section card">
+    <view class="service-head"><view class="section-title">服务状态</view><view class="chip chip-{{serviceOverall === 'UP' || serviceOverall === 'ONLINE' ? 'online' : serviceOverall === 'UNKNOWN' ? 'medium' : 'offline'}}">{{serviceOverallLabel}}</view></view>
+    <view wx:if="{{serviceEntries.length}}" class="service-list"><view wx:for="{{serviceEntries}}" wx:key="key" class="service-row"><text>{{item.label}}</text><text class="service-status service-{{item.tone}}">{{item.statusLabel}}</text></view></view>
+    <view wx:else class="empty service-empty">暂时没有服务状态</view>
+    <button class="link-button refresh-button" bindtap="refreshStatus" loading="{{serviceLoading}}">重新读取状态</button>
+  </view>
+
+  <view class="technical-toggle" bindtap="toggleTechnical">{{showTechnical ? '收起运行说明' : '查看运行说明'}} <text>{{showTechnical ? '⌃' : '⌄'}}</text></view>
+  <view wx:if="{{showTechnical}}" class="technical-box"><view>当前小程序复用农智闭环现有接口服务和账号权限；服务不可用时只显示降级提示，不会伪造实时数据。</view><view>图片分析使用原图直传，发送前不会压缩或转码。</view><view>本期仍是软件仿真环境，页面上的执行结果以服务端返回为准。</view></view>
+
+  <button class="danger logout-button" bindtap="logout">退出登录</button>
+</view>

@@ -1,0 +1,125 @@
+.login-page {
+  min-height: 100vh;
+  padding: 80rpx 42rpx 70rpx;
+  background: linear-gradient(155deg, #eff7ee 0%, #f8faf7 52%, #e8f2ed 100%);
+}
+
+.brand-mark {
+  width: 116rpx;
+  height: 116rpx;
+  margin: 0 auto 22rpx;
+  border-radius: 34rpx;
+  color: #176848;
+  background: #dff3e5;
+  font-size: 66rpx;
+  line-height: 116rpx;
+  text-align: center;
+  box-shadow: 0 16rpx 34rpx rgba(34, 103, 71, .14);
+}
+
+.brand-name {
+  color: #1b392a;
+  font-size: 46rpx;
+  font-weight: 700;
+  text-align: center;
+}
+
+.brand-subtitle {
+  margin: 10rpx 0 48rpx;
+  color: #718479;
+  font-size: 25rpx;
+  text-align: center;
+}
+
+.login-card,
+.demo-panel {
+  padding: 30rpx;
+  border: 1rpx solid #e1ebe2;
+  border-radius: 22rpx;
+  background: rgba(255, 255, 255, .92);
+  box-shadow: 0 14rpx 34rpx rgba(37, 74, 54, .08);
+}
+
+.card-title {
+  margin-bottom: 28rpx;
+  color: #1e3829;
+  font-size: 34rpx;
+  font-weight: 700;
+}
+
+.field-label {
+  margin: 20rpx 0 10rpx;
+  color: #4d6356;
+  font-size: 24rpx;
+}
+
+.picker-field,
+.input-field {
+  height: 80rpx;
+  padding: 0 22rpx;
+  border: 1rpx solid #dce7df;
+  border-radius: 12rpx;
+  color: #263c30;
+  background: #f9fbf9;
+  font-size: 28rpx;
+  line-height: 80rpx;
+}
+
+.picker-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.picker-arrow {
+  color: #6d8175;
+  font-size: 32rpx;
+}
+
+.role-hint {
+  margin-top: 10rpx;
+  color: #7a8b80;
+  font-size: 23rpx;
+}
+
+.placeholder {
+  color: #a2afa6;
+}
+
+.login-button {
+  margin-top: 34rpx;
+}
+
+.demo-panel {
+  margin-top: 24rpx;
+  background: rgba(248, 251, 247, .88);
+  box-shadow: none;
+}
+
+.demo-title {
+  color: #355341;
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.demo-copy,
+.demo-note {
+  margin-top: 8rpx;
+  color: #7b8b81;
+  font-size: 22rpx;
+  line-height: 1.6;
+}
+
+.demo-actions {
+  display: flex;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+
+.demo-button {
+  flex: 1;
+  color: #236b4d !important;
+  background: #e6f3e9 !important;
+  font-size: 24rpx;
+  line-height: 68rpx;
+}

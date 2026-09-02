@@ -1,0 +1,23 @@
+{
+  "description": "农智闭环微信小程序",
+  "packOptions": {
+    "ignore": [
+      { "type": "file", "value": "README.md" }
+    ]
+  },
+  "setting": {
+    "urlCheck": false,
+    "es6": true,
+    "minified": true,
+    "postcss": true,
+    "enhance": true,
+    "compileHotReLoad": true,
+    "useCompilerPlugins": false
+  },
+  "compileType": "miniprogram",
+  "libVersion": "2.32.3",
+  "appid": "touristappid",
+  "projectname": "agriloop-wechat-mini-program",
+  "miniprogramRoot": "./",
+  "condition": {}
+}

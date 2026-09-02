@@ -21,7 +21,7 @@ const {
   finalizedAssignedTask,
   finalizedClosedAlert
 } = await import('../js/admin-alerts.js');
-const { api } = await import('../js/api.js?v=20260831-sync-v1');
+const { api } = await import('../js/api.js?v=20260902-ai-direct-v2');
 const { MOCK_DATA } = await import('../js/mock-data.js');
 
 test('AI 派单只选择在岗且有地块权限的农户', () => {
@@ -97,7 +97,7 @@ test('告警页面保留卡片详情结构并提供新的批量入口', () => {
   assert.match(AdminAlertCenter.template, /告警智能处理/);
   assert.match(AdminAlertCenter.template, /全选当前列表/);
   assert.match(AdminAlertCenter.template, /一键关闭告警/);
-  assert.match(AdminAlertCenter.template, /AI智能处理/);
+  assert.match(AdminAlertCenter.template, /农智助手处理/);
   assert.match(AdminAlertCenter.template, /一键发布核查任务/);
   assert.match(AdminAlertCenter.template, /全部进行中/);
   assert.match(AdminAlertCenter.template, /admin-alert-card-footer/);

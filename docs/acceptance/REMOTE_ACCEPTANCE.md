@@ -8,7 +8,7 @@
 - 运行方式：Java 17 + Spring Boot 3 + Supervisor（容器无 Docker/systemd）
 - 依赖：PostgreSQL 14、Redis 6、Mosquitto 2
 - API：`127.0.0.1:8080`，由 Nginx 6006 自定义服务代理
-- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 优先，虚拟执行器：`virtual`
+- AI：`openai-compatible` -> 本机 vLLM `Qwen3.8-27B` + `agriloop-qwen38-agri` 保守 LoRA；规则/数据库/RAG 提供可追溯事实，普通回答由模型生成，虚拟执行器：`virtual`
 - 演示账号：`farmer`（种植农户）、`admin`（农场管理员）、`sysadmin`（系统管理员），统一演示密码在受控环境中维护，不写入仓库。
 
 ## 2026-08-26 多指标曲线发布验收
@@ -76,7 +76,7 @@ BUILD SUCCESSFUL
 
 ## 已知边界
 
-- 本期不实现真实传感器、GPIO、鸿蒙端、真实视觉/语音模型或真实生产控制器。
+- 本记录未覆盖 GPIO、鸿蒙端、生产级视觉/语音模型或真实生产控制器；当前 Qwen 原生图片分析能力与 BearPi E53_IA1 真实遥测链路均以独立接口/来源字段接入，不能把任一输入适配扩大为真实执行器闭环。
 - Redis/MQTT/AI 依赖不可用时 API 会明确返回 `DEGRADED`/`rules-only`，核心规则流程继续运行；当前远端 AI 已启用 Qwen，standalone profile 仍使用 H2/内存回退。
 - AutoDL 分配的主机名不能在服务器内直接改成自定义域名；当前用 `/agriloop/` 作为稳定品牌入口。若要使用 `agri.example.com`，需将自有域名 DNS 指向一个能反代该 AutoDL 服务的入口。
 - 静态 Web 已随 Nginx 自定义服务发布。首次打开 `/agriloop/` 会跳转到独立登录页；登录后 Copilot 才调用真实 Qwen，演示会话只在后端不可用时有效。

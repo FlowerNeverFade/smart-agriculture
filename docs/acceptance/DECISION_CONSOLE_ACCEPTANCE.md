@@ -82,4 +82,4 @@
 - 后端安全门：`apps/api-service/src/main/java/com/agriloop/AgriApplication.java`
 - 自动化回归：`scripts/verify-webui.mjs`
 
-本记录只证明当前代码与模拟环境下可复现的功能，不代表真实传感器、真实阀门或现场灌溉已完成。
+本记录只证明当前代码与模拟环境下可复现的诊断/决策功能；不代表真实阀门或现场灌溉执行器已完成。BearPi E53_IA1 的真实遥测接入以独立硬件记录和事件来源字段为准。
