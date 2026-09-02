@@ -1437,7 +1437,7 @@ const AdminRulesView = {
       } catch (error) { toast(error.message || '重新评估失败', 'error'); }
     };
     const rulePage = usePagination(rulesList);
-    const candidatePage = usePagination(candidatesList);
+    const learningPage = usePagination(filteredLearningCases);
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
@@ -1446,7 +1446,7 @@ const AdminRulesView = {
       learningCasesList, learningFilter, learningCounts, filteredLearningCases, learningReason, learningUses, learningStatus, learningTone, strategySummary, offlineEvidence, rollbackSummary, reviewLearningCase, reEvaluateLearningCase,
       candidateStatusCode, canValidateCandidate, canApproveCandidate, canActivateCandidate, canRejectCandidate, canRollbackCandidate, validateCandidate,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
-      candPageSize: candidatePage.pageSize, candPageSizeOptions: candidatePage.pageSizeOptions, candCurrentPage: candidatePage.currentPage, candJumpInput: candidatePage.jumpInput, candTotalRecords: candidatePage.totalRecords, candTotalPages: candidatePage.totalPages, candPageRecords: candidatePage.pageRecords, candPrevPage: candidatePage.prevPage, candNextPage: candidatePage.nextPage, candChangeSize: candidatePage.changeSize, candJumpTo: candidatePage.jumpTo
+      learningPageSize: learningPage.pageSize, learningCurrentPage: learningPage.currentPage, learningJumpInput: learningPage.jumpInput, learningTotalPages: learningPage.totalPages, learningPageRecords: learningPage.pageRecords, learningPrevPage: learningPage.prevPage, learningNextPage: learningPage.nextPage, learningJumpTo: learningPage.jumpTo
     };
   }
 };
