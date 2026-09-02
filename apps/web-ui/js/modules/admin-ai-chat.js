@@ -604,7 +604,8 @@ export const AdminAiChatView = {
       const next = new Set(expandedPlotIds.value);
       if (next.has(plotId)) next.delete(plotId); else next.add(plotId);
       expandedPlotIds.value = next;
-      if (folder?.plotId && folder.plotId !== selectedPlotId.value) selectedPlotId.value = folder.plotId;
+      // 多选模式下只展开/收起地块，不切换地块上下文（避免 switchPlotContext 退出多选状态）
+      if (!bulkMode.value && folder?.plotId && folder.plotId !== selectedPlotId.value) selectedPlotId.value = folder.plotId;
     };
     const requestArchiveConversation = (conversation) => {
       if (!conversation?.conversationId || sending.value) return;
