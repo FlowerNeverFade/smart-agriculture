@@ -2779,7 +2779,7 @@ class AgriEngine {
             String plotId = Jsons.text(plot, "plotId", "");
             Map<String, Object> latest = metricWindows == null
                     ? latestMetrics(plotId)
-                    : metricWindows.getOrDefault(plotId, new LinkedHashMap<>());
+                    : new LinkedHashMap<>(metricWindows.getOrDefault(plotId, Map.of()));
             List<Map<String, Object>> alerts = alertsByPlot.getOrDefault(plotId, List.of()).stream().filter(a ->
                     !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).toList();
             activeAlerts += alerts.size();
