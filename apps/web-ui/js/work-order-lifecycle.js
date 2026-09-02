@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260902-v5911-zhcn-v1';
+import { api } from './api.js?v=20260902-ai-direct-v2';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-v5911-zhcn-v1';
 import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
 

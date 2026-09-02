@@ -1,4 +1,4 @@
-import { ApiError, api } from './api.js?v=20260902-v5911-zhcn-v1';
+import { ApiError, api } from './api.js?v=20260902-ai-direct-v2';
 import { createAmbientLiquidField } from './login-webgl.js';
 import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 

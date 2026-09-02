@@ -1,8 +1,8 @@
-import { api } from '../api.js?v=20260902-v5911-zhcn-v1';
+import { api } from '../api.js?v=20260902-ai-direct-v2';
 import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260902-v5911-zhcn-v1';
 import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260902-v5911-zhcn-v1';
+import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

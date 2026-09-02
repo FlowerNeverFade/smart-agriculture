@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-v5911-zhcn-v1';
+import { api } from '../api.js?v=20260902-ai-direct-v2';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -7,7 +7,7 @@ import {
   deviceRelatedWorkOrders,
   formatHealthScore
 } from '../admin-state.js?v=20260902-v5911-zhcn-v1';
-import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260902-v5911-zhcn-v1';
+import { deviceTypeLabel, serviceStatusLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260902-ai-direct-v2';
 
 const { ref, computed, watch, inject, onMounted, onBeforeUnmount } = Vue;
 

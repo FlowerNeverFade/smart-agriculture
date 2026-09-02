@@ -1231,7 +1231,7 @@
                         <button type="button" class="farmer-agent-details-button ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggle_assistant_details(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? role_presentation.detailsCollapseLabel : role_presentation.detailsLabel }}</button>
                       </div>
                       <div v-if="message.detailsOpen && message.turn" class="farmer-agent-details ai-chat-details">
-                        <div class="farmer-agent-detail-grid ai-chat-detail-grid"><span v-if="message.turn.roleLabel"><small>回答身份</small><strong>{{ message.turn.roleLabel }}</strong></span><span v-if="message.turn.scopeLabel"><small>数据范围</small><strong>{{ message.turn.scopeLabel }}</strong></span><span v-if="message.turn.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span><span v-if="message.turn.traceId"><small>记录编号</small><code>{{ message.turn.traceId }}</code></span><span v-if="message.turn.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span><span v-if="message.turn.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示规则' }}</strong></span></div>
+                        <div class="farmer-agent-detail-grid ai-chat-detail-grid"><span v-if="message.turn.roleLabel"><small>回答身份</small><strong>{{ message.turn.roleLabel }}</strong></span><span v-if="message.turn.scopeLabel"><small>数据范围</small><strong>{{ message.turn.scopeLabel }}</strong></span><span v-if="message.turn.confidence"><small>置信度</small><strong>{{ message.turn.confidence }}</strong></span><span v-if="message.turn.traceId"><small>记录编号</small><code>{{ message.turn.traceId }}</code></span><span v-if="message.turn.intentLabel"><small>意图</small><strong>{{ message.turn.intentLabel }}</strong></span><span v-if="message.turn.dataOrigin"><small>数据来源</small><strong>{{ message.turn.dataOrigin === 'BACKEND' ? '后端记录' : '演示助手' }}</strong></span></div>
                           <div v-if="message.turn.evidence && message.turn.evidence.length" class="farmer-agent-evidence"><strong>{{ role_presentation.evidenceTitle }}</strong><ul class="ai-chat-evidence"><li v-for="item in message.turn.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }}ms</template></small></li></ul></div>
                         <div v-if="message.audit" class="farmer-agent-audit"><strong>工具调用记录</strong><article v-for="(item, index) in (message.audit.tools || message.audit.calls || [])" :key="item.name || item.tool || index"><b>{{ assistant_tool_label(item.name || item.tool) }}</b><code>入参 {{ JSON.stringify(item.input || {}) }}</code><small>已校验 · {{ item.durationMs ?? '—' }} 毫秒</small></article><small v-if="message.actionProposal">操作版本：{{ message.actionProposal.traceId || message.turn.traceId || '—' }}</small></div>
                       </div>
@@ -1938,6 +1938,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-v5911-zhcn-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260902-ai-direct-v2"></script>
 </body>
 </html>

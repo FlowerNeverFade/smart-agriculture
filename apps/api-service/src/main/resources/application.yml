@@ -152,5 +152,8 @@ spring:
 
 agriloop:
   mode: standalone
+  # Unit tests do not start a model server. Keep their fallback explicit so
+  # they never wait on a network timeout while production remains model-first.
+  ai-mode: rules-only
   seed-data: true
   simulator-auto-start: false

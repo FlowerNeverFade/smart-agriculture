@@ -705,7 +705,7 @@
 
           <div class="metric-box" style="flex:1; overflow-y:auto; display:flex; flex-direction:column; padding:16px" ref="chatBox">
             <div class="text-center text-muted mb-4" style="font-size:12px">
-              {{ state.sessionMode === 'demo' ? '演示规则模式' : (['openai', 'openai-compatible'].includes(state.adminOverview?.aiMode) ? '智能模型服务已配置 · 正式模式' : '智能规则降级模式') }}
+              {{ state.sessionMode === 'demo' ? '演示助手模式（未连接模型）' : (['openai', 'openai-compatible'].includes(state.adminOverview?.aiMode) ? '智能模型服务已配置 · 正式模式' : '安全降级模式') }}
             </div>
             <div v-for="(msg, i) in chatHistory" :key="i" class="chat-msg" :class="msg.role">
               <div style="font-size:12px; opacity:0.7; margin-bottom:4px" v-if="msg.role==='agent'">
@@ -1216,7 +1216,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260902-v5911-zhcn-v1"></script>
+  <script type="module" src="js/app.js?v=20260902-ai-direct-v2"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 

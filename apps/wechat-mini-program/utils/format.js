@@ -218,14 +218,14 @@ function agentToolLabel(value) {
 }
 
 function agentSourceLabel(response, sessionMode) {
-  if (sessionMode && sessionMode !== 'live') return '演示规则';
+  if (sessionMode && sessionMode !== 'live') return '演示助手（未连接模型）';
   const adapter = String(response?.adapter || '').trim().toLowerCase();
   if (adapter === 'openai-compatible' && response?.degraded === false) return '实时模型';
-  if (adapter === 'mock') return '模拟回答';
-  if (response?.degraded) return '规则降级';
-  if (adapter === 'rules-fast-path') return '规则快捷回答';
-  if (adapter === 'rules-agent') return '受控规则';
-  return adapter ? '规则与知识' : '智能助手';
+  if (adapter === 'mock') return '演示助手（未连接模型）';
+  if (response?.degraded) return '安全降级回答';
+  if (adapter === 'rules-fast-path' || adapter === 'deterministic-guard') return '安全澄清';
+  if (adapter === 'rules-agent') return '受控操作预览';
+  return '智能助手';
 }
 
 function metricLabel(code) {

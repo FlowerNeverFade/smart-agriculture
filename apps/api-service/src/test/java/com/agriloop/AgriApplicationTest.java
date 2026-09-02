@@ -1493,11 +1493,12 @@ class AgriApplicationTest {
     }
 
     @Test
-    void greetingAndAmbiguousShortInputUseConciseFastPath() {
+    void greetingAndAmbiguousShortInputUseDeterministicGuardWhenModelDisabled() {
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> greeting = engine.agentChat(Map.of("message", "hi", "plotId", "plot-a01"), farmer);
         assertThat(greeting.get("intent")).isEqualTo("GREETING");
-        assertThat(greeting.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(greeting.get("adapter")).isEqualTo("deterministic-guard");
+        assertThat(greeting.get("degraded")).isEqualTo(true);
         assertThat(String.valueOf(greeting.get("narrative"))).doesNotContain("traceId", "<think>");
 
         Map<String, Object> shortInput = engine.agentChat(Map.of("message", "1", "plotId", "plot-a01"), farmer);
@@ -1510,7 +1511,8 @@ class AgriApplicationTest {
         UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
         Map<String, Object> capability = engine.agentChat(Map.of("message", "你具备智慧农田专业知识吗", "plotId", "plot-a01"), farmer);
         assertThat(capability.get("intent")).isEqualTo("CAPABILITY_QUERY");
-        assertThat(capability.get("adapter")).isEqualTo("rules-fast-path");
+        assertThat(capability.get("adapter")).isEqualTo("deterministic-guard");
+        assertThat(capability.get("degraded")).isEqualTo(true);
         assertThat(String.valueOf(capability.get("narrative"))).doesNotContain("traceId", "<think>");
 
         assertThat(engine.safetyNarrativeOverride("请通过 MQTT 发送开阀命令", Map.of()))
