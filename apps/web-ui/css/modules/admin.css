@@ -1,5 +1,5 @@
 /* ============================================================
-   AgriLoop Admin Panel �?System Admin Module Styles
+   AgriLoop Admin Panel ?System Admin Module Styles
    Extends the Google Material 3 design tokens from style.css
    ============================================================ */
 
@@ -2864,7 +2864,7 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
 .admin-appearance-option.active {
   border-color: var(--g-primary);
   background: var(--g-primary-bg);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--g-primary) 32%, transparent), var(--g-shadow-1);
+  box-shadow: inset 0 0 0 1.5px var(--g-primary), var(--g-shadow-1);
 }
 .admin-appearance-option-icon {
   width: 34px;
@@ -4244,7 +4244,8 @@ html[data-surface-style="minimal"] .role-system-admin.role-system-admin .g-grid 
 .farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
 .farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
-.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice:hover { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
 .farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
 .farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
@@ -4508,7 +4509,7 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 }
 
 /* ============================================================
-   农户首页信息层级：行�?�?风险 �?地块 �?辅助信息 �?动�?   ============================================================ */
+   农户首页信息层级：行??风险 ?地块 ?辅助信息 ?动?   ============================================================ */
 .farmer-dashboard-workspace {
   display: flex;
   flex-direction: column;

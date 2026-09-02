@@ -24,6 +24,7 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
     const patch = key === 'accent' ? { [key]: value, customAccent: '' } : { [key]: value };
     const next = saveUserSettings({ ...settings.value, ...patch }, undefined, account.value);
     settings.value = next;
+    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
     applyUserSettings(next);
     emit?.('settings-changed', next);
 
@@ -46,6 +47,7 @@ export function createWorkspaceSettingsController({ props, emit, ref, computed, 
   const resetSettings = () => {
     const next = saveUserSettings(DEFAULT_USER_SETTINGS, undefined, account.value);
     settings.value = next;
+    if (document.activeElement && document.activeElement !== document.body && typeof document.activeElement.blur === "function") { document.activeElement.blur(); }
     applyUserSettings(next);
     emit?.('settings-changed', next);
   };
