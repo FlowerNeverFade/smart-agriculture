@@ -826,7 +826,7 @@ const AdminResourcesView = {
     const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || '待处理');
     const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || '未知');
     const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
-    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel, localizedSourceLabel };
   }
 };
 
