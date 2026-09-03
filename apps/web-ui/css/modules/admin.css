@@ -4806,3 +4806,12 @@ html[data-plot-background="crop"] .role-farm-admin article.manager-plot-card {
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* 运行历史：固定列宽避免展开/收起时列宽自适应导致文字左右跳动 */
+.sim-history-table { table-layout: fixed; }
+.sim-history-table th:nth-child(1), .sim-history-table td:nth-child(1) { width: 120px; }
+.sim-history-table th:nth-child(3), .sim-history-table td:nth-child(3) { width: 110px; }
+.sim-history-table th:nth-child(6), .sim-history-table td:nth-child(6) { width: 64px; }
+.sim-history-table th:nth-child(7), .sim-history-table td:nth-child(7) { width: 84px; }
+.sim-history-table th:nth-child(8), .sim-history-table td:nth-child(8) { width: 170px; }
+.sim-history-table .admin-sim-group-head td { overflow: hidden; text-overflow: ellipsis; }
