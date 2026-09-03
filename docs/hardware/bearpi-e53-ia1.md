@@ -87,6 +87,6 @@ Temperature is 28.13
 
 本次已将带远端执行白名单的 E53_IA1 固件刷入 `USB-SERIAL CH340 (COM5)`。复位后实测启动标识为 `AGRI_BOOT READY REMOTE_ACTUATORS_V2`，串口持续输出约 `25.1°C / 52.8%RH / 450 lux` 的变化读数。风扇与补光灯分别完成短时 ON、OFF，四条命令均返回 `SUCCEEDED APPLIED`；结束时 `AGRI_STATE FAN OFF LIGHT OFF`。
 
-串口桥接器此前已在本机实测通过 SSH 隧道发布到服务器；服务器 `/api/v1/plots/plot-a01/telemetry` 返回的最新事件带有 `sourceMode=REAL`、`provenance=OBSERVED`、`dataOrigin=HARDWARE`，同一地块的其他指标仍可由模拟器补齐。本次新增执行器代码在部署后还需用服务器 API -> MQTT -> 本机桥 -> 固件 ACK 进行线上闭环复核。这里的真实执行范围只包括当前 E53_IA1 风扇与补光灯，不改变真实水泵、阀门、其他现场网关和生产级硬件仍需单独适配/验收的边界。
+串口桥接器已通过 SSH 隧道与服务器联调；服务器 `/api/v1/plots/plot-a01/telemetry` 返回的最新事件带有 `sourceMode=REAL`、`provenance=OBSERVED`、`dataOrigin=HARDWARE`，同一地块的其他指标仍可由模拟器补齐。发布 `0f1034a` 后又完成服务器 API -> MQTT -> 本机桥 -> 固件 ACK 的线上复核：风扇和补光灯分别开启并收到 `SUCCEEDED`，随后关闭，服务器最终状态为 `FAN OFF / GROW_LIGHT OFF`。这里的真实执行范围只包括当前 E53_IA1 风扇与补光灯，不改变真实水泵、阀门、其他现场网关和生产级硬件仍需单独适配/验收的边界。
 
 刷写后若板卡没有自动运行新固件，断开 HiBurn 并按一次板卡 `RESET`；正常运行时不需要保持 HiBurn 打开，只需保持一条命令启动的终端窗口运行。
