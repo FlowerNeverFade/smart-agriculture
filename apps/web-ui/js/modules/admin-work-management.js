@@ -1,6 +1,6 @@
 import { api } from '../api.js?v=20260902-manager-plot-order-v1';
 import { adminCropEmoji, adminMetricLabel, normalizeAdminTab } from '../admin-state.js?v=20260902-performance-v1';
-import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from '../work-order-lifecycle.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminResourcePlanningView } from './admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
 import { metricStatusLabel, priorityLabel, provenanceLabel, statusLabel } from '../live-data.js?v=20260902-performance-v1';
 
@@ -325,7 +325,7 @@ export const AdminWorkManagementView = {
     <section class="admin-management-page">
       <header class="admin-section-header"><div><h1>农务任务</h1><p>任务执行、生产计划、灌溉调度与作物模型包使用同一农场上下文。</p></div></header>
       <nav class="admin-local-tabs" aria-label="农务任务页签">
-        <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务列表</button>
+        <button :class="{active: activeTab === 'tasks'}" @click="setTab('tasks')">任务中心</button>
         <button :class="{active: activeTab === 'plans'}" @click="setTab('plans')">生产计划</button>
         <button :class="{active: activeTab === 'resources'}" @click="setTab('resources')">灌溉调度</button>
         <button :class="{active: activeTab === 'crop-packs'}" @click="setTab('crop-packs')">作物模型包</button>
