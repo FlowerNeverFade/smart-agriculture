@@ -41,6 +41,7 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   const visionSource = readFileSync(new URL('../js/modules/image-vision.js', import.meta.url), 'utf8');
   const css = readFileSync(new URL('../css/modules/admin-ai-chat.css', import.meta.url), 'utf8');
   const index = readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+  const farmer = readFileSync(new URL('../farmer.html', import.meta.url), 'utf8');
   const shell = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   assert.match(source, /getAgentConversations/);
   assert.match(source, /persistDemoAgentTurn/);
@@ -76,6 +77,11 @@ test('AI 助手页面提供普通对话、历史栏折叠/拖拽和图片入口'
   assert.match(css, /\.admin-ai-chat\.is-sidebar-collapsed \.admin-ai-sidebar-resizer\s*\{\s*display:\s*none/);
   assert.match(css, /\.admin-ai-control-label\s*\{[^}]*white-space:\s*nowrap/);
   assert.match(index, /keep-alive include="AdminAiChatView"/);
+  assert.doesNotMatch(farmer, /<section v-else-if="current_view === 'assistant'"/);
+  const farmerTransitionEnd = farmer.indexOf('</transition>');
+  const farmerAssistantCacheHost = farmer.indexOf('<section v-show="current_view === \'assistant\'"');
+  assert.ok(farmerAssistantCacheHost > farmerTransitionEnd, '农户助手缓存宿主必须位于路由 transition 外');
+  assert.match(farmer.slice(farmerAssistantCacheHost), /<keep-alive include="AdminAiChatView">[\s\S]*v-if="current_view === 'assistant'"/);
   assert.match(shell, /plot_greenhouse:\s*'ph-barn'/);
   assert.match(shell, /plot_open_field:\s*'ph-rows'/);
   assert.match(shell, /arrow_upward:\s*'ph-arrow-up'/);

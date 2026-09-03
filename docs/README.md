@@ -26,6 +26,7 @@
 - [BearPi E53_IA1 接入](hardware/bearpi-e53-ia1.md)
 - [农务执行前端说明](../apps/web-ui/FARM_OPERATIONS.md)
 - [基于合格经验的受控学习](controlled-learning.md)
+- [角色化农业 Agent 工具合同](agent-tools.md)
 
 ## 当前验收证据
 
@@ -37,6 +38,7 @@
 - [农户主面板信息层级](acceptance/FARMER_DASHBOARD_ACCEPTANCE.md)
 - [农户端农智助手](acceptance/FARMER_ASSISTANT_ACCEPTANCE.md)
 - [农户端地块排序与拖拽排序](acceptance/FARMER_PLOT_ORDER_ACCEPTANCE.md)
+- [农场管理员地块排序与拖拽排序](acceptance/FARM_ADMIN_PLOT_ORDER_ACCEPTANCE.md)
 - [巡田记录与补证申请双角色可见](acceptance/INSPECTION_VISIBILITY_ACCEPTANCE.md)
 
 ## 历史材料

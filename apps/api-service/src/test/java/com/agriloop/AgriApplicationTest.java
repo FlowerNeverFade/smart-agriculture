@@ -403,6 +403,55 @@ class AgriApplicationTest {
     }
 
     @Test
+    void farmAdminPlotOrderIsScopedByAccountAndFarm() {
+        String suffix = String.valueOf(System.nanoTime());
+        String firstId = "plot-admin-order-a-" + suffix;
+        String lastId = "plot-admin-order-z-" + suffix;
+        String otherFarmPlotId = "plot-admin-order-other-" + suffix;
+        List<String> plotIds = List.of(firstId, lastId, otherFarmPlotId);
+        store.save("plot", firstId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", firstId, "farmId", "farm-demo", "name", firstId, "status", "ACTIVE")));
+        store.save("plot", lastId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", lastId, "farmId", "farm-demo", "name", lastId, "status", "INACTIVE")));
+        store.save("plot", otherFarmPlotId, new java.util.LinkedHashMap<>(Map.of(
+                "plotId", otherFarmPlotId, "farmId", "farm-other", "name", otherFarmPlotId, "status", "ACTIVE")));
+        String userId = "farm-admin-plot-order-" + suffix;
+        UserPrincipal admin = new UserPrincipal(userId, "plot-order-admin", "FARM_ADMIN", List.of("farm-demo"), List.of());
+        var authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(admin, null, List.of());
+        try {
+            Map<String, Object> initial = responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication));
+            assertThat(initial.get("revision")).isEqualTo(0L);
+            @SuppressWarnings("unchecked")
+            List<String> initialOrder = (List<String>) initial.get("plotOrder");
+            assertThat(initialOrder).contains(firstId, lastId).doesNotContain(otherFarmPlotId);
+            assertThat(initialOrder.indexOf(firstId)).isLessThan(initialOrder.indexOf(lastId));
+
+            Map<String, Object> saved = responseData(controller.updateFarmAdminWorkspacePreference(Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), "farm-demo", authentication));
+            assertThat(saved.get("scope")).isEqualTo("FARM_ADMIN_WORKSPACE");
+            assertThat(saved.get("farmId")).isEqualTo("farm-demo");
+            assertThat(saved.get("revision")).isEqualTo(1L);
+            @SuppressWarnings("unchecked")
+            List<String> savedOrder = (List<String>) saved.get("plotOrder");
+            assertThat(savedOrder).contains(firstId, lastId).doesNotContain(otherFarmPlotId);
+            assertThat(savedOrder.indexOf(lastId)).isLessThan(savedOrder.indexOf(firstId));
+            assertThat(savedOrder.subList(0, 2)).containsExactly(lastId, firstId);
+            assertThat(responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication)).get("plotOrder"))
+                    .isEqualTo(savedOrder);
+
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.farmAdminWorkspacePreference("farm-other", authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmAdminWorkspacePreference(Map.of(
+                            "plotOrder", List.of(firstId), "expectedRevision", 0), "farm-demo", authentication))
+                    .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
+                            .isEqualTo("FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT"));
+        } finally {
+            store.delete("user-preference", userId + ":FARM_ADMIN_WORKSPACE:farm-demo");
+            plotIds.forEach(plotId -> store.delete("plot", plotId));
+        }
+    }
+
+    @Test
     void accountRegistrationAndRecoveryRotateCredentials() {
         String username = "grower" + System.nanoTime();
         String firstPassword = "FieldPass2026";
@@ -1075,20 +1124,27 @@ class AgriApplicationTest {
     @Test
     void routineEvidenceConflictIsAdvisoryButAutomaticModeKeepsTheFullGate() {
         String suffix = String.valueOf(System.nanoTime());
+        String farmId = "farm-evidence-advisory-" + suffix;
         String plotId = "plot-evidence-advisory-" + suffix;
         UserPrincipal farmer = new UserPrincipal("farmer-evidence-" + suffix, "farmer-evidence-" + suffix,
-                "FARMER", List.of("farm-demo"), List.of(plotId));
+                "FARMER", List.of(farmId), List.of(plotId));
+        store.save("farm", farmId, new java.util.LinkedHashMap<>(Map.of(
+                "farmId", farmId, "name", "证据提醒测试农场", "region", "重庆")));
         store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
-                "plotId", plotId, "farmId", "farm-demo", "name", "证据提醒测试田", "cropCode", "tomato",
+                "plotId", plotId, "farmId", farmId, "name", "证据提醒测试田", "cropCode", "tomato",
                 "stageCode", "fruiting", "areaM2", 80, "status", "ACTIVE")));
         store.save("device", "mock-" + plotId, new java.util.LinkedHashMap<>(Map.of(
-                "deviceId", "mock-" + plotId, "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "farmId", farmId, "plotId", plotId,
                 "status", "ONLINE", "bindingState", "BOUND", "lastSeen", Instant.now().toString())));
-        engine.ingest(Map.of("eventId", "evidence-advisory-telemetry-" + suffix, "farmId", "farm-demo", "plotId", plotId,
+        store.save("resource-profile", "water-" + farmId, new java.util.LinkedHashMap<>(Map.of(
+                "resourceProfileId", "water-" + farmId, "farmId", farmId, "resourceType", "WATER",
+                "capacityLitres", 900.0, "dailyQuotaLitres", 900.0, "flowRateLitresPerMinute", 18.0,
+                "timezone", "Asia/Shanghai")));
+        engine.ingest(Map.of("eventId", "evidence-advisory-telemetry-" + suffix, "farmId", farmId, "plotId", plotId,
                 "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 22.0, "unit", "%",
                 "scenarioId", "normal", "ts", Instant.now().toString()));
         Map<String, Object> inspection = engine.createInspection(new java.util.LinkedHashMap<>(Map.of(
-                "farmId", "farm-demo", "plotId", plotId, "observedAt", Instant.now().toString(),
+                "farmId", farmId, "plotId", plotId, "observedAt", Instant.now().toString(),
                 "evidenceType", "RETEST", "soilSurface", "DRY", "cropCondition", "LEAF_SLIGHT_WILT",
                 "portableSoilMoisture", 8.0, "notes", "便携仪与在线读数存在差异")), farmer);
         Map<String, Object> diagnosis = engine.diagnose(plotId, Map.of("scenarioId", "normal", "traceId", "trace-advisory-" + suffix));

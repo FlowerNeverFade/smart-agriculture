@@ -208,12 +208,23 @@ class FarmGovernanceService {
     private boolean evidenceCasesStillQualified(Map<String, Object> candidate) {
         List<String> ids = Jsons.strings(candidate.get("evidenceCaseIds"));
         if (ids.isEmpty()) return false;
+        String candidateFarm = Jsons.text(candidate, "farmId", "");
+        String candidatePlot = Jsons.text(candidate, "plotId", "");
         for (String id : ids) {
             Map<String, Object> row = store.find("decision-case", id);
             if (row == null) row = store.find("alert-learning-case", id);
             if (row == null || !"QUALIFIED".equalsIgnoreCase(Jsons.text(row, "qualityStatus", ""))
                     || !Jsons.strings(row.get("learningUses")).contains("POSITIVE_RETRIEVAL")
                     || !Jsons.strings(row.get("excludedReason")).isEmpty()) return false;
+            // A candidate must continue to point at the same farm/plot scope
+            // it was generated from.  This prevents a later edit or legacy
+            // record with missing scope from silently becoming cross-scope
+            // evidence during activation.
+            String rowFarm = Jsons.text(row, "farmId", "");
+            String rowPlot = Jsons.text(row, "plotId", "");
+            if (!candidateFarm.isBlank() && !candidateFarm.equals(rowFarm)) return false;
+            if (!candidatePlot.isBlank() && !candidatePlot.equals(rowPlot)) return false;
+            if (rowFarm.isBlank() || rowPlot.isBlank()) return false;
         }
         return true;
     }

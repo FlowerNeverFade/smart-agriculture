@@ -46,6 +46,13 @@ export function normalizePlotOrder(order = []) {
     .filter((plotId) => plotId && !seen.has(plotId) && seen.add(plotId));
 }
 
+/** Normalize either plot objects or already persisted plot IDs into one order list. */
+export function plotOrderIds(items = []) {
+  return normalizePlotOrder((Array.isArray(items) ? items : []).map((item) => (
+    item && typeof item === 'object' ? stablePlotId(item) : item
+  )));
+}
+
 /**
  * Apply a saved order to the currently visible plots. Missing/new plots are
  * appended in stable plot-id order, so assignment changes cannot reshuffle

@@ -315,6 +315,14 @@ html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-
   font-size: 21px !important;
 }
 
+/* Classic cards must keep the system console's semantic icon colours.  The
+ * classic compatibility layer sets --nav-accent to the single workspace
+ * accent; prefer the system sidebar's per-entry value here so the icons and
+ * active states match the liquid-glass presentation. */
+html[data-workspace-preset][data-surface-style="classic"] #app.role-system-admin .g-nav-item {
+  --workspace-nav-accent: var(--system-nav-accent, var(--workspace-primary));
+}
+
 html[data-workspace-preset] :is(#app, #farmer_app) :is(.g-nav-item, .farmer-nav-item):not(:disabled):hover {
   border-color: color-mix(in srgb, var(--workspace-nav-accent) 30%, var(--workspace-border-subtle)) !important;
   background: var(--workspace-bg-hover) !important;

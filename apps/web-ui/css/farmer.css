@@ -1224,6 +1224,12 @@
   padding: 14px 18px;
   border-bottom: 1px solid var(--g-border-subtle);
 }
+.farmer-task-column-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 .farmer-task-status-chip {
   display: inline-flex;
   align-items: center;
@@ -1272,32 +1278,82 @@
 .farmer-task-column-body::-webkit-scrollbar-thumb:hover {
   background: var(--g-text-secondary);
 }
-.farmer-task-delete-all {
-  margin-left: auto;
-  padding: 2px 8px;
-  font-size: 12px;
+.farmer-btn-clear {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 12px;
+  border-radius: var(--g-radius);
+  border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border));
+  background: color-mix(in srgb, var(--g-danger-bg) 55%, var(--g-bg-surface));
+  color: var(--g-danger);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, opacity 0.15s ease;
 }
+.farmer-btn-clear:hover:not(:disabled) {
+  background: var(--g-danger-bg);
+  border-color: color-mix(in srgb, var(--g-danger) 55%, var(--g-border));
+}
+.farmer-btn-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.farmer-btn-clear .material-symbols-outlined,
+.farmer-btn-clear .app-icon {
+  font-size: 18px;
+}
+
 .farmer-task-delete-btn {
   position: absolute;
   top: 8px;
   right: 8px;
-  opacity: 0;
-  transition: opacity 0.2s;
+  width: 32px;
+  height: 32px;
+  opacity: 0.55;
+  color: var(--g-danger);
+  background: color-mix(in srgb, var(--g-bg-base) 88%, var(--g-danger-bg));
+  border: 1px solid color-mix(in srgb, var(--g-danger) 22%, var(--g-border-subtle));
+  transition: opacity 0.15s ease, background 0.15s ease, border-color 0.15s ease;
 }
 .farmer-task-card {
   position: relative;
-}
-.farmer-task-card:hover .farmer-task-delete-btn {
-  opacity: 1;
-}
-
-.farmer-task-card {
   background: var(--g-bg-base);
   border: 1px solid var(--g-border-subtle);
   border-radius: var(--g-radius);
   padding: 12px 14px;
   cursor: pointer;
   transition: all 0.2s;
+}
+.farmer-task-card.is-done {
+  padding-right: 42px;
+}
+.farmer-task-card:hover .farmer-task-delete-btn,
+.farmer-task-card.active .farmer-task-delete-btn,
+.farmer-task-delete-btn:focus-visible {
+  opacity: 1;
+}
+.farmer-task-delete-btn:hover:not(:disabled) {
+  background: var(--g-danger-bg);
+  border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border));
+}
+.farmer-task-delete-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.farmer-task-detail-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+@media (hover: none) {
+  .farmer-task-delete-btn {
+    opacity: 0.85;
+  }
 }
 .farmer-task-card:hover {
   border-color: var(--g-success);
@@ -1741,6 +1797,7 @@
   flex-direction: column;
   align-items: stretch;
   gap: 5px;
+  box-sizing: border-box;
   min-width: 0;
   padding: 15px;
   border: 1px solid var(--g-border-subtle);
@@ -1825,20 +1882,31 @@
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
 .farmer-plot-status.warn { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
-.farmer-plot-drag-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 3px;
-  color: var(--g-text-tertiary, var(--g-text-secondary));
-  font-size: 10px;
-  white-space: nowrap;
-  opacity: .78;
+.farmer-plot-drag-handle {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  padding: 0;
+  touch-action: none;
+  border: 1px solid color-mix(in srgb, var(--g-border) 84%, var(--g-success));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--g-bg-surface) 90%, transparent);
+  color: var(--g-text-secondary);
+  font: inherit;
+  cursor: grab;
 }
-.farmer-plot-drag-hint > span {
-  font-size: 17px;
-  line-height: .7;
-  letter-spacing: -2px;
+.farmer-plot-drag-handle:hover,
+.farmer-plot-drag-handle:focus-visible {
+  border-color: color-mix(in srgb, var(--g-success) 58%, var(--g-border));
+  background: color-mix(in srgb, var(--g-success-bg) 62%, var(--g-bg-surface));
+  color: var(--g-success);
+  outline: none;
 }
+.farmer-plot-drag-handle:active { cursor: grabbing; }
+.farmer-plot-drag-handle:disabled { cursor: wait; opacity: .56; }
+.farmer-plot-drag-handle .ph { font-size: 17px; }
 .farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
 .farmer-plot-overview-meta {
   color: var(--g-text-secondary);
@@ -4209,6 +4277,96 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
     min-width: 0;
   }
 }
+
+/* V5.9.20：农户地块排序与管理员端共享清晰的手柄、悬浮预览和目标反馈。 */
+#farmer_app .farmer-plot-overview-card.is-dragging {
+  z-index: 2;
+  opacity: .28;
+  transform: none !important;
+  border-color: color-mix(in srgb, var(--g-success) 44%, var(--g-border));
+  border-style: dashed;
+  box-shadow: none !important;
+  cursor: grabbing;
+}
+
+#farmer_app .farmer-plot-overview-card.is-drop-target {
+  position: relative;
+  border-color: var(--g-success) !important;
+  outline: 3px solid color-mix(in srgb, var(--g-success) 34%, transparent);
+  outline-offset: 3px;
+  background: color-mix(in srgb, var(--g-success-bg) 38%, var(--g-bg-surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--g-success) 20%, transparent), var(--farmer-glass-shadow-raised, var(--g-shadow-2)) !important;
+  animation: farmer-plot-drop-pulse .72s ease-in-out infinite alternate;
+}
+
+.farmer-plot-drag-layer {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+#farmer_app .farmer-plot-drag-layer .farmer-plot-overview-card.farmer-plot-drag-preview {
+  position: fixed;
+  z-index: 1;
+  margin: 0;
+  opacity: .98;
+  transform: translate3d(var(--farmer-plot-preview-x, 0), var(--farmer-plot-preview-y, 0), 0) translateY(-8px) rotate(.3deg) scale(1.018);
+  border-color: color-mix(in srgb, var(--g-success) 54%, var(--g-border));
+  box-shadow: 0 28px 56px rgba(29, 64, 47, .24), 0 10px 22px rgba(29, 64, 47, .16), 0 0 0 2px color-mix(in srgb, var(--g-success) 18%, transparent) !important;
+  cursor: grabbing;
+  pointer-events: none;
+  will-change: transform;
+  transition: opacity 120ms ease, box-shadow 160ms ease;
+}
+
+.farmer-plot-drag-target-badge {
+  position: fixed;
+  z-index: 2;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 12px;
+  transform: translate3d(var(--farmer-plot-preview-x, 0), var(--farmer-plot-preview-y, 0), 0) translate(-50%, -16px) translateY(-100%);
+  border: 1px solid color-mix(in srgb, var(--g-text-secondary) 42%, transparent);
+  border-radius: 999px;
+  background: rgba(40, 51, 46, .9);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(22, 42, 32, .2);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.farmer-plot-drag-target-badge.has-target {
+  border-color: color-mix(in srgb, var(--g-success) 68%, white);
+  background: color-mix(in srgb, var(--g-success) 92%, #173f2d);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--g-success) 28%, transparent);
+}
+
+@keyframes farmer-plot-drop-pulse {
+  from { transform: scale(1); }
+  to { transform: scale(.985); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #farmer_app .farmer-plot-drag-layer .farmer-plot-overview-card.farmer-plot-drag-preview {
+    transform: translate3d(var(--farmer-plot-preview-x, 0), var(--farmer-plot-preview-y, 0), 0);
+    transition: none;
+  }
+  .farmer-plot-drag-target-badge {
+    transform: translate3d(var(--farmer-plot-preview-x, 0), var(--farmer-plot-preview-y, 0), 0) translate(-50%, -16px) translateY(-100%);
+  }
+  #farmer_app .farmer-plot-overview-card.is-drop-target { animation: none; }
+}
 #farmer_app .farmer-nav-main {
   display: flex;
   flex: 1 1 auto;
@@ -4567,3 +4725,32 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
 @media (prefers-reduced-motion: reduce) {
   #farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card)::after { transition: none; }
 }
+
+/* 桌面端收起农户导航时释放侧栏占位，让内容区完整扩展。 */
+@media (min-width: 761px) {
+  #farmer_app .farmer-sidebar.collapsed {
+    flex: 0 0 0;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    flex: 1 1 0%;
+    width: 0;
+    max-width: none;
+    min-width: 0;
+  }
+}
+
+/* 农智助手撑满工作台（与农场管理员一致）：assistant 视图去除卡片居中宽度限制，
+   对话组件占满 farmer-main 可视高度；Ctrl+± 缩放时布局不塌 */
+#farmer_app .farmer-main.is-ai-view { display: flex; flex-direction: column; overflow: hidden; padding: 0 !important; }
+#farmer_app .farmer-main.is-ai-view .farmer-agent-workspace { flex: 1; width: 100%; max-width: none; min-height: 0; margin: 0; }

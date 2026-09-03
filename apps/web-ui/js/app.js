@@ -1,20 +1,21 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-ai-direct-v2';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-manager-plot-order-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-agent-main-merge-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260902-v5911-zhcn-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
+import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -27,6 +28,7 @@ import {
   mapCropPack,
   mapStrategyCandidate,
   mapTimelineRecord,
+  mergeOverviewPlotRecords,
   normalizePlot,
   relativeTime,
   alertStatusLabel,
@@ -39,13 +41,14 @@ import {
   provenanceLabel,
   resourceTypeLabel,
   scenarioLabel,
+  simulationScenarioSummary,
   serviceNameLabel,
   serviceStatusLabel,
   modeLabel,
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-ai-direct-v2';
+} from './live-data.js?v=20260903-v5922-plot-health-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -445,7 +448,7 @@ function mergeOverviewPlots(plots) {
       metrics,
       deviceId: plot.device?.deviceId || plot.deviceId || null,
       deviceStatus: plot.device?.status || plot.deviceStatus || 'UNKNOWN',
-      healthScore: plot.device?.healthScore ?? plot.healthScore ?? null,
+      healthScore: plot.health?.score ?? plot.healthScore ?? null,
       lastSeen: plot.device?.lastSeen || plot.lastSeen || null
     };
   });
@@ -498,11 +501,11 @@ function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alert
   // `openai-compatible`; the overview uses the concise product-facing mode
   // names used by the demo card.
   const aiMode = rawAiMode === 'openai-compatible' ? 'full' : rawAiMode;
-  const scenarios = [...new Set((overview.plots || [])
-    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId)
-    .filter(Boolean)
-    .map((scenario) => String(scenario).toUpperCase()))];
-  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '');
+  const scenario = simulationScenarioSummary({
+    plots,
+    overviewPlots: overview.plots,
+    simulator
+  });
   return {
     uptime: systemStatus.uptime || overview.uptime || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
@@ -621,11 +624,437 @@ const DashboardView = {
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
     const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
-    const visiblePlots = computed(() => (
+    const managerPlotSource = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const managerPlotOrderIds = ref([]);
+    const managerPlotOrderRevision = ref(0);
+    const managerPlotOrderLoaded = ref(false);
+    const managerPlotOrderBusy = ref(false);
+    const managerPlotOrderError = ref('');
+    const managerPlotOrderFarmId = ref('');
+    // Keep the server preference independent from the current plot snapshot.
+    // The preference request and the plot request are allowed to finish in
+    // either order; retaining the raw IDs lets the later snapshot apply the
+    // saved arrangement instead of falling back to its default order.
+    const managerPlotPreferenceOrder = ref(null);
+    const managerPlotDragState = ref({
+      active: false,
+      pointerId: null,
+      sourceIndex: -1,
+      targetIndex: -1,
+      startX: 0,
+      startY: 0,
+      longPressTimer: null,
+      movedBeforeActivation: false,
+      suppressClick: false,
+      snapshot: [],
+      dragPlotId: '',
+      dropTargetId: ''
+    });
+    const visiblePlots = computed(() => {
+      const source = managerPlotSource.value;
+      if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return source;
+      return managerPlotOrderIds.value.length ? reconcilePlotOrder(source, managerPlotOrderIds.value) : source;
+    });
+    const managerPlotOrderOf = (items) => plotOrderIds(items);
+    const applyManagerPlotOrderPreference = () => {
+      const source = managerPlotSource.value;
+      const preferred = managerPlotPreferenceOrder.value;
+      const ordered = preferred === null ? source : reconcilePlotOrder(source, preferred);
+      managerPlotOrderIds.value = managerPlotOrderOf(ordered);
+    };
+    const resetManagerPlotDragState = ({ suppressClick = false } = {}) => {
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: null,
+        sourceIndex: -1,
+        targetIndex: -1,
+        startX: 0,
+        startY: 0,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick,
+        snapshot: [],
+        dragPlotId: '',
+        dropTargetId: ''
+      };
+    };
+    const clearManagerPlotDragTimer = () => {
+      const timer = managerPlotDragState.value.longPressTimer;
+      if (timer !== null) window.clearTimeout(timer);
+      managerPlotDragState.value.longPressTimer = null;
+    };
+    let managerPlotDragElement = null;
+    let managerPlotDragPreview = null;
+    let managerPlotDragPreviewLayer = null;
+    let managerPlotDragTargetBadge = null;
+    let managerPlotClickSuppressTimer = null;
+    let managerPlotOrderRequestVersion = 0;
+    const removeManagerPlotDragPreview = () => {
+      managerPlotDragPreviewLayer?.remove();
+      managerPlotDragPreview = null;
+      managerPlotDragPreviewLayer = null;
+      managerPlotDragTargetBadge = null;
+    };
+    const createManagerPlotDragPreview = (sourceCard) => {
+      removeManagerPlotDragPreview();
+      if (!sourceCard?.cloneNode) return;
+      const rect = sourceCard.getBoundingClientRect();
+      const appRoot = document.querySelector('#app');
+      const layer = document.createElement('div');
+      layer.className = 'manager-plot-drag-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      const previewContext = document.createElement('div');
+      previewContext.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-context`;
+      const preview = sourceCard.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'has-open-menu');
+      preview.classList.add('manager-plot-drag-preview');
+      preview.removeAttribute('data-plot-card');
+      preview.removeAttribute('data-manager-plot-id');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('.manager-plot-menu').forEach((element) => element.remove());
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--manager-plot-preview-x', '0px');
+      preview.style.setProperty('--manager-plot-preview-y', '0px');
+      const targetBadge = document.createElement('div');
+      targetBadge.className = 'manager-plot-drag-target-badge';
+      targetBadge.textContent = '拖到另一块地上';
+      targetBadge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      targetBadge.style.top = `${Math.round(rect.top)}px`;
+      targetBadge.style.setProperty('--manager-plot-preview-x', '0px');
+      targetBadge.style.setProperty('--manager-plot-preview-y', '0px');
+      previewContext.appendChild(preview);
+      layer.appendChild(previewContext);
+      layer.appendChild(targetBadge);
+      document.body.appendChild(layer);
+      managerPlotDragPreview = preview;
+      managerPlotDragPreviewLayer = layer;
+      managerPlotDragTargetBadge = targetBadge;
+    };
+    const moveManagerPlotDragPreview = (offsetX, offsetY, targetName = '') => {
+      if (!managerPlotDragPreview) return;
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      if (!managerPlotDragTargetBadge) return;
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      managerPlotDragTargetBadge.textContent = targetName ? `放到「${targetName}」的位置` : '拖到另一块地上';
+      managerPlotDragTargetBadge.classList.toggle('has-target', Boolean(targetName));
+    };
+    const scheduleManagerPlotClickSuppressionReset = () => {
+      if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
+      managerPlotClickSuppressTimer = window.setTimeout(() => {
+        managerPlotClickSuppressTimer = null;
+        if (!managerPlotDragState.value.active) managerPlotDragState.value.suppressClick = false;
+      }, 500);
+    };
+    const restoreManagerPlotOrder = (order) => {
+      managerPlotPreferenceOrder.value = managerPlotOrderOf(order);
+      const ordered = reconcilePlotOrder(managerPlotSource.value, order);
+      managerPlotOrderIds.value = managerPlotOrderOf(ordered);
+      return ordered;
+    };
+    const loadManagerPlotOrderPreference = async (farmId, { announce = false } = {}) => {
+      const normalizedFarmId = String(farmId || '').trim();
+      const requestVersion = ++managerPlotOrderRequestVersion;
+      managerPlotOrderFarmId.value = normalizedFarmId;
+      managerPlotOrderIds.value = [];
+      managerPlotPreferenceOrder.value = null;
+      managerPlotOrderRevision.value = 0;
+      managerPlotOrderLoaded.value = false;
+      managerPlotOrderError.value = '';
+      if (!isFarmAdmin.value || !normalizedFarmId) {
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = true;
+        return false;
+      }
+      try {
+        const preference = await api.getFarmAdminWorkspacePreference(normalizedFarmId);
+        if (requestVersion !== managerPlotOrderRequestVersion || managerPlotOrderFarmId.value !== normalizedFarmId) return false;
+        managerPlotOrderRevision.value = Number(preference?.revision || 0);
+        managerPlotPreferenceOrder.value = Array.isArray(preference?.plotOrder)
+          ? managerPlotOrderOf(preference.plotOrder)
+          : [];
+        applyManagerPlotOrderPreference();
+        managerPlotOrderError.value = '';
+        return true;
+      } catch (error) {
+        if (requestVersion !== managerPlotOrderRequestVersion || managerPlotOrderFarmId.value !== normalizedFarmId) return false;
+        managerPlotOrderError.value = error?.message || '地块顺序暂未同步';
+        managerPlotPreferenceOrder.value = null;
+        applyManagerPlotOrderPreference();
+        if (announce) toast(`地块顺序暂未同步：${managerPlotOrderError.value}`, 'error');
+        return false;
+      } finally {
+        if (requestVersion === managerPlotOrderRequestVersion && managerPlotOrderFarmId.value === normalizedFarmId) {
+          managerPlotOrderLoaded.value = true;
+          applyManagerPlotOrderPreference();
+        }
+      }
+    };
+    // Apply a preference whenever the plot identity snapshot changes.  This
+    // intentionally watches IDs only, so telemetry refreshes do not reorder or
+    // re-render the manager cards unnecessarily.
+    watch(
+      () => managerPlotOrderOf(managerPlotSource.value).join('\u0001'),
+      () => {
+        if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return;
+        applyManagerPlotOrderPreference();
+      },
+      { immediate: true }
+    );
+    const removeManagerPlotDragListeners = () => {
+      window.removeEventListener('pointermove', handleManagerPlotPointerMove);
+      window.removeEventListener('pointerup', handleManagerPlotPointerUp);
+      window.removeEventListener('pointercancel', cancelManagerPlotDrag);
+    };
+    const finishManagerPlotDrag = ({ suppressClick = false } = {}) => {
+      clearManagerPlotDragTimer();
+      removeManagerPlotDragListeners();
+      if (managerPlotDragElement && managerPlotDragState.value.pointerId !== null) {
+        try { managerPlotDragElement.releasePointerCapture?.(managerPlotDragState.value.pointerId); } catch { /* pointer already released */ }
+      }
+      document.body.classList.remove('manager-plot-dragging');
+      managerPlotDragElement = null;
+      removeManagerPlotDragPreview();
+      resetManagerPlotDragState({ suppressClick });
+    };
+    const managerPlotIndexAtPoint = (clientX, clientY) => {
+      const elements = document.elementsFromPoint?.(clientX, clientY) || [document.elementFromPoint(clientX, clientY)];
+      const draggingId = String(managerPlotDragState.value.dragPlotId || '');
+      const card = elements.map((element) => element?.closest?.('[data-manager-plot-id]'))
+        .find((candidate) => candidate && String(candidate.dataset?.managerPlotId || '') !== draggingId);
+      const plotId = String(card?.dataset?.managerPlotId || '').trim();
+      if (!plotId) return -1;
+      return visiblePlots.value.findIndex((plot) => String(plot.plotId) === plotId);
+    };
+    const activateManagerPlotDrag = () => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId === null || state.movedBeforeActivation || state.active || !managerPlotOrderLoaded.value) return;
+      state.active = true;
+      state.targetIndex = state.sourceIndex;
+      state.dragPlotId = String(visiblePlots.value[state.sourceIndex]?.plotId || '');
+      state.dropTargetId = '';
+      document.body.classList.add('manager-plot-dragging');
+      managerPlotDragElement?.setPointerCapture?.(state.pointerId);
+      createManagerPlotDragPreview(managerPlotDragElement?.closest?.('[data-manager-plot-id]') || managerPlotDragElement);
+    };
+    const handleManagerPlotPointerMove = (event) => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId !== event.pointerId) return;
+      const distance = Math.hypot(event.clientX - state.startX, event.clientY - state.startY);
+      if (!state.active) {
+        if (distance > 8) {
+          state.movedBeforeActivation = true;
+          clearManagerPlotDragTimer();
+        }
+        return;
+      }
+      event.preventDefault();
+      const targetIndex = managerPlotIndexAtPoint(event.clientX, event.clientY);
+      const targetPlot = targetIndex >= 0 && targetIndex !== state.sourceIndex
+        ? visiblePlots.value[targetIndex]
+        : null;
+      moveManagerPlotDragPreview(
+        event.clientX - state.startX,
+        event.clientY - state.startY,
+        targetPlot?.name || ''
+      );
+      if (targetIndex < 0 || targetIndex === state.sourceIndex) {
+        state.targetIndex = state.sourceIndex;
+        state.dropTargetId = '';
+        return;
+      }
+      state.targetIndex = targetIndex;
+      state.dropTargetId = String(visiblePlots.value[targetIndex]?.plotId || '');
+    };
+    const moveManagerPlotToIndex = (items, sourceIndex, targetIndex) => {
+      const next = Array.isArray(items) ? items.slice() : [];
+      if (sourceIndex < 0 || sourceIndex >= next.length || targetIndex < 0 || targetIndex >= next.length || sourceIndex === targetIndex) return next;
+      const [dragged] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, dragged);
+      return next;
+    };
+    const saveManagerPlotOrder = async (farmId, nextOrder, previousOrder) => {
+      managerPlotOrderBusy.value = true;
+      try {
+        const saved = await api.saveFarmAdminWorkspacePreference(farmId, nextOrder, managerPlotOrderRevision.value);
+        if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return true;
+        managerPlotOrderRevision.value = Number(saved?.revision || managerPlotOrderRevision.value + 1);
+        managerPlotPreferenceOrder.value = Array.isArray(saved?.plotOrder)
+          ? managerPlotOrderOf(saved.plotOrder)
+          : managerPlotOrderOf(nextOrder);
+        applyManagerPlotOrderPreference();
+        managerPlotOrderError.value = '';
+        toast('地块排列已保存', 'success');
+        return true;
+      } catch (error) {
+        if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return false;
+        if (error?.code === 'FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT') {
+          try {
+            const latest = await api.getFarmAdminWorkspacePreference(farmId);
+            if (managerPlotOrderFarmId.value !== farmId || selectedFarmId.value !== farmId) return false;
+            managerPlotOrderRevision.value = Number(latest?.revision || 0);
+            restoreManagerPlotOrder(latest?.plotOrder || previousOrder);
+            toast('其他设备已更新地块顺序，页面已同步最新排列', 'error');
+          } catch (refreshError) {
+            restoreManagerPlotOrder(previousOrder);
+            toast(`地块顺序冲突，恢复原排列失败：${refreshError?.message || '请刷新页面'}`, 'error');
+          }
+        } else {
+          restoreManagerPlotOrder(previousOrder);
+          toast(`地块排列保存失败：${error?.message || '请稍后重试'}`, 'error');
+        }
+        managerPlotOrderError.value = error?.message || '地块顺序保存失败';
+        return false;
+      } finally {
+        managerPlotOrderBusy.value = false;
+      }
+    };
+    const handleManagerPlotPointerUp = async (event) => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId !== event.pointerId) return;
+      const farmId = selectedFarmId.value;
+      const wasActive = state.active;
+      const previousOrder = state.snapshot.slice();
+      const nextPlots = wasActive ? moveManagerPlotToIndex(visiblePlots.value, state.sourceIndex, state.targetIndex) : visiblePlots.value;
+      const nextOrder = managerPlotOrderOf(nextPlots);
+      const changed = nextOrder.join('\u0001') !== previousOrder.join('\u0001');
+      if (wasActive && changed) managerPlotOrderIds.value = nextOrder;
+      finishManagerPlotDrag({ suppressClick: wasActive });
+      if (wasActive) scheduleManagerPlotClickSuppressionReset();
+      if (!wasActive || !changed || !farmId) return;
+      await saveManagerPlotOrder(farmId, nextOrder, previousOrder);
+    };
+    const cancelManagerPlotDrag = () => {
+      const state = managerPlotDragState.value;
+      if (state.pointerId === null && !state.active) return;
+      const previousOrder = state.snapshot.slice();
+      const wasActive = state.active;
+      finishManagerPlotDrag({ suppressClick: wasActive });
+      if (wasActive) scheduleManagerPlotClickSuppressionReset();
+      if (wasActive && previousOrder.length) restoreManagerPlotOrder(previousOrder);
+    };
+    const handleManagerPlotPointerDown = (event, plot, index) => {
+      if (!isFarmAdmin.value || managerPlotOrderBusy.value || managerPlotDragState.value.pointerId !== null || !managerPlotOrderLoaded.value) return;
+      if (event.target?.closest?.('.manager-plot-actions')) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      managerPlotDragElement = event.currentTarget;
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: managerPlotOrderOf(visiblePlots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handleManagerPlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handleManagerPlotPointerUp);
+      window.addEventListener('pointercancel', cancelManagerPlotDrag);
+      managerPlotDragState.value.longPressTimer = window.setTimeout(activateManagerPlotDrag, 400);
+    };
+    const startManagerPlotHandleDrag = (event, plot, index) => {
+      if (!isFarmAdmin.value || managerPlotOrderBusy.value || managerPlotDragState.value.pointerId !== null || !managerPlotOrderLoaded.value) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      closePlotMenu();
+      managerPlotDragElement = event.currentTarget;
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: managerPlotOrderOf(visiblePlots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handleManagerPlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handleManagerPlotPointerUp);
+      window.addEventListener('pointercancel', cancelManagerPlotDrag);
+      activateManagerPlotDrag();
+    };
+    const handleManagerPlotOrderKeydown = async (event, plot) => {
+      const sourceIndex = visiblePlots.value.findIndex((item) => String(item?.plotId || '') === String(plot?.plotId || ''));
+      if (sourceIndex < 0 || managerPlotOrderBusy.value || !managerPlotOrderLoaded.value) return;
+      const targetIndexByKey = {
+        ArrowLeft: Math.max(0, sourceIndex - 1),
+        ArrowUp: Math.max(0, sourceIndex - 1),
+        ArrowRight: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        ArrowDown: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        Home: 0,
+        End: visiblePlots.value.length - 1
+      };
+      if (!(event.key in targetIndexByKey)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const targetIndex = targetIndexByKey[event.key];
+      if (targetIndex === sourceIndex) return;
+      const farmId = selectedFarmId.value;
+      if (!farmId) return;
+      const trigger = event.currentTarget;
+      const previousOrder = managerPlotOrderOf(visiblePlots.value);
+      const nextOrder = managerPlotOrderOf(moveManagerPlotToIndex(visiblePlots.value, sourceIndex, targetIndex));
+      managerPlotOrderIds.value = nextOrder;
+      await saveManagerPlotOrder(farmId, nextOrder, previousOrder);
+      nextTick(() => trigger?.focus());
+    };
+    const handleManagerPlotCardClick = (plot, event) => {
+      if (managerPlotDragState.value.suppressClick) {
+        managerPlotDragState.value.suppressClick = false;
+        return;
+      }
+      openPlotDetail(plot, event);
+    };
+    watch([selectedFarmId, isFarmAdmin], ([farmId, farmAdmin]) => {
+      if (!farmAdmin) {
+        managerPlotOrderRequestVersion += 1;
+        managerPlotOrderFarmId.value = '';
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = true;
+        cancelManagerPlotDrag();
+        return;
+      }
+      const normalizedFarmId = String(farmId || '').trim();
+      if (!normalizedFarmId) {
+        managerPlotOrderRequestVersion += 1;
+        managerPlotOrderFarmId.value = '';
+        managerPlotOrderIds.value = [];
+        managerPlotPreferenceOrder.value = null;
+        managerPlotOrderLoaded.value = false;
+        cancelManagerPlotDrag();
+        return;
+      }
+      if (managerPlotOrderFarmId.value === normalizedFarmId && managerPlotOrderLoaded.value) return;
+      cancelManagerPlotDrag();
+      void loadManagerPlotOrderPreference(normalizedFarmId);
+    }, { immediate: true });
     const devices = computed(() => props.state.devices || []);
     const deviceOptions = computed(() => devices.value
       .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
@@ -829,6 +1258,13 @@ const DashboardView = {
     };
     onMounted(() => document.addEventListener('click', closePlotMenu));
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
+    onBeforeUnmount(() => {
+      cancelManagerPlotDrag();
+      removeManagerPlotDragPreview();
+      if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
+      managerPlotClickSuppressTimer = null;
+      managerPlotOrderRequestVersion += 1;
+    });
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
@@ -853,6 +1289,13 @@ const DashboardView = {
       selectedFarmId,
       managedFarm,
       visiblePlots,
+      managerPlotDragState,
+      managerPlotOrderBusy,
+      handleManagerPlotCardClick,
+      handleManagerPlotPointerDown,
+      startManagerPlotHandleDrag,
+      handleManagerPlotOrderKeydown,
+      cancelManagerPlotDrag,
       devices,
       deviceOptions,
       deviceLabel,
@@ -940,8 +1383,8 @@ const PlotDetailModal = {
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .01, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .01, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
       waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '暴雨时高于此值触发积水风险' },
@@ -2384,16 +2827,30 @@ const AdminSimulatorView = {
     const timeScale = ref(Number(props.state.adminOverview?.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE));
     const plotScenarios = ref([]);
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
+    // Keep the active scenario separate from a pending fault injection.  An
+    // empty injection is intentional: it means "leave the current strategy
+    // unchanged" rather than silently switching a plot back to NORMAL.
+    const canonicalScenario = (scenario) => {
+      const value = String(scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+      if (value === 'STORM' || value === 'HEAVYRAIN') return 'HEAVY_RAIN';
+      if (value === 'OFFLINE') return 'DEVICE_OFFLINE';
+      return PLOT_SIMULATION_SCENARIOS.some((item) => item.code === value) ? value : 'NORMAL';
+    };
 
     watch(plots, (newPlots) => {
       plotScenarios.value = newPlots.map(p => {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
-        const configuredScenario = p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL';
+        const configuredScenario = canonicalScenario(p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
+        const currentScenario = existing
+          ? canonicalScenario(existing.currentScenario || existing.scenario || configuredScenario)
+          : configuredScenario;
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : String(configuredScenario).toUpperCase(),
+          currentScenario,
+          originalScenario: existing?.originalScenario || currentScenario,
+          injectionScenario: existing?.injectionScenario || '',
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
@@ -2402,13 +2859,11 @@ const AdminSimulatorView = {
     const globalScenario = computed({
       get: () => {
         if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
-        const first = plotScenarios.value[0].scenario;
-        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+        const first = plotScenarios.value[0].injectionScenario || '';
+        return plotScenarios.value.every(p => (p.injectionScenario || '') === first) ? first : '';
       },
       set: (val) => {
-        if (val) {
-          plotScenarios.value.forEach(p => p.scenario = val);
-        }
+        plotScenarios.value.forEach(p => p.injectionScenario = val || '');
       }
     });
     const adminDualTrackModal = ref(false);
@@ -2421,10 +2876,15 @@ const AdminSimulatorView = {
       props.state.simulatorStatus = status;
       const interval = Number(status.sampleIntervalSeconds || props.state.adminOverview.simulator?.sampleIntervalSeconds || 20);
       const scale = Number(status.timeScale || props.state.adminOverview.simulator?.timeScale || DEFAULT_SIMULATION_TIME_SCALE);
+      const scenario = simulationScenarioSummary({
+        plots: props.state.allPlots || props.state.plots,
+        overviewPlots: props.state.overview?.plots,
+        simulator: status
+      });
       props.state.adminOverview.simulator = {
         ...(props.state.adminOverview.simulator || {}),
-        running: String(status.status || '').toUpperCase() === 'RUNNING',
-        scenario: status.scenario || status.scenarioId || '',
+        running: String(status.status || '').trim() ? String(status.status).toUpperCase() === 'RUNNING' : status.running === true,
+        scenario: scenario || props.state.adminOverview.simulator?.scenario || '',
         eventsEmitted: Number(status.eventsEmitted || status.eventCount || 0),
         sampleIntervalSeconds: interval,
         timeScale: scale
@@ -2462,14 +2922,26 @@ const AdminSimulatorView = {
       if (simBusy.value) return;
       const targets = (plotScenarios.value || []).filter((plot) => plot && plot.plotId);
       if (targets.length === 0) { toast('没有可保存的地块场景配置', 'error'); return; }
+      const pending = targets.filter((plot) => String(plot.injectionScenario || '').trim());
+      pending.filter((plot) => canonicalScenario(plot.injectionScenario) === canonicalScenario(plot.currentScenario))
+        .forEach((plot) => { plot.injectionScenario = ''; });
+      const changed = pending.filter((plot) => String(plot.injectionScenario || '').trim());
+      if (changed.length === 0) {
+        toast('未选择新的异常场景，当前模拟场景保持不变', 'info');
+        return;
+      }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
-        for (const plot of targets) {
-          const scenario = String(plot.scenario || 'NORMAL').toUpperCase();
+        for (const plot of changed) {
+          const scenario = canonicalScenario(plot.injectionScenario);
           try {
-            await api.updatePlotSimulation(plot.plotId, { scenario });
+            const saved = await api.updatePlotSimulation(plot.plotId, { scenario });
+            const appliedScenario = canonicalScenario(saved?.scenario || scenario);
+            plot.currentScenario = appliedScenario;
+            plot.originalScenario = appliedScenario;
+            plot.injectionScenario = '';
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
@@ -2491,7 +2963,7 @@ const AdminSimulatorView = {
       simBusy.value = true;
       try {
         const nextEnabled = !target.enabled;
-        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        await api.updatePlotSimulation(target.plotId, { scenario: target.currentScenario, enabled: nextEnabled });
         target.enabled = nextEnabled;
         toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
       } catch (error) {
@@ -2590,17 +3062,20 @@ const AdminSimulatorView = {
     const scenarios = [
       { id: 'NORMAL', icon: '☀️', label: '正常运行', desc: '标准环境参数运行' },
       { id: 'DROUGHT', icon: '🏜️', label: '干旱场景', desc: '持续高温低湿' },
-      { id: 'STORM', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
+      { id: 'HEAVY_RAIN', icon: '🌧️', label: '暴雨场景', desc: '大量降水+低温' },
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
+    const scenarioInjectionOptions = scenarios.map((scenario) => scenario.id === 'NORMAL'
+      ? { ...scenario, label: '恢复正常', desc: '解除异常注入，恢复标准环境' }
+      : scenario);
 
     watch(() => props.state.simulatorStatus, (status) => {
       if (status && typeof status === 'object') syncSimulator(status);
     }, { immediate: true });
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioInjectionOptions,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, applyPlotScenarios, togglePlotSimulation,
       scenarioLabel, localizedStatusLabel
@@ -2820,6 +3295,8 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
+    const createUserDialog = ref(null);
+    let createUserTrigger = null;
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
     const appearanceStyleOptions = surfaceStyleOptions.filter((item) => item.value !== DEFAULT_USER_SETTINGS.surfaceStyle);
@@ -2897,6 +3374,47 @@ const AdminSettingsView = {
       user.enabled = !user.enabled;
     };
 
+    const createUserFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const openCreateUser = async (event) => {
+      createUserTrigger = event?.currentTarget || document.activeElement;
+      showCreateUser.value = true;
+      await nextTick();
+      createUserDialog.value?.querySelector(createUserFocusableSelector)?.focus();
+    };
+    const closeCreateUser = async () => {
+      const trigger = createUserTrigger;
+      showCreateUser.value = false;
+      createUserTrigger = null;
+      await nextTick();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    const handleCreateUserDialogKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCreateUser();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = createUserDialog.value;
+      const focusable = Array.from(dialog?.querySelectorAll(createUserFocusableSelector) || [])
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     const createUser = async () => {
       const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       if (isLiveSession.value) {
@@ -2959,8 +3477,8 @@ const AdminSettingsView = {
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
+      activeTab, roleFilter, logFilter, showCreateUser, createUserDialog, newUser, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, handleCreateUserDialogKeydown, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
       surfaceStyleOptions, appearanceStyleOptions, appearanceSettings, appearanceStyleLabel,
       selectAppearanceStyle, resetAppearanceStyle
     };
@@ -3458,66 +3976,90 @@ const app = createApp({
         jobs.inspections = api.getInspections({ farmId });
       }
       const entries = Object.entries(jobs);
+      const partialResults = {};
+      const applySnapshot = (results) => {
+        if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
+        const previousPlots = fulfilled('overview') && fulfilled('plots')
+          ? []
+          : (state.value.allPlots || state.value.plots || []);
+        const plotsReadSucceeded = fulfilled('plots');
+        const fetchedFacts = fulfilled('plots') && Array.isArray(results.plots.value) ? results.plots.value : [];
+        const refreshedDevices = fulfilled('devices') ? results.devices.value : state.value.devices;
+        if (fulfilled('overview')) state.value.overview = overview;
+        if (hasFarmPlotRefresh(results)) {
+          const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || item?.id || '')));
+          const now = Date.now();
+          const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
+          pending.forEach(([plotId, entry]) => {
+            if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
+          });
+          const pendingFacts = pending
+            .filter(([plotId]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
+            .map(([, entry]) => entry.plot);
+          const merged = mergeFarmPlots(
+            [...fetchedFacts, ...pendingFacts],
+            overview?.plots || [],
+            refreshedDevices || [],
+            previousPlots
+          );
+          state.value.allPlots = merged;
+          state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        }
+        if (fulfilled('workOrders')) state.value.workOrders = results.workOrders.value || [];
+        if (fulfilled('alerts')) state.value.alerts = results.alerts.value || [];
+        if (fulfilled('devices')) state.value.devices = results.devices.value || [];
+        if (fulfilled('members')) state.value.farmMembers = results.members.value || [];
+        if (fulfilled('batches')) state.value.cropBatches = results.batches.value || [];
+        if (fulfilled('ledgers')) state.value.valueLedgers = results.ledgers.value || [];
+        if (fulfilled('resourceProfile')) {
+          state.value.resourceProfile = results.resourceProfile.value || {};
+          state.value.resourceProfiles = [results.resourceProfile.value || {}];
+        }
+        if (fulfilled('resourcePlans')) state.value.resourcePlans = results.resourcePlans.value || [];
+        if (fulfilled('resourceRequests')) state.value.resourceRequests = results.resourceRequests.value || [];
+        if (fulfilled('cropPacks')) {
+          state.value.cropPacks = results.cropPacks.value || [];
+          state.value.cropPackDetails = state.value.cropPacks;
+        }
+        if (fulfilled('adminRules')) state.value.adminRules = results.adminRules.value || [];
+        if (fulfilled('adminStrategyCandidates')) state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
+        if (fulfilled('adminLearningCases')) state.value.adminLearningCases = results.adminLearningCases.value || [];
+        if (fulfilled('simulator')) state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
+        if (fulfilled('inspections')) {
+          state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
+        }
+        state.value.feedItems = buildLiveFeedItems({
+          alerts: state.value.alerts,
+          workOrders: state.value.workOrders,
+          inspections: state.value.inspections,
+          plots: state.value.allPlots
+        });
+        if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
+      };
+      entries.forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+          applySnapshot(partialResults);
+        });
+      });
       const settled = await Promise.all(entries.map(async ([key, promise]) => [
         key,
         await settleWithinBudget(promise, budgetMs)
       ]));
-      if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
       const results = Object.fromEntries(settled);
+      Object.assign(partialResults, results);
+      applySnapshot(partialResults);
       const failed = [];
       const timedOut = [];
       Object.entries(results).forEach(([key, result]) => {
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
         if (result.status === 'timeout') timedOut.push(key);
       });
-      const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
-      const plotsReadSucceeded = results.plots?.status === 'fulfilled';
-      const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
-      if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
-      if (hasFarmPlotRefresh(results)) {
-        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
-        const fetchedFacts = Array.isArray(facts) ? facts : [];
-        const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || '')));
-        const now = Date.now();
-        const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
-        pending.forEach(([plotId, entry]) => {
-          if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
-        });
-        const pendingFacts = pending
-          .filter(([plotId, entry]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
-          .map(([, entry]) => entry.plot);
-        const merged = mergeFarmPlots([...fetchedFacts, ...pendingFacts], overview?.plots || [], refreshedDevices || []);
-        state.value.allPlots = merged;
-        state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
-      }
-      if (results.workOrders?.status === 'fulfilled') state.value.workOrders = results.workOrders.value || [];
-      if (results.alerts?.status === 'fulfilled') state.value.alerts = results.alerts.value || [];
-      if (results.devices?.status === 'fulfilled') state.value.devices = results.devices.value || [];
-      if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
-      if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
-      if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
-      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfile = results.resourceProfile.value || {};
-      if (results.resourceProfile?.status === 'fulfilled') state.value.resourceProfiles = [results.resourceProfile.value || {}];
-      if (results.resourcePlans?.status === 'fulfilled') state.value.resourcePlans = results.resourcePlans.value || [];
-      if (results.resourceRequests?.status === 'fulfilled') state.value.resourceRequests = results.resourceRequests.value || [];
-      if (results.cropPacks?.status === 'fulfilled') {
-        state.value.cropPacks = results.cropPacks.value || [];
-        state.value.cropPackDetails = state.value.cropPacks;
-      }
-      if (results.adminRules?.status === 'fulfilled') state.value.adminRules = results.adminRules.value || [];
-      if (results.adminStrategyCandidates?.status === 'fulfilled') state.value.adminStrategyCandidates = results.adminStrategyCandidates.value || [];
-      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
-      if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
-      if (results.inspections?.status === 'fulfilled') {
-        state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
-      }
-      state.value.feedItems = buildLiveFeedItems({
-        alerts: state.value.alerts,
-        workOrders: state.value.workOrders,
-        inspections: state.value.inspections,
-        plots: state.value.allPlots
-      });
-      if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
       return { timedOut: timedOut.length > 0, failed: failed.length > 0 };
     };
@@ -3549,57 +4091,44 @@ const app = createApp({
           return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
         })()
       };
-      const settled = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
-        key,
-        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
-      ])).then(Object.fromEntries);
-      const applied = settled.then((results) => {
+      const entries = Object.entries(jobs);
+      const partialResults = {};
+      const applySnapshot = (results) => {
         if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
-        const failures = Object.entries(results)
-          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
-          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
-        const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
-        const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : (state.value.overview || {});
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const farms = fulfilled('farms') ? (results.farms.value || []) : (state.value.farms || []);
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
         const cards = Array.isArray(overview.plots) ? overview.plots : [];
-        const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
-        const rawPlots = results.plots?.status === 'fulfilled'
-          ? (results.plots.value || [])
+        const previousPlots = fulfilled('plots') && fulfilled('overview')
+          ? []
           : (state.value.allPlots || state.value.plots || []);
-        const plots = (rawPlots.length ? rawPlots : cards).map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+        const rawPlots = fulfilled('plots') ? (results.plots.value || []) : [];
+        const plots = mergeOverviewPlotRecords(rawPlots, cards, previousPlots);
         const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
         const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
-        const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : state.value.workOrders;
-        const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : state.value.alerts;
-        const simulator = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
-        const systemStatus = results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {};
-        // The overview card already carries the device snapshot.  Use it for
-        // the first paint and replace it with the authoritative device list in
-        // the background reconciliation pass.
+        const workOrders = fulfilled('workOrders') ? (results.workOrders.value || []) : (state.value.workOrders || []);
+        const alerts = fulfilled('alerts') ? (results.alerts.value || []) : (state.value.alerts || []);
+        const simulator = fulfilled('simulator') ? results.simulator.value : (state.value.simulatorStatus || {});
+        const systemStatus = fulfilled('systemStatus') ? (results.systemStatus.value || {}) : {};
         const cardDevices = cards.map((card) => card?.device && ({
           ...card.device,
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
         const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
-        state.value.farms = farms;
-        state.value.overview = overview;
+        state.value.farms = fulfilled('farms') ? farms : state.value.farms;
+        state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         state.value.allPlots = plots;
-        state.value.workOrders = workOrders || [];
-        state.value.alerts = alerts || [];
+        state.value.workOrders = fulfilled('workOrders') ? workOrders : state.value.workOrders;
+        state.value.alerts = fulfilled('alerts') ? alerts : state.value.alerts;
         state.value.devices = devices;
         state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
         state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
-        state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
-        state.value.simulatorStatus = simulator || state.value.simulatorStatus;
-        state.value.adminOverview = adminOverviewFromLive({
-            overview,
-            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
-            systemStatus,
-          simulator: simulator || {},
-          alerts: alerts || [],
-          devices,
-          recentEvents: (alerts || []).slice(0, 8).map((alert, index) => ({
+        state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
+        state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
+        const nextOverview = adminOverviewFromLive({ overview, plots, systemStatus, simulator, alerts, devices,
+          recentEvents: alerts.slice(0, 8).map((alert, index) => ({
             id: `alert:${alert.alertId || alert.id || index}`,
             category: 'alert', icon: 'warning',
             title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
@@ -3607,18 +4136,51 @@ const app = createApp({
             traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
           }))
         });
+        if (!fulfilled('systemStatus') && state.value.adminOverview?.services) {
+          nextOverview.services = state.value.adminOverview.services;
+          nextOverview.uptime = state.value.adminOverview.uptime || nextOverview.uptime;
+          nextOverview.apiVersion = state.value.adminOverview.apiVersion || nextOverview.apiVersion;
+        }
+        if (!fulfilled('alerts') && !fulfilled('overview') && state.value.adminOverview?.recentEvents?.length) {
+          nextOverview.recentEvents = state.value.adminOverview.recentEvents;
+        }
+        state.value.adminOverview = { ...state.value.adminOverview, ...nextOverview };
         state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.allPlots });
+      };
+      entries.forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+          applySnapshot(partialResults);
+        });
+      });
+      const budgeted = Promise.all(entries.map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
+      ])).then(Object.fromEntries);
+      const applied = budgeted.then((results) => {
+        Object.assign(partialResults, results);
+        applySnapshot(partialResults);
+        const failures = Object.entries(results)
+          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
+          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
         if (failures.length && announceErrors && failures.length === Object.keys(jobs).length) {
           showToast(`平台核心数据暂不可用：${failures.join('；')}`, 'error');
         }
+        return results;
       });
-      return {
-        visible: waitForBootstrapBudget(applied),
-        // Keep this separate from the budgeted promise.  Background work must
-        // wait for the original request to settle before it increments the
-        // version, otherwise a slow core response would be discarded.
-        settled: applied
-      };
+      const settled = Promise.all(entries.map(([key, promise]) => Promise.resolve(promise).then(
+        (value) => [key, { status: 'fulfilled', value }],
+        (reason) => [key, { status: 'rejected', reason }]
+      ))).then((items) => {
+        const results = Object.fromEntries(items);
+        Object.assign(partialResults, results);
+        applySnapshot(partialResults);
+        return results;
+      });
+      return { visible: waitForBootstrapBudget(applied), settled };
     };
 
     const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {

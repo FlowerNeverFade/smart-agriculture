@@ -101,7 +101,15 @@ const SCENARIO_LABELS = Object.freeze({
   HEAVY_RAIN: '暴雨场景', HEAVYRAIN: '暴雨场景', STORM: '暴雨场景', RAIN: '暴雨场景',
   SENSOR_DRIFT: '传感器漂移', DEVICE_OFFLINE: '设备离线', OFFLINE: '设备离线',
   EVIDENCE_CONFLICT: '证据冲突',
-  MULTI_SCENARIO: '多场景'
+  MULTI_SCENARIO: '多场景',
+  PLOT_SCOPED: '按地块运行'
+});
+
+const SCENARIO_CODE_ALIASES = Object.freeze({
+  STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', RAIN: 'HEAVY_RAIN',
+  OFFLINE: 'DEVICE_OFFLINE', DEVICE_OFFLINE: 'DEVICE_OFFLINE',
+  SENSOR_DRIFT: 'SENSOR_DRIFT', NORMAL_RUN: 'NORMAL',
+  HEAT_WAVE: 'DROUGHT'
 });
 
 const PRIORITY_LABELS = Object.freeze({
@@ -220,6 +228,73 @@ export function scenarioLabel(value, fallback = '未设置') {
     return count ? `多场景（${count}）` : '多场景';
   }
   return fallback;
+}
+
+function normalizedScenarioCode(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const normalized = code(raw);
+  if (SCENARIO_CODE_ALIASES[normalized]) return SCENARIO_CODE_ALIASES[normalized];
+  if (SCENARIO_LABELS[normalized] && !normalized.startsWith('MULTI_SCENARIO')) return normalized;
+  // Scenario IDs may include a replay/run suffix (for example
+  // `drought-20260902-01`). Keep only the recognized scenario prefix.
+  const known = Object.keys(SCENARIO_LABELS)
+    .filter((item) => !['MULTI_SCENARIO', 'PLOT_SCOPED'].includes(item))
+    .sort((left, right) => right.length - left.length);
+  return known.find((item) => normalized.startsWith(`${item}_`)) || '';
+}
+
+/**
+ * Resolve the scenario shown in a platform overview without inventing a
+ * global value. The simulator itself is global, while strategies are stored
+ * per plot, so plot values are authoritative whenever they are available.
+ */
+export function simulationScenarioSummary({ plots = [], overviewPlots = [], simulator = {} } = {}) {
+  const scenariosByPlot = new Map();
+  let anonymousIndex = 0;
+  const collect = (items) => {
+    if (!Array.isArray(items)) return;
+    items.forEach((plot) => {
+      if (code(plot?.status) === 'INACTIVE') return;
+      const simulation = plot?.simulation || plot?.simulationConfig || {};
+      const scenario = [
+        simulation.scenario,
+        simulation.scenarioId,
+        plot?.simulationScenario,
+        plot?.scenario,
+        plot?.scenarioId
+      ].map(normalizedScenarioCode).find(Boolean);
+      if (!scenario) return;
+      const plotKey = String(plot?.plotId || plot?.id || `anonymous-${anonymousIndex++}`);
+      // `plots` is normally the normalized/authoritative list; the overview
+      // cards are a fallback when the slower /plots request has not settled.
+      if (!scenariosByPlot.has(plotKey)) scenariosByPlot.set(plotKey, scenario);
+    });
+  };
+  collect(plots);
+  collect(overviewPlots);
+
+  const scenarios = [...new Set(scenariosByPlot.values())];
+  if (scenarios.length === 1) return scenarios[0];
+  if (scenarios.length > 1) return `多场景（${scenarios.length}）`;
+
+  const globalScenario = [simulator?.scenario, simulator?.scenarioId]
+    .map(normalizedScenarioCode)
+    .find(Boolean);
+  if (globalScenario) return globalScenario;
+
+  // The status endpoint does not always include the active scenario. When
+  // plot snapshots are still loading, use the latest running simulator
+  // record as a traceable fallback instead of showing an empty overview.
+  const historyRuns = Array.isArray(simulator?.history) ? simulator.history : [];
+  const historyScenario = historyRuns
+    .find((run) => code(run?.status) === 'RUNNING' && (run?.scenario || run?.scenarioId))
+    || historyRuns.find((run) => run?.scenario || run?.scenarioId);
+  const historicalScenario = normalizedScenarioCode(historyScenario?.scenario || historyScenario?.scenarioId);
+  if (historicalScenario) return historicalScenario;
+
+  const status = code(simulator?.status);
+  return simulator?.running === true || status === 'RUNNING' ? 'PLOT_SCOPED' : '';
 }
 
 export function priorityLabel(value, fallback = '普通') {
@@ -408,6 +483,14 @@ const AGENT_INTENT_LABELS = Object.freeze({
   PLATFORM_OVERVIEW: '平台风险概览',
   FARM_OVERVIEW: '农场风险概览',
   RULE_STRATEGY_STATUS: '规则与策略状态',
+  DEVICE_STATUS: '设备状态',
+  ALERT_STATUS: '告警状态',
+  WORK_ORDER_STATUS: '任务状态',
+  CROP_MANUAL: '作物培养手册',
+  SIMULATION_STATUS: '模拟状态',
+  LEARNING_CASES: '学习案例',
+  STRATEGY_CANDIDATES: '策略候选',
+  AUDIT_RECORDS: '审计记录',
   TODAY_WORK: '今日农务',
   PLOT_STATUS: '地块状态',
   IMAGE_ANALYSIS: '图片分析',
@@ -454,6 +537,14 @@ const AGENT_TOOL_LABELS = Object.freeze({
   get_platform_risk_overview: '汇总全平台风险',
   get_rule_strategy_status: '读取规则与策略状态',
   get_farm_overview: '汇总当前农场'
+  ,get_devices: '读取设备状态'
+  ,get_alerts: '读取告警状态'
+  ,get_work_orders: '读取任务状态'
+  ,get_crop_manual: '读取作物培养手册'
+  ,get_simulation_status: '读取模拟状态'
+  ,get_learning_cases: '读取学习案例'
+  ,get_strategy_candidates: '读取策略候选'
+  ,get_audit_records: '读取审计记录'
 });
 
 const AGENT_SCOPE_LABELS = Object.freeze({
@@ -688,11 +779,10 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
       || agentToolOutput(response, 'diagnose_root_cause')
       || {};
     const cause = displayText(diagnosis.primaryCause || diagnosis.riskType, '待分析');
-    const confidence = formatAgentConfidence(diagnosis.confidence ?? response.confidence);
     return {
       kind: 'DIAGNOSIS',
       title: '诊断结论卡',
-      summary: `主因 ${cause}${confidence ? `，置信度 ${confidence}` : ''}`,
+      summary: `主因 ${cause}`,
       plotId,
       plotName,
       traceId,
@@ -751,6 +841,49 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
   return null;
 }
 
+const AGENT_NAVIGATION_VIEWS = Object.freeze({
+  FARMER: new Set(['dashboard', 'plots', 'tasks', 'tools', 'advice', 'inspections', 'assistant', 'settings']),
+  FARM_ADMIN: new Set(['dashboard', 'plot-detail', 'decision-console', 'work-orders', 'resource-coordination', 'farm-members', 'rules-strategies', 'ai-assistant', 'settings']),
+  SYSTEM_ADMIN: new Set(['plot-detail', 'admin-overview', 'admin-ops', 'admin-resources', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings', 'admin-agent', 'settings'])
+});
+const AGENT_NAVIGATION_PARAM_KEYS = new Set(['farmId', 'plotId', 'deviceId', 'taskId', 'workOrderId', 'alertId', 'caseId', 'candidateId', 'userId', 'tab', 'section', 'scope', 'metric', 'conversationId']);
+
+/**
+ * Normalize server navigation cards through a small client-side route
+ * registry.  A model can describe a destination, but it cannot provide a
+ * free URL or arbitrary query parameters.
+ */
+export function normalizeAgentNavigationCards(response = {}, options = {}) {
+  const role = String(options.role || response.role || response.agentRole || '').trim().toUpperCase();
+  const allowedViews = AGENT_NAVIGATION_VIEWS[role] || AGENT_NAVIGATION_VIEWS.FARMER;
+  return asArray(response.navigationCards)
+    .filter(card => card && String(card.type || 'NAVIGATION_CARD').toUpperCase() === 'NAVIGATION_CARD')
+    .map((card, index) => {
+      const targetRole = String(card.targetRole || role).trim().toUpperCase();
+      const route = card.route && typeof card.route === 'object' ? card.route : {};
+      const view = String(route.view || '').trim();
+      if (!view || !allowedViews.has(view) || (targetRole && targetRole !== role)) return null;
+      const paramsSource = route.params && typeof route.params === 'object' ? route.params : route;
+      const params = {};
+      AGENT_NAVIGATION_PARAM_KEYS.forEach(key => {
+        const value = paramsSource[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') params[key] = String(value).trim();
+      });
+      return {
+        id: String(card.id || `${view}-${index}`),
+        type: 'NAVIGATION_CARD',
+        title: text(card.title, '查看详情'),
+        description: text(card.description, '打开相关农业工作台'),
+        label: text(card.label, '前往查看'),
+        targetRole: targetRole || role,
+        route: { view, params }
+      };
+    })
+    .filter(Boolean)
+    .filter((card, index, list) => list.findIndex(item => item.route.view === card.route.view && JSON.stringify(item.route.params) === JSON.stringify(card.route.params)) === index)
+    .slice(0, 4);
+}
+
 /** Normalize a full farmer QA turn for rendering evidence, traceId and decision cards. */
 export function normalizeAgentTurn(response = {}, question = '', options = {}) {
   const plot = options.plot || null;
@@ -772,11 +905,11 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
     roleLabel: text(response.roleLabel || response.roleProfile?.label || agentRoleLabel(roleCode), ''),
     scopeLabel: text(response.roleProfile?.scopeLabel || options.scopeLabel, ''),
     roleProfile: response.roleProfile && typeof response.roleProfile === 'object' ? response.roleProfile : null,
-    confidence: formatAgentConfidence(response.confidence),
     degraded: Boolean(response.degraded),
     evidence: normalizeAgentEvidence(response),
     facts: normalizeAgentFacts(response),
     recommendations: normalizeAgentRecommendations(response),
+    navigationCards: normalizeAgentNavigationCards(response, { role: roleCode }),
     decisionCard: normalizeAgentDecisionCard(response, plot),
     actionProposal: response?.actionProposal ? { ...response.actionProposal } : null,
     plotId: text(plot?.plotId || response.plotId, ''),
@@ -849,8 +982,8 @@ function metricFromLatest(code, event, current = {}) {
 }
 
 export function normalizePlot(plot = {}, overviewCard = {}) {
-  const metrics = { ...(plot.metrics || {}) };
-  const history = plot.history || overviewCard.history || {};
+  const metrics = { ...(plot.metrics || {}), ...(overviewCard.metrics || {}) };
+  const history = { ...(plot.history || {}), ...(overviewCard.history || {}) };
   Object.entries(history).forEach(([code, points]) => {
     if (!Array.isArray(points) || !points.length) return;
     metrics[code] = { ...(metrics[code] || { label: code, target: '—' }), history: points };
@@ -881,8 +1014,8 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     name: text(plot.name || overviewCard.name, text(plot.plotId || overviewCard.plotId, '未命名地块')),
     cropCode,
     cropName: text(plot.cropName || overviewCard.cropName, CROP_LABELS[cropCode] || cropCode || '—'),
-    stageCode: text(plot.stageCode, ''),
-    stageLabel: text(plot.stageLabel, '—'),
+    stageCode: text(plot.stageCode || overviewCard.stageCode, ''),
+    stageLabel: text(plot.stageLabel || overviewCard.stageLabel, '—'),
     facilityType,
     facilityLabel,
     cultivationStatus: text(plot.cultivationStatus || overviewCard.cultivationStatus, 'GROWING').toUpperCase(),
@@ -900,12 +1033,43 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     hardware,
     hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
-    healthScore: overviewCard.health?.score ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.health?.score ?? plot.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
     lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
+}
+
+/**
+ * Merge the lightweight /plots facts and the richer /overview cards by plot.
+ * A request can finish before the other one (or hit its UI budget), so keep
+ * the previously rendered fields for matching plots while allowing fresh
+ * facts/cards to replace them.  When both sources are unavailable the prior
+ * snapshot is retained; an explicit empty response still clears the list.
+ */
+export function mergeOverviewPlotRecords(plotFacts = [], overviewCards = [], previousPlots = []) {
+  const facts = Array.isArray(plotFacts) ? plotFacts : [];
+  const cards = Array.isArray(overviewCards) ? overviewCards : [];
+  const previous = Array.isArray(previousPlots) ? previousPlots : [];
+  const factMap = new Map(facts
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const cardMap = new Map(cards
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const previousMap = new Map(previous
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const freshIds = new Set([...factMap.keys(), ...cardMap.keys()]);
+  const ids = (freshIds.size ? [...freshIds] : [...previousMap.keys()])
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  return ids.map((plotId) => {
+    const fact = factMap.get(plotId) || {};
+    const card = cardMap.get(plotId) || {};
+    const prior = previousMap.get(plotId) || {};
+    return normalizePlot({ ...prior, ...fact }, card);
+  });
 }
 
 /**
