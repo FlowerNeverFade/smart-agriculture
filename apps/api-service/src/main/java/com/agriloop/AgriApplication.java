@@ -2986,7 +2986,9 @@ class AgriEngine {
         Map<String, Object> plot = store.find("plot", plotId);
         Map<String, Object> plotMap = plot == null ? Map.of() : plot;
         Collection<Map<String, Object>> batches = batchesByPlot == null
-                ? store.list("crop-batch")
+                ? store.list("crop-batch").stream()
+                    .filter(item -> plotId != null && plotId.equals(Jsons.text(item, "plotId", "")))
+                    .toList()
                 : batchesByPlot.getOrDefault(plotId, List.of());
         Map<String, Object> batch = batches.stream()
                 .findFirst().orElse(Map.of());
@@ -4110,10 +4112,16 @@ class AgriEngine {
         candidates.sort(Comparator.comparingDouble((Map<String, Object> c) -> Jsons.number(c, "confidence", 0)).reversed());
         String primary = Jsons.text(candidates.get(0), "code", "INSUFFICIENT_EVIDENCE");
         double confidence = Jsons.number(candidates.get(0), "confidence", 0.1);
-        // A normal, well-watered plot often has no dominant root cause.  Do not
-        // turn the small 0.08 fallback drift score into a false sensor-fault
-        // diagnosis; retain it as a low-confidence candidate instead.
-        if (!explicitDrift && deviceScore < 0.9 && confidence < 0.25) {
+        // Explicit drift scenarios must stay distinguishable from drought even
+        // when a high-stage moisture threshold would otherwise outrank the
+        // fixed 0.92 drift prior.
+        if (explicitDrift) {
+            primary = "SENSOR_DRIFT";
+            confidence = Math.max(0.92, confidence);
+        } else if (deviceScore < 0.9 && confidence < 0.25) {
+            // A normal, well-watered plot often has no dominant root cause.  Do
+            // not turn the small 0.08 fallback drift score into a false
+            // sensor-fault diagnosis; retain it as a low-confidence candidate.
             primary = "INSUFFICIENT_EVIDENCE";
         }
         List<Map<String, Object>> supporting = new ArrayList<>(); List<Map<String, Object>> opposing = new ArrayList<>(); List<String> missing = new ArrayList<>();
