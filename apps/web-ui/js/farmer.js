@@ -1,5 +1,5 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260903-chart-fix-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
@@ -3516,7 +3516,66 @@ const app = createApp({
 
     let plot_order_request_version = 0;
     let plot_drag_element = null;
+    let plot_drag_preview = null;
+    let plot_drag_preview_layer = null;
+    let plot_drag_target_badge = null;
     let plot_click_suppress_timer = null;
+    const remove_plot_drag_preview = () => {
+      plot_drag_preview_layer?.remove();
+      plot_drag_preview = null;
+      plot_drag_preview_layer = null;
+      plot_drag_target_badge = null;
+    };
+    const create_plot_drag_preview = (source_card) => {
+      remove_plot_drag_preview();
+      if (!source_card?.cloneNode) return;
+      const rect = source_card.getBoundingClientRect();
+      const layer = document.createElement('div');
+      layer.className = 'farmer-plot-drag-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      const preview = source_card.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'selected');
+      preview.classList.add('farmer-plot-drag-preview');
+      preview.removeAttribute('data-farmer-plot-id');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--farmer-plot-preview-x', '0px');
+      preview.style.setProperty('--farmer-plot-preview-y', '0px');
+      const target_badge = document.createElement('div');
+      target_badge.className = 'farmer-plot-drag-target-badge';
+      target_badge.textContent = '拖到另一块地上';
+      target_badge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      target_badge.style.top = `${Math.round(rect.top)}px`;
+      target_badge.style.setProperty('--farmer-plot-preview-x', '0px');
+      target_badge.style.setProperty('--farmer-plot-preview-y', '0px');
+      layer.appendChild(preview);
+      layer.appendChild(target_badge);
+      (document.querySelector('#farmer_app') || document.body).appendChild(layer);
+      plot_drag_preview = preview;
+      plot_drag_preview_layer = layer;
+      plot_drag_target_badge = target_badge;
+    };
+    const move_plot_drag_preview = (offset_x, offset_y, target_name = '') => {
+      if (!plot_drag_preview) return;
+      plot_drag_preview.style.setProperty('--farmer-plot-preview-x', `${Math.round(offset_x)}px`);
+      plot_drag_preview.style.setProperty('--farmer-plot-preview-y', `${Math.round(offset_y)}px`);
+      if (!plot_drag_target_badge) return;
+      plot_drag_target_badge.style.setProperty('--farmer-plot-preview-x', `${Math.round(offset_x)}px`);
+      plot_drag_target_badge.style.setProperty('--farmer-plot-preview-y', `${Math.round(offset_y)}px`);
+      plot_drag_target_badge.textContent = target_name ? `放到「${target_name}」的位置` : '拖到另一块地上';
+      plot_drag_target_badge.classList.toggle('has-target', Boolean(target_name));
+    };
     const schedule_plot_click_suppression_reset = () => {
       if (plot_click_suppress_timer !== null) window.clearTimeout(plot_click_suppress_timer);
       plot_click_suppress_timer = window.setTimeout(() => {
@@ -3620,13 +3679,14 @@ const app = createApp({
     };
     const activate_plot_drag = () => {
       const state = plot_drag_state.value;
-      if (state.pointerId === null || state.movedBeforeActivation || state.active) return;
+      if (state.pointerId === null || state.movedBeforeActivation || state.active || !plot_order_loaded.value) return;
       state.active = true;
       state.targetIndex = state.sourceIndex;
       state.dragPlotId = String(plots.value[state.sourceIndex]?.plotId || '');
       state.dropTargetId = '';
       document.body.classList.add('farmer-plot-dragging');
       plot_drag_element?.setPointerCapture?.(state.pointerId);
+      create_plot_drag_preview(plot_drag_element?.closest?.('[data-farmer-plot-id]') || plot_drag_element);
     };
     const remove_plot_drag_listeners = () => {
       window.removeEventListener('pointermove', handle_plot_pointer_move);
@@ -3641,6 +3701,7 @@ const app = createApp({
       }
       document.body.classList.remove('farmer-plot-dragging');
       plot_drag_element = null;
+      remove_plot_drag_preview();
       reset_plot_drag_state({ suppressClick });
     };
     const handle_plot_pointer_move = (event) => {
@@ -3656,6 +3717,14 @@ const app = createApp({
       }
       event.preventDefault();
       const targetIndex = plot_index_at_point(event.clientX, event.clientY);
+      const targetPlot = targetIndex >= 0 && targetIndex !== state.sourceIndex
+        ? plots.value[targetIndex]
+        : null;
+      move_plot_drag_preview(
+        event.clientX - state.startX,
+        event.clientY - state.startY,
+        targetPlot?.name || ''
+      );
       if (targetIndex < 0 || targetIndex === state.sourceIndex) {
         state.targetIndex = state.sourceIndex;
         state.dropTargetId = '';
@@ -3680,7 +3749,10 @@ const app = createApp({
       const nextPlots = wasActive ? move_plot_to_index(plots.value, state.sourceIndex, state.targetIndex) : plots.value;
       const nextOrder = plot_order_of(nextPlots);
       const changed = nextOrder.join('\u0001') !== previousOrder.join('\u0001');
-      if (wasActive && changed) replace_ref_array(plots, nextPlots);
+      if (wasActive && changed) {
+        plot_order_ids.value = nextOrder;
+        replace_ref_array(plots, nextPlots);
+      }
       finish_plot_drag({ suppressClick: wasActive });
       if (wasActive) schedule_plot_click_suppression_reset();
       if (!wasActive || !changed) return;
@@ -3695,9 +3767,7 @@ const app = createApp({
       if (wasActive) schedule_plot_click_suppression_reset();
       if (wasActive && previousOrder.length) restore_plot_order(previousOrder);
     };
-    const handle_plot_pointer_down = (event, plot, index) => {
-      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null) return;
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const begin_plot_pointer_tracking = (event, plot, index) => {
       plot_drag_element = event.currentTarget;
       plot_drag_state.value = {
         active: false,
@@ -3716,7 +3786,20 @@ const app = createApp({
       window.addEventListener('pointermove', handle_plot_pointer_move, { passive: false });
       window.addEventListener('pointerup', handle_plot_pointer_up);
       window.addEventListener('pointercancel', cancel_plot_drag);
+    };
+    const handle_plot_pointer_down = (event, plot, index) => {
+      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null || !plot_order_loaded.value) return;
+      if (event.target?.closest?.('.farmer-plot-drag-handle')) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      begin_plot_pointer_tracking(event, plot, index);
       plot_drag_state.value.longPressTimer = window.setTimeout(activate_plot_drag, 400);
+    };
+    const start_plot_handle_drag = (event, plot, index) => {
+      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null || !plot_order_loaded.value) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      begin_plot_pointer_tracking(event, plot, index);
+      activate_plot_drag();
     };
     const handle_plot_card_click = (plot) => {
       if (plot_drag_state.value.suppressClick) {
@@ -6466,11 +6549,13 @@ const app = createApp({
       tasks,
       plots,
       plot_drag_state,
+      plot_order_loaded,
       plot_order_busy,
       plot_metrics,
       metric_value,
       handle_plot_card_click,
       handle_plot_pointer_down,
+      start_plot_handle_drag,
       cancel_plot_drag,
       selected_plot,
       chart_range,
