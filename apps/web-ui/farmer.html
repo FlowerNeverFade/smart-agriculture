@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260902-shell-fixes-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260902-message-read-v3">
+  <link rel="stylesheet" href="css/farmer.css?v=20260903-chart-fix-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
@@ -520,7 +520,7 @@
                     <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
                   <div v-if="!chart.unavailable" class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
                          @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
@@ -656,7 +656,7 @@
                     <strong>{{ advice_soil_chart.current_label }}</strong>
                   </div>
                   <div class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
                          @mousemove="show_chart_tooltip($event, advice_soil_chart, 'advice-compact')" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
@@ -911,7 +911,7 @@
                   </div>
                   <div v-if="advice_light_chart" class="farmer-moisture-chart-wrap">
                     <div class="farmer-chart-interactive">
-                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
+                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
                         <line v-for="line in advice_light_chart.grid" :key="'lg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
                         <text v-for="line in advice_light_chart.grid" :key="'lt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
                         <g v-if="advice_light_chart.targetSegments && advice_light_chart.targetSegments.length">
@@ -1957,6 +1957,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-message-read-v3"></script>
+  <script type="module" src="js/farmer.js?v=20260903-chart-fix-v1"></script>
 </body>
 </html>

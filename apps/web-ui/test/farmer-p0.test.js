@@ -327,6 +327,7 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(farmerSurface, /夜间目标|夜间休息/);
   assert.match(source, /light_target_context/);
   assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
+  assert.equal((html.match(/preserveAspectRatio="none"/g) || []).length, 3);
   assert.match(css, /\.g-btn:not\(:disabled\):active/);
   assert.match(css, /\.farmer-risk-mini-card:focus-visible/);
   assert.match(css, /\.farmer-operation-subsystem-tab:not\(\.active\):hover/);
