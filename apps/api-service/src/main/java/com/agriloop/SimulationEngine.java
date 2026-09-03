@@ -465,7 +465,11 @@ class SimulationEngine {
             case "NITROGEN" -> 2.4;
             case "PHOSPHORUS" -> 1.2;
             case "POTASSIUM" -> 3.0;
-            case "RAINFALL" -> 0.7;
+            // Rain is a rate, not a percentage.  Scaling noise with the
+            // signal keeps a normal plot mostly at 0~0.1 mm/h instead of
+            // producing a conspicuous 0.8 mm/h "drizzle" from sensor noise
+            // alone, while storm bursts still have visible variation.
+            case "RAINFALL" -> Math.max(0.025, Math.min(0.6, Math.abs(value) * 0.12 + 0.025));
             default -> 0.08;
         } * volatility;
         MetricSpec spec = METRICS.stream().filter(item -> item.code.equals(metric)).findFirst()
