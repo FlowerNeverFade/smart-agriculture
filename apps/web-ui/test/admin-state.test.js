@@ -1,9 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  ADMIN_PLOT_METRIC_CODES,
   adminDeviceMatchesFilters,
   adminDeviceSummary,
   adminDeviceTypeLabel,
+  adminCropEmoji,
+  adminCropKey,
   adminHealthTone,
   adminMetricLabel,
   adminSummary,
@@ -27,6 +30,22 @@ import {
   workOrderMatchesAttention,
   workOrderMatchesSummaryScope
 } from '../js/admin-state.js';
+import { MOCK_DATA } from '../js/mock-data.js';
+
+test('farm dashboard crop Emoji use stable aliases and a neutral fallback', () => {
+  assert.equal(adminCropKey({ cropCode: 'tomato', cropName: '设施番茄' }), 'tomato');
+  assert.equal(adminCropKey({ cropName: '鲜食玉米' }), 'corn');
+  assert.equal(adminCropKey({ cropName: '油葵花海' }), 'sunflower');
+  assert.equal(adminCropKey({ cropCode: 'pepper', cropName: '辣椒' }), 'pepper');
+  assert.equal(adminCropKey({ cropCode: 'eggplant', cropName: '茄子' }), 'eggplant');
+  assert.equal(adminCropKey({ cropCode: 'lettuce', cropName: '生菜' }), 'lettuce');
+  assert.equal(adminCropKey({ cropCode: 'dragon-fruit', cropName: '火龙果' }), 'unknown');
+  assert.equal(adminCropEmoji({ cropCode: 'tomato' }), '🍅');
+  assert.equal(adminCropEmoji({ cropName: '鲜食玉米' }), '🌽');
+  assert.equal(adminCropEmoji({ cropCode: 'eggplant' }), '🍆');
+  assert.equal(adminCropEmoji({ cropName: '生菜' }), '🥬');
+  assert.equal(adminCropEmoji({ cropCode: 'dragon-fruit', cropName: '火龙果' }), '🌱');
+});
 
 test('authorized farm selection never invents a live farm', () => {
   const farms = [{ farmId: 'farm-a' }, { farmId: 'farm-b' }];
@@ -72,12 +91,33 @@ test('bound device without heartbeat is reflected on its plot immediately', () =
   assert.equal(plots[0].lastSeen, '设备已绑定，等待首次数据');
 });
 
+test('populated metrics never keep the first-data waiting message', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-live', name: '温室', lastSeen: '等待设备接入' }],
+    [{ plotId: 'p-live', latest: { SOIL_MOISTURE: { value: 31.2, unit: '%', quality: { status: 'GOOD' } } } }],
+    [{ deviceId: 'sensor-live', plotId: 'p-live', status: 'OFFLINE', lastSeen: null }]
+  );
+  assert.equal(plots[0].metrics.SOIL_MOISTURE.value, 31.2);
+  assert.equal(plots[0].lastSeen, '环境数据已载入');
+});
+
 test('farm summary and merged plot facts use current records', () => {
   const plots = mergeFarmPlots([{ plotId: 'p1', status: 'ACTIVE', areaM2: 80 }], [{ plotId: 'p1', riskLevel: 'HIGH', latest: { SOIL_MOISTURE: { value: 12, unit: '%', quality: { status: 'GOOD' } } } }]);
   const summary = adminSummary({ plots, workOrders: [{ status: 'OPEN', dueAt: '2026-01-01T00:00:00Z' }] }, Date.parse('2026-08-26T00:00:00Z'));
   assert.equal(plots[0].areaM2, 80);
   assert.equal(plots[0].metrics.SOIL_MOISTURE.value, 12);
-  assert.deepEqual(summary, { today: 1, overdue: 1, abnormal: 1, unassigned: 1, approval: 0 });
+  assert.deepEqual(summary, { today: 1, overdue: 1, abnormal: 1, unassigned: 1, approval: 0, farmerReports: 0 });
+});
+
+test('farmer issue reports are counted only while they need admin attention', () => {
+  const summary = adminSummary({
+    workOrders: [
+      { status: 'OPEN', sourceType: 'FARMER_REPORT' },
+      { status: 'DONE', sourceType: 'FARMER_REPORT' },
+      { status: 'IN_PROGRESS', sourceType: 'FIELD_OPERATION' }
+    ]
+  });
+  assert.equal(summary.farmerReports, 1);
 });
 
 test('manager summary entries route to a real destination with the farm context', () => {
@@ -96,6 +136,9 @@ test('manager summary entries route to a real destination with the farm context'
   assert.deepEqual(managerSummaryTarget('approval', 'farm-a'), {
     view: 'work-orders', params: { tab: 'tasks', scope: 'approval', farmId: 'farm-a' }
   });
+  assert.deepEqual(managerSummaryTarget('farmer-reports', 'farm-a'), {
+    view: 'work-orders', params: { tab: 'tasks', scope: 'farmer-reports', status: 'ALL', farmId: 'farm-a' }
+  });
   assert.equal(managerSummaryTarget('unknown', 'farm-a'), null);
 });
 
@@ -104,11 +147,15 @@ test('dashboard task scopes reproduce overdue, unassigned, and approval queues',
   const overdue = { status: 'ASSIGNED', assigneeId: 'farmer-a', dueAt: '2026-08-26T10:00:00Z', actionType: 'FIELD_OPERATION' };
   const unassigned = { status: 'OPEN', assigneeId: '', dueAt: '2026-08-27T10:00:00Z', actionType: 'FIELD_OPERATION' };
   const approval = { status: 'OPEN', assigneeId: 'farmer-a', dueAt: '2026-08-27T10:00:00Z', actionType: 'IRRIGATION_REVIEW' };
+  const farmerReport = { status: 'OPEN', sourceType: 'FARMER_REPORT', assigneeId: '', dueAt: '2026-08-27T10:00:00Z' };
   assert.equal(normalizeWorkSummaryScope('OVERDUE'), 'overdue');
   assert.equal(normalizeWorkSummaryScope('invalid'), '');
   assert.equal(workOrderMatchesSummaryScope(overdue, 'overdue', now), true);
   assert.equal(workOrderMatchesSummaryScope(unassigned, 'unassigned', now), true);
   assert.equal(workOrderMatchesSummaryScope(approval, 'approval', now), true);
+  assert.equal(normalizeWorkSummaryScope('FARMER-REPORTS'), 'farmer-reports');
+  assert.equal(workOrderMatchesSummaryScope(farmerReport, 'farmer-reports', now), true);
+  assert.equal(workOrderMatchesSummaryScope({ ...farmerReport, status: 'DONE' }, 'farmer-reports', now), false);
   assert.equal(workOrderMatchesSummaryScope({ ...approval, status: 'DONE' }, 'approval', now), false);
 });
 
@@ -116,10 +163,40 @@ test('farm admin metrics prefer concise Chinese names for known backend codes', 
   assert.equal(adminMetricLabel('SOIL_MOISTURE', 'Soil Moisture'), '土壤湿度');
   assert.equal(adminMetricLabel('soilMoisture', ''), '土壤湿度');
   assert.equal(adminMetricLabel('CO2', 'CO2 Concentration'), '二氧化碳');
+  assert.equal(adminMetricLabel('PH', 'Soil PH'), '酸碱度');
+  assert.equal(adminMetricLabel('WATER_LEVEL', 'Water Level'), '水位');
+  assert.equal(adminMetricLabel('NITROGEN', 'Nitrogen'), '速效氮');
+  assert.equal(adminMetricLabel('PHOSPHORUS', 'Phosphorus'), '速效磷');
+  assert.equal(adminMetricLabel('POTASSIUM', 'Potassium'), '速效钾');
   assert.equal(adminMetricLabel('SOIL_EC', 'Soil EC'), '土壤电导率');
   assert.equal(adminMetricLabel('custom', 'Air Temperature'), '空气温度');
   assert.equal(adminMetricLabel('DEVICE_FRESHNESS', ''), '设备数据新鲜度');
   assert.equal(adminMetricLabel('CUSTOM_INDEX', '自定义指标'), '自定义指标');
+});
+
+test('farm admin metric cards follow all eleven server telemetry codes', () => {
+  const expectedCodes = [
+    'SOIL_MOISTURE',
+    'AIR_TEMPERATURE',
+    'AIR_HUMIDITY',
+    'LIGHT',
+    'CO2',
+    'RAINFALL',
+    'PH',
+    'WATER_LEVEL',
+    'NITROGEN',
+    'PHOSPHORUS',
+    'POTASSIUM'
+  ];
+
+  assert.deepEqual([...ADMIN_PLOT_METRIC_CODES], expectedCodes);
+  MOCK_DATA.plots.forEach(plot => {
+    assert.deepEqual(
+      expectedCodes.filter(code => plot.metrics?.[code] != null),
+      expectedCodes,
+      `${plot.plotId} should provide all eleven dashboard metrics`
+    );
+  });
 });
 
 test('farm admin device cards translate known types without guessing unknown values', () => {
@@ -213,6 +290,9 @@ test('escalated alerts expose the existing acknowledgement action as downgrade',
 test('backend events invalidate every affected fact domain', () => {
   assert.deepEqual(domainsForEventType('device.bound'), ['devices', 'plots', 'overview']);
   assert.deepEqual(domainsForEventType('cropplan.approved'), ['workOrders', 'overview', 'batches']);
+  assert.deepEqual(domainsForEventType('resource.request.created'), ['resourceProfiles', 'resourcePlans', 'resourceRequests', 'overview']);
+  assert.deepEqual(domainsForEventType('rule-set.created'), ['rulesStrategies', 'alerts', 'overview']);
+  assert.deepEqual(domainsForEventType('account.created'), ['accounts']);
 });
 
 test('an old farm response cannot overwrite the newly selected farm', () => {

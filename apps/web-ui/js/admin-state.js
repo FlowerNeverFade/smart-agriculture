@@ -1,3 +1,5 @@
+import { PLOT_METRIC_CODES } from './plot-display.js';
+
 export const ADMIN_TABS = Object.freeze({
   dashboard: ['overview'],
   'work-orders': ['tasks', 'plans', 'resources', 'crop-packs'],
@@ -23,7 +25,7 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   SOIL_EC: '土壤电导率',
   EC: '电导率',
   ELECTRICAL_CONDUCTIVITY: '电导率',
-  NPK_RATIO: '氮磷钾',
+  NITROGEN: '速效氮', PHOSPHORUS: '速效磷', POTASSIUM: '速效钾',
   PH: '酸碱度',
   SOIL_PH: '土壤酸碱度',
   WATER_LEVEL: '水位',
@@ -35,6 +37,8 @@ const ADMIN_METRIC_LABELS = Object.freeze({
   DEVICE_FRESHNESS: '设备数据新鲜度',
   DEVICE_HEALTH: '设备健康'
 });
+
+export const ADMIN_PLOT_METRIC_CODES = PLOT_METRIC_CODES;
 
 const ADMIN_DEVICE_TYPE_LABELS = Object.freeze({
   ENVIRONMENTAL_SENSOR: '环境传感器',
@@ -54,7 +58,7 @@ const ADMIN_WORK_ACTION_META = Object.freeze({
   IRRIGATION: { label: '灌溉', icon: 'water_drop', tone: 'irrigation' },
   MANUAL_IRRIGATION: { label: '人工灌溉', icon: 'water_drop', tone: 'irrigation' },
   DEVICE_CHECK: { label: '设备检查', icon: 'monitoring', tone: 'device' },
-  FERTILIZATION: { label: '施肥', icon: 'nutrition', tone: 'fertilization' },
+  FERTILIZATION: { label: '施肥检查', icon: 'nutrition', tone: 'fertilization' },
   PEST_CONTROL: { label: '植保', icon: 'pest_control', tone: 'field' },
   WEEDING: { label: '除草', icon: 'grass', tone: 'field' },
   PRUNING: { label: '整枝', icon: 'content_cut', tone: 'field' }
@@ -324,7 +328,8 @@ export function adminSummary({ plots = [], workOrders = [] } = {}, now = Date.no
     }).length,
     abnormal,
     unassigned: activeWork.filter(item => !item?.assigneeId).length,
-    approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length
+    approval: activeWork.filter(item => String(item?.actionType || '').toUpperCase() === 'IRRIGATION_REVIEW').length,
+    farmerReports: activeWork.filter(item => String(item?.sourceType || '').toUpperCase() === 'FARMER_REPORT').length
   };
 }
 
@@ -333,10 +338,11 @@ const MANAGER_SUMMARY_TARGETS = Object.freeze({
   overdue: { view: 'work-orders', params: { tab: 'tasks', scope: 'overdue' } },
   abnormal: { view: 'decision-console', params: { section: 'alerts' } },
   unassigned: { view: 'work-orders', params: { tab: 'tasks', scope: 'unassigned' } },
-  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } }
+  approval: { view: 'work-orders', params: { tab: 'tasks', scope: 'approval' } },
+  'farmer-reports': { view: 'work-orders', params: { tab: 'tasks', scope: 'farmer-reports', status: 'ALL' } }
 });
 
-const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval']);
+const WORK_SUMMARY_SCOPES = new Set(['today', 'overdue', 'unassigned', 'approval', 'farmer-reports']);
 const TERMINAL_WORK_STATUSES = new Set(['DONE', 'COMPLETED', 'CANCELLED']);
 
 export function managerSummaryTarget(summaryId, farmId = '') {
@@ -358,6 +364,7 @@ export function workOrderMatchesSummaryScope(order, scope, now = Date.now()) {
   if (!normalizedScope || normalizedScope === 'today') return true;
   const status = String(order?.status || '').trim().toUpperCase();
   if (TERMINAL_WORK_STATUSES.has(status)) return false;
+  if (normalizedScope === 'farmer-reports') return String(order?.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
   if (normalizedScope === 'unassigned') return !order?.assigneeId;
   if (normalizedScope === 'approval') return String(order?.actionType || '').trim().toUpperCase() === 'IRRIGATION_REVIEW';
   const dueAt = new Date(order?.dueAt || 0).getTime();
@@ -370,13 +377,17 @@ export function domainsForEventType(type = '') {
   if (value.includes('plot.')) { domains.add('plots'); domains.add('overview'); }
   if (value.includes('workorder') || value.includes('work-order') || value.includes('cropplan')) { domains.add('workOrders'); domains.add('overview'); }
   if (value.includes('alert')) { domains.add('alerts'); domains.add('overview'); }
+  if (value.includes('rule-set') || value.includes('ruleset') || value.includes('strategy.candidate') || value.includes('strategy-candidate')) {
+    domains.add('rulesStrategies'); domains.add('alerts'); domains.add('overview');
+  }
   if (value.includes('device') || value.includes('telemetry')) { domains.add('devices'); domains.add('plots'); domains.add('overview'); }
   if (value.includes('member')) domains.add('members');
+  if (value.includes('account.')) domains.add('accounts');
   if (value.includes('inspection')) domains.add('inspections');
   if (value.includes('cropbatch') || value.includes('cropplan')) domains.add('batches');
   if (value.includes('valueledger') || value.includes('evaluation') || value.includes('command.ack')) domains.add('ledgers');
   if (value.includes('resource') || value.includes('water.balance') || value.includes('irrigation.plan')) {
-    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('overview');
+    domains.add('resourceProfiles'); domains.add('resourcePlans'); domains.add('resourceRequests'); domains.add('overview');
   }
   if (value.includes('command.approved') || value.includes('evaluation')) {
     domains.add('resourcePlans'); domains.add('resourceProfiles'); domains.add('workOrders'); domains.add('ledgers'); domains.add('overview');
@@ -384,8 +395,48 @@ export function domainsForEventType(type = '') {
   return [...domains];
 }
 
-export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = []) {
+const ADMIN_CROP_ALIASES = Object.freeze([
+  ['tomato', ['tomato', '番茄']],
+  ['corn', ['corn', '玉米']],
+  ['cucumber', ['cucumber', '黄瓜']],
+  ['eggplant', ['eggplant', '茄子', '茄']],
+  ['lettuce', ['lettuce', '生菜', '莴苣']],
+  ['rice', ['rice', '水稻', '稻']],
+  ['sunflower', ['sunflower', '向日葵', '油葵']],
+  ['strawberry', ['strawberry', '草莓']],
+  ['pepper', ['pepper', '辣椒']]
+]);
+
+const ADMIN_CROP_EMOJIS = Object.freeze({
+  tomato: '🍅',
+  corn: '🌽',
+  cucumber: '🥒',
+  eggplant: '🍆',
+  lettuce: '🥬',
+  rice: '🌾',
+  sunflower: '🌻',
+  strawberry: '🍓',
+  pepper: '🌶️',
+  unknown: '🌱'
+});
+
+export function adminCropKey(plot = {}) {
+  const text = `${plot.cropCode || ''} ${plot.crop || ''} ${plot.cropName || ''} ${plot.cropVariety || ''}`.trim().toLowerCase();
+  return ADMIN_CROP_ALIASES.find(([, names]) => names.some(name => text.includes(name)))?.[0] || 'unknown';
+}
+
+export function adminCropEmoji(plot = {}) {
+  return ADMIN_CROP_EMOJIS[adminCropKey(plot)] || ADMIN_CROP_EMOJIS.unknown;
+}
+
+export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [], previousPlots = []) {
   const cards = new Map((overviewCards || []).map(card => [String(card.plotId), card]));
+  const facts = new Map((plotFacts || [])
+    .filter(fact => fact && (fact.plotId || fact.id))
+    .map(fact => [String(fact.plotId || fact.id), fact]));
+  const previous = new Map((previousPlots || [])
+    .filter(plot => plot && (plot.plotId || plot.id))
+    .map(plot => [String(plot.plotId || plot.id), plot]));
   const plotDevices = new Map();
   (devices || []).forEach(device => {
     const plotId = String(device?.plotId || '');
@@ -399,12 +450,18 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
       plotDevices.set(plotId, device);
     }
   });
-  return (plotFacts || []).map(fact => {
-    const card = cards.get(String(fact.plotId)) || {};
+  // /overview can arrive before /plots. Include card-only plots so a slow
+  // facts request cannot make an otherwise valid farm dashboard look empty.
+  const plotIds = new Set([...previous.keys(), ...facts.keys(), ...cards.keys()]);
+  return [...plotIds].map(plotId => {
+    const prior = previous.get(plotId) || {};
+    const fact = facts.get(plotId) || {};
+    const card = cards.get(plotId) || {};
     const cardDevice = card.device && Object.keys(card.device).length ? card.device : null;
-    const device = cardDevice || plotDevices.get(String(fact.plotId)) || null;
+    const priorDevice = prior.device && Object.keys(prior.device).length ? prior.device : null;
+    const device = cardDevice || plotDevices.get(plotId) || priorDevice || null;
     const hasBoundDevice = Boolean(device?.deviceId || device?.plotId);
-    const metrics = { ...(fact.metrics || {}), ...(card.metrics || {}) };
+    const metrics = { ...(prior.metrics || {}), ...(fact.metrics || {}), ...(card.metrics || {}) };
     Object.entries(card.latest || {}).forEach(([code, event]) => {
       if (!event || event.value === undefined) return;
       metrics[code] = {
@@ -418,28 +475,40 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [])
         dataOrigin: event.dataOrigin || metrics[code]?.dataOrigin || 'BACKEND'
       };
     });
+    const hasMetricData = Object.values(metrics).some(metric => (
+      metric?.available !== false
+      && metric?.value !== undefined
+      && metric?.value !== null
+      && metric?.value !== ''
+    ));
+    const reportedLastSeen = device?.lastSeen || card.lastSeen || fact.lastSeen || null;
+    const pendingTelemetryLabels = new Set(['等待设备接入', '设备已绑定，等待首次数据']);
+    const lastSeen = hasMetricData
+      ? (reportedLastSeen && !pendingTelemetryLabels.has(reportedLastSeen) ? reportedLastSeen : '环境数据已载入')
+      : (device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)));
     return {
+      ...prior,
       ...fact,
       ...card,
       metrics,
-      history: fact.history || card.history || {},
-      facilityType: fact.facilityType || card.facilityType || 'OPEN_FIELD',
-      facilityLabel: fact.facilityLabel || card.facilityLabel || '露地（裸地）',
-      cultivationStatus: fact.cultivationStatus || card.cultivationStatus || 'GROWING',
-      cultivationStatusLabel: fact.cultivationStatusLabel || card.cultivationStatusLabel || '正常种植',
-      lastOperationType: fact.lastOperationType || card.lastOperationType || '',
-      lastOperationLabel: fact.lastOperationLabel || card.lastOperationLabel || '',
-      lastOperationAt: fact.lastOperationAt || card.lastOperationAt || '',
-      lastOperationBy: fact.lastOperationBy || card.lastOperationBy || '',
-      lastOperationSummary: fact.lastOperationSummary || card.lastOperationSummary || '',
-      operationRevision: Number(fact.operationRevision ?? card.operationRevision ?? 0),
-      operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : []),
-      deviceId: device?.deviceId || card.deviceId || fact.deviceId || null,
-      deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
-      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? null,
-      lastSeen: device?.lastSeen || (hasBoundDevice ? '设备已绑定，等待首次数据' : (card.lastSeen || fact.lastSeen || null)),
-      sourceMode: fact.sourceMode || card.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
-      dataOrigin: fact.dataOrigin || card.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
+      history: { ...(prior.history || {}), ...(fact.history || {}), ...(card.history || {}) },
+      facilityType: fact.facilityType || card.facilityType || prior.facilityType || 'OPEN_FIELD',
+      facilityLabel: fact.facilityLabel || card.facilityLabel || prior.facilityLabel || '露地（裸地）',
+      cultivationStatus: fact.cultivationStatus || card.cultivationStatus || prior.cultivationStatus || 'GROWING',
+      cultivationStatusLabel: fact.cultivationStatusLabel || card.cultivationStatusLabel || prior.cultivationStatusLabel || '正常种植',
+      lastOperationType: fact.lastOperationType || card.lastOperationType || prior.lastOperationType || '',
+      lastOperationLabel: fact.lastOperationLabel || card.lastOperationLabel || prior.lastOperationLabel || '',
+      lastOperationAt: fact.lastOperationAt || card.lastOperationAt || prior.lastOperationAt || '',
+      lastOperationBy: fact.lastOperationBy || card.lastOperationBy || prior.lastOperationBy || '',
+      lastOperationSummary: fact.lastOperationSummary || card.lastOperationSummary || prior.lastOperationSummary || '',
+      operationRevision: Number(fact.operationRevision ?? card.operationRevision ?? prior.operationRevision ?? 0),
+      operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : (Array.isArray(prior.operationHistory) ? prior.operationHistory : [])),
+      deviceId: device?.deviceId || card.deviceId || fact.deviceId || prior.deviceId || null,
+      deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || prior.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
+      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? prior.healthScore ?? null,
+      lastSeen,
+      sourceMode: fact.sourceMode || card.sourceMode || prior.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
+      dataOrigin: fact.dataOrigin || card.dataOrigin || prior.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
     };
   });
 }

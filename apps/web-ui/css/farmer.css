@@ -1,5 +1,5 @@
 /* ============================================================
-   AgriLoop 种植农户工作台专用样式
+   农智闭环种植农户工作台专用样式
    - 绿色作为选中高亮
    - 浅色按钮风格
    - snake_case 命名
@@ -986,6 +986,14 @@
   font-weight: 600;
   color: var(--g-text-primary);
 }
+.farmer-message-unread-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--g-danger, #d95555);
+  box-shadow: 0 0 0 3px var(--g-danger-bg, rgba(217, 85, 85, .14));
+}
 .farmer-message-head {
   display: flex;
   flex-wrap: wrap;
@@ -1244,10 +1252,43 @@
 .farmer-task-column-body {
   flex: 1;
   padding: 12px;
+  max-height: 340px;
   overflow-y: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.farmer-task-column-body::-webkit-scrollbar {
+  width: 6px;
+}
+.farmer-task-column-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb {
+  background: var(--g-border);
+  border-radius: 3px;
+}
+.farmer-task-column-body::-webkit-scrollbar-thumb:hover {
+  background: var(--g-text-secondary);
+}
+.farmer-task-delete-all {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.farmer-task-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.farmer-task-card {
+  position: relative;
+}
+.farmer-task-card:hover .farmer-task-delete-btn {
+  opacity: 1;
 }
 
 .farmer-task-card {
@@ -1432,6 +1473,7 @@
   gap: 12px;
   flex-wrap: wrap;
 }
+.farmer-task-report-status { flex-basis: 100%; display: flex; align-items: center; gap: 5px; margin: -2px 0 0; color: var(--g-warning); font-size: 12px; }
 
 /* 个人中心 */
 .farmer-profile-layout {
@@ -1691,6 +1733,9 @@
   gap: 12px;
 }
 .farmer-plot-grid-page { margin-bottom: 20px; }
+.farmer-plot-grid-page.is-reordering {
+  user-select: none;
+}
 .farmer-plot-overview-card {
   display: flex;
   flex-direction: column;
@@ -1706,6 +1751,26 @@
   text-align: left;
   cursor: pointer;
   transition: border-color .2s, box-shadow .2s, transform .2s;
+}
+.farmer-plot-grid-page .farmer-plot-overview-card {
+  touch-action: pan-y;
+}
+.farmer-plot-grid-page.is-reordering .farmer-plot-overview-card {
+  touch-action: none;
+  cursor: grab;
+}
+.farmer-plot-overview-card.is-dragging {
+  position: relative;
+  z-index: 2;
+  opacity: .78;
+  cursor: grabbing;
+  transform: scale(1.02) rotate(0.4deg);
+  box-shadow: 0 14px 30px color-mix(in srgb, var(--g-success) 20%, transparent);
+}
+.farmer-plot-overview-card.is-drop-target {
+  border-color: var(--g-success);
+  outline: 2px dashed color-mix(in srgb, var(--g-success) 55%, transparent);
+  outline-offset: 3px;
 }
 .farmer-plot-overview-card:hover,
 .farmer-plot-overview-card.selected {
@@ -1760,6 +1825,20 @@
 .farmer-plot-status.normal { color: var(--g-success); background: var(--g-success-bg); }
 .farmer-plot-status.warn { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-plot-status.risk { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-plot-drag-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-size: 10px;
+  white-space: nowrap;
+  opacity: .78;
+}
+.farmer-plot-drag-hint > span {
+  font-size: 17px;
+  line-height: .7;
+  letter-spacing: -2px;
+}
 .farmer-plot-overview-head-left > strong { font-size: 15px; line-height: 1.3; }
 .farmer-plot-overview-meta {
   color: var(--g-text-secondary);
@@ -1860,6 +1939,10 @@
 .farmer-plot-overview-metric dd.metric-WARN { color: var(--g-warning); }
 .farmer-plot-overview-metric dd.metric-NORMAL { color: var(--g-success); }
 .farmer-plot-overview-metric dd.metric-ALERT { color: var(--g-danger); }
+.farmer-plot-overview-metric dd.metric-UNAVAILABLE {
+  color: var(--g-text-tertiary, var(--g-text-secondary));
+  font-weight: 500;
+}
 @media (max-width: 480px) {
   .farmer-plot-overview-metrics { grid-template-columns: 1fr; }
 }
@@ -1869,6 +1952,91 @@
   grid-template-columns: minmax(0, 1.15fr) minmax(320px, .85fr);
   gap: 20px;
   margin-bottom: 20px;
+}
+/* 灌溉卡内已保留紧凑湿度趋势，避免重复大图拉出左侧空白列。 */
+.farmer-irrigation-advice-grid { grid-template-columns: minmax(0, 1fr); }
+.farmer-irrigation-advice-grid > .farmer-irrigation-card { min-width: 0; }
+.farmer-operation-subsystem-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin: 14px 0 16px;
+  padding: 5px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 14px;
+  background: var(--g-bg-subtle);
+}
+.farmer-operation-subsystem-tab {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--g-text-secondary);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color .2s, background .2s, color .2s, box-shadow .2s;
+}
+.farmer-operation-subsystem-tab > .ph { flex: 0 0 auto; color: var(--g-primary); font-size: 21px; }
+.farmer-operation-subsystem-tab span { display: grid; min-width: 0; gap: 2px; }
+.farmer-operation-subsystem-tab strong { color: var(--g-text-primary); font-size: 14px; }
+.farmer-operation-subsystem-tab small { overflow: hidden; color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-operation-subsystem-tab.active { border-color: color-mix(in srgb, var(--g-primary) 45%, var(--g-border)); background: var(--g-bg-surface); box-shadow: var(--g-shadow-1); color: var(--g-text-primary); }
+.farmer-operation-subsystem-tab.active > .ph { color: var(--g-success); }
+.farmer-operation-subsystem-panel { min-width: 0; }
+.farmer-light-system-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin: 12px 0 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 12px;
+  background: var(--g-bg-surface);
+}
+.farmer-light-system-summary h3 { margin: 2px 0 4px; font-size: 15px; }
+.farmer-light-system-summary p { max-width: 720px; margin: 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.55; }
+.farmer-light-system-fact { display: grid; flex: 0 0 150px; gap: 3px; padding-left: 16px; border-left: 1px solid var(--g-border-subtle); }
+.farmer-light-system-fact span, .farmer-light-system-fact small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-light-system-fact strong { font-size: 14px; }
+.farmer-light-system-fact small { color: var(--g-primary); }
+.farmer-light-risk-cards { margin-bottom: 18px; }
+.farmer-light-risk-body { align-items: baseline; }
+.farmer-light-risk-body .farmer-risk-mini-moist { color: var(--g-success); }
+.farmer-light-risk-body .farmer-risk-mini-moist.metric-WARN { color: var(--g-warning); }
+.farmer-light-risk-body .farmer-risk-mini-moist.metric-ALERT { color: var(--g-danger); }
+.farmer-light-chart-card .farmer-chart-line.is-light { stroke-width: 3; }
+.farmer-light-control-card { min-width: 0; }
+.farmer-light-control-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 4px 0 14px; }
+.farmer-light-control-metrics > div { display: grid; gap: 3px; min-width: 0; padding: 10px; border-radius: 9px; background: var(--g-bg-subtle); }
+.farmer-light-control-metrics small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-light-control-metrics strong { overflow-wrap: anywhere; font-size: 13px; }
+.farmer-light-system-notice { display: flex; align-items: flex-start; gap: 8px; margin: 12px 0; padding: 10px; border-radius: 9px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 12px; line-height: 1.5; }
+.farmer-light-system-notice > .ph { flex: 0 0 auto; font-size: 17px; }
+.farmer-light-system-notice.is-high { background: var(--g-danger-bg); color: var(--g-danger); }
+.farmer-light-system-notice.is-low { background: var(--g-warning-bg); color: var(--g-warning); }
+.farmer-light-system-notice.is-normal { background: var(--g-success-bg); color: var(--g-success); }
+.farmer-light-readiness-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 10px 0 0; padding: 9px 10px; border: 1px solid var(--g-border-subtle); border-radius: 9px; background: var(--g-bg-subtle); font-size: 12px; }
+.farmer-light-readiness-title { color: var(--g-text-secondary); font-weight: 700; }
+.farmer-light-readiness-value { color: var(--g-text-primary); font-weight: 700; }
+.farmer-light-readiness-value.is-ready { color: var(--g-success); }
+.farmer-light-readiness-value.is-review, .farmer-light-readiness-note { color: var(--g-warning); }
+.farmer-light-readiness-note.is-error, .farmer-light-readiness-value.is-error { color: var(--g-danger); }
+.farmer-light-readiness-value em { color: var(--g-text-secondary); font-style: normal; font-weight: 600; }
+.farmer-light-control-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+@media (max-width: 640px) {
+  .farmer-light-system-summary { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .farmer-light-system-fact { width: 100%; padding: 10px 0 0; border-top: 1px solid var(--g-border-subtle); border-left: 0; }
+  .farmer-light-control-metrics { grid-template-columns: 1fr; }
+}
+@media (max-width: 520px) {
+  .farmer-operation-subsystem-tabs { grid-template-columns: 1fr; }
+  .farmer-operation-subsystem-tab { padding: 10px 12px; }
 }
 .farmer-advice-card { min-width: 0; }
 .farmer-advice-actions,
@@ -1898,6 +2066,22 @@
 .farmer-irrigation-amount small { margin-left: auto; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-irrigation-progress { height: 10px; margin: 20px 0 10px; border-radius: 8px; background: var(--g-bg-subtle); overflow: hidden; }
 .farmer-irrigation-progress span { display: block; height: 100%; border-radius: inherit; background: var(--g-success); transition: width .25s ease; }
+.farmer-auto-water-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto auto; align-items: center; gap: 12px; margin-top: 14px; padding: 13px 14px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-primary-bg) 45%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-ready { border-color: color-mix(in srgb, var(--g-warning) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-warning-bg) 55%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-blocked { border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border)); background: color-mix(in srgb, var(--g-danger-bg) 45%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-triggered { border-color: color-mix(in srgb, var(--g-success) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-success-bg) 55%, var(--g-bg-base)); }
+.farmer-auto-water-card.is-disabled { border-color: var(--g-border-subtle); background: var(--g-bg-subtle); }
+.farmer-auto-water-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--g-primary); background: var(--g-primary-bg); font-size: 18px; }
+.farmer-auto-water-card.is-ready .farmer-auto-water-icon { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-auto-water-card.is-blocked .farmer-auto-water-icon { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-auto-water-card.is-triggered .farmer-auto-water-icon { color: var(--g-success); background: var(--g-success-bg); }
+.farmer-auto-water-card.is-disabled .farmer-auto-water-icon { color: var(--g-text-secondary); background: var(--g-bg-base); }
+.farmer-auto-water-copy { min-width: 0; }
+.farmer-auto-water-copy strong { display: block; font-size: 13px; }
+.farmer-auto-water-copy p { margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-auto-water-check, .farmer-auto-water-toggle { white-space: nowrap; }
+.farmer-auto-water-toggle.is-active { color: var(--g-primary); border-color: color-mix(in srgb, var(--g-primary) 55%, var(--g-border)); background: var(--g-primary-bg); }
+.farmer-auto-water-card .g-badge.muted { color: var(--g-text-secondary); background: var(--g-bg-base); }
 .farmer-operation-status { margin-top: 12px; color: var(--g-success); font-size: 12px; display: flex; align-items: center; gap: 6px; }
 .farmer-question-form { display: flex; gap: 8px; margin: 12px 0; }
 .farmer-question-form input,
@@ -1934,12 +2118,19 @@
 .farmer-record-item strong { font-size: 13px; }
 .farmer-record-item p { margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-record-item time { color: var(--g-text-secondary); font-size: 11px; white-space: nowrap; }
+.farmer-operation-load-error { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; padding: 10px 12px; border: 1px solid color-mix(in srgb, var(--g-danger) 28%, var(--g-border)); border-radius: var(--g-radius); color: var(--g-danger); background: var(--g-danger-bg); font-size: 12px; line-height: 1.45; }
+.farmer-operation-load-error > span { flex: 1 1 auto; }
+.farmer-operation-load-error .g-btn { flex: 0 0 auto; }
 .farmer-form-overlay { position: fixed; inset: 0; z-index: 1200; display: flex; align-items: center; justify-content: center; padding: 20px; background: rgba(0,0,0,.42); backdrop-filter: blur(2px); }
 .farmer-form-card { width: min(560px, 100%); max-height: 90vh; overflow-y: auto; display: grid; gap: 14px; padding: 22px; border-radius: var(--g-radius-lg); background: var(--g-bg-surface); box-shadow: var(--g-shadow-3); }
+.farmer-form-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.farmer-form-header h3 { margin: 4px 0; color: var(--g-text-primary); }
+.farmer-form-header p { margin: 0; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-card > label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
 .farmer-form-grid label { display: grid; gap: 6px; color: var(--g-text-secondary); font-size: 13px; }
 .farmer-form-footer { display: flex; justify-content: flex-end; gap: 10px; padding-top: 6px; }
+.farmer-form-hint { margin: 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.6; }
 .farmer-form-error { padding: 9px 11px; color: var(--g-danger); background: var(--g-danger-bg); border-radius: var(--g-radius); font-size: 13px; }
 .farmer-security-panel { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 20px; }
 
@@ -1972,6 +2163,11 @@
   .farmer-question-form { flex-direction: column; }
   .farmer-task-tool-card { grid-template-columns: auto 1fr; }
   .farmer-task-tool-card .g-btn { grid-column: 2; justify-self: start; }
+  .farmer-auto-water-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .farmer-light-operation-card { grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+  .farmer-light-operation-card > .g-badge,
+  .farmer-light-operation-card > .g-btn { grid-column: 2; justify-self: start; }
+  .farmer-auto-water-card > .g-badge, .farmer-auto-water-toggle, .farmer-auto-water-check { grid-column: 2; justify-self: start; }
 }
 
 /* ============================================================
@@ -2509,7 +2705,7 @@
 .farmer-shared-tool-copy small { color: var(--g-text-secondary); font-size: 11px; line-height: 1.35; }
 .farmer-shared-tool-arrow { margin-left: auto; color: var(--g-text-secondary); font-size: 18px; }
 
-/* 灌溉系统页：按地块的风险小卡片 */
+/* 操作系统页：按地块的风险小卡片 */
 .farmer-risk-cards {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
@@ -2517,6 +2713,7 @@
   margin-bottom: 20px;
 }
 .farmer-risk-mini-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2546,7 +2743,19 @@
   justify-content: space-between;
   gap: 8px;
 }
-.farmer-risk-mini-name { font-size: 13px; font-weight: 600; color: var(--g-text-primary); }
+.farmer-risk-mini-name {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--g-text-primary);
+  overflow-wrap: anywhere;
+}
 .farmer-risk-mini-tag {
   flex-shrink: 0;
   padding: 2px 7px;
@@ -2572,12 +2781,50 @@
 .farmer-risk-mini-moist.metric-WARN { color: var(--g-warning); }
 .farmer-risk-mini-moist.metric-ALERT { color: var(--g-danger); }
 .farmer-risk-mini-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  word-break: break-word;
   font-size: 11px;
   line-height: 1.4;
   color: var(--g-text-secondary);
 }
+.farmer-risk-mini-light-warning {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding-top: 6px;
+  border-top: 1px dashed var(--g-border-subtle);
+  font-size: 11px;
+  font-weight: 600;
+}
+.farmer-risk-mini-light-warning .material-symbols-outlined { font-size: 15px; }
+.farmer-risk-mini-light-warning.is-low { color: var(--g-warning); }
+.farmer-risk-mini-light-warning.is-high { color: var(--g-danger); }
 
-/* 灌溉系统页：土壤湿度-时间曲线图（含作物阈值线） */
+.farmer-light-operation-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 14px;
+  padding: 13px 14px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: var(--g-radius);
+  background: var(--g-bg-subtle);
+}
+.farmer-light-operation-card.is-attention { border-color: color-mix(in srgb, var(--g-warning) 55%, var(--g-border)); background: color-mix(in srgb, var(--g-warning-bg) 55%, var(--g-bg-base)); }
+.farmer-light-operation-card.is-high { border-color: color-mix(in srgb, var(--g-danger) 45%, var(--g-border)); background: color-mix(in srgb, var(--g-danger-bg) 45%, var(--g-bg-base)); }
+.farmer-light-operation-icon { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-light-operation-card.is-low .farmer-light-operation-icon { color: var(--g-warning); background: var(--g-warning-bg); }
+.farmer-light-operation-card.is-high .farmer-light-operation-icon { color: var(--g-danger); background: var(--g-danger-bg); }
+.farmer-light-operation-copy { min-width: 0; }
+.farmer-light-operation-copy strong { display: block; font-size: 13px; }
+.farmer-light-operation-copy p, .farmer-light-operation-copy small { display: block; margin-top: 3px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-light-operation-copy small { color: var(--g-warning); }
+
+/* 操作系统页：土壤湿度-时间曲线图（含作物阈值线） */
 .farmer-moisture-chart-card { min-width: 0; }
 .farmer-moisture-chart-wrap { margin-top: 6px; }
 .farmer-moisture-svg { height: 260px; }
@@ -2635,17 +2882,20 @@
 .farmer-band-status-hint.status-WARN { color: var(--g-warning); background: var(--g-warning-bg); }
 .farmer-band-status-hint.status-ALERT { color: var(--g-danger); background: var(--g-danger-bg); }
 .farmer-risk-mini-card.is-selected {
-  border-color: var(--g-success);
+  border: 2px solid var(--g-primary);
   border-left-width: 4px;
-  box-shadow: inset 0 0 0 1px var(--g-success), var(--g-shadow-1);
+  background: color-mix(in srgb, var(--g-primary-bg) 45%, var(--g-bg-surface));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-primary) 22%, transparent), var(--g-shadow-1);
+  outline: 1px solid color-mix(in srgb, var(--g-primary) 35%, transparent);
+  outline-offset: 2px;
 }
 .farmer-risk-mini-card.is-selected.is-warn {
   border-color: var(--g-warning);
-  box-shadow: inset 0 0 0 1px var(--g-warning), var(--g-shadow-1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-warning) 22%, transparent), var(--g-shadow-1);
 }
 .farmer-risk-mini-card.is-selected.is-alert {
   border-color: var(--g-danger);
-  box-shadow: inset 0 0 0 1px var(--g-danger), var(--g-shadow-1);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--g-danger) 22%, transparent), var(--g-shadow-1);
 }
 
 @media (max-width: 1100px) {
@@ -2747,6 +2997,22 @@
 .farmer-allocation-detail > p.is-conflict { color: var(--g-warning); }
 .farmer-allocation-detail > p .material-symbols-outlined { font-size: 17px; }
 .farmer-allocation-detail > small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.4; }
+.farmer-resource-collaboration { margin-top: 16px; padding: 15px; border: 1px solid color-mix(in srgb, var(--g-primary) 28%, var(--g-border)); border-radius: var(--g-radius-lg); background: color-mix(in srgb, var(--g-primary-bg) 52%, var(--g-bg-surface)); }
+.farmer-resource-statuses { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.farmer-resource-readonly { display: flex; align-items: center; gap: 6px; color: var(--g-warning-text, #9a5b00); }
+.farmer-resource-request-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-top: 12px; }
+.farmer-resource-request-form label, .farmer-resource-response label { display: grid; gap: 5px; color: var(--g-text-secondary); font-size: 11px; }
+.farmer-resource-request-form label.is-wide { grid-column: 1 / -1; }
+.farmer-resource-request-form input, .farmer-resource-request-form textarea, .farmer-resource-response textarea { width: 100%; min-height: 38px; padding: 8px 10px; border: 1px solid var(--g-border); border-radius: var(--g-radius); color: var(--g-text-primary); background: var(--g-bg-surface); font: 12px var(--g-font-family); }
+.farmer-resource-request-form textarea, .farmer-resource-response textarea { resize: vertical; }
+.farmer-resource-request-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; }
+.farmer-resource-request-receipt { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-top: 12px; padding: 10px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-surface); }
+.farmer-resource-request-receipt > div { min-width: 0; }
+.farmer-resource-request-receipt span { display: block; color: var(--g-text-secondary); font-size: 10px; }
+.farmer-resource-request-receipt strong { display: block; margin-top: 3px; overflow: hidden; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-resource-request-receipt p { grid-column: 1 / -1; margin: 2px 0 0; color: var(--g-warning); font-size: 11px; }
+.farmer-resource-response { display: grid; gap: 8px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--g-border-subtle); }
+.farmer-resource-response > div { display: flex; flex-wrap: wrap; gap: 8px; }
 
 .farmer-case-panel .farmer-panel-header { margin-bottom: 8px; }
 .farmer-case-item { display: grid; width: 100%; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; margin-top: 7px; padding: 9px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; text-align: left; cursor: pointer; }
@@ -2789,7 +3055,8 @@
   .farmer-mode-pill { grid-column: 2; justify-self: start; }
   .farmer-weather-summary { grid-template-columns: auto 1fr; }
   .farmer-weather-summary .farmer-ttr { grid-column: 2; align-items: flex-start; text-align: left; }
-  .farmer-weather-controls, .farmer-allocation-metrics, .farmer-report-summary-grid { grid-template-columns: 1fr; }
+  .farmer-weather-controls, .farmer-allocation-metrics, .farmer-report-summary-grid, .farmer-resource-request-form, .farmer-resource-request-receipt { grid-template-columns: 1fr; }
+  .farmer-resource-request-form label.is-wide, .farmer-resource-request-actions, .farmer-resource-request-receipt p { grid-column: 1; }
   .farmer-batch-timeline { grid-template-columns: 1fr; gap: 12px; }
   .farmer-batch-timeline li::before { display: none; }
   .farmer-fold-trigger > span:first-child { align-items: flex-start; flex-direction: column; }
@@ -2854,6 +3121,31 @@
   border: 1px solid var(--g-border-subtle);
   border-radius: 12px;
   background: var(--g-bg);
+}
+.farmer-cm-documents {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+.farmer-cm-documents h4 {
+  flex: 0 0 100%;
+}
+.farmer-cm-documents > span {
+  display: inline-flex;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 8px;
+  border: 1px solid var(--g-border-subtle);
+  border-radius: 6px;
+  background: var(--g-bg-subtle);
+  color: var(--g-text-secondary);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .farmer-cm-metrics {
   display: grid;
@@ -3006,6 +3298,10 @@
 .farmer-suggestion-blocked > .material-symbols-outlined { font-size: 20px; }
 .farmer-suggestion-blocked strong { display: block; color: var(--g-text-primary); font-size: 13px; }
 .farmer-suggestion-blocked p { margin: 3px 0 8px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-suggestion-advisory { display: flex; align-items: flex-start; gap: 9px; padding: 11px 12px; border: 1px solid color-mix(in srgb, var(--g-warning) 38%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 72%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-suggestion-advisory > .material-symbols-outlined { flex: 0 0 auto; font-size: 20px; }
+.farmer-suggestion-advisory strong { display: block; color: var(--g-text-primary); font-size: 13px; }
+.farmer-suggestion-advisory p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-confirm-check { margin: 0; padding: 10px 12px; border-radius: var(--g-radius); background: var(--g-bg-subtle); font-size: 12px; line-height: 1.55; }
 .farmer-suggestion-inline-action { display: flex; align-items: center; justify-content: space-between; gap: 9px; padding: 9px 11px; border: 1px dashed var(--g-border); border-radius: var(--g-radius); color: var(--g-text-secondary); font-size: 12px; }
 .farmer-suggestion-inline-action .g-btn { min-height: 38px; }
@@ -3016,6 +3312,33 @@
 .farmer-recovery-card p { margin-top: 4px; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary { display: grid; gap: 5px; padding: 11px 12px; border: 1px solid var(--g-border-subtle); border-radius: var(--g-radius); background: var(--g-bg-base); color: var(--g-text-primary); font-size: 12px; line-height: 1.5; }
 .farmer-suggestion-result-summary small { color: var(--g-text-secondary); font-size: 10px; }
+.farmer-no-action-modal,.farmer-manual-irrigation-modal { width: min(700px, 100%); }
+.farmer-no-action-status { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: start; gap: 10px; padding: 13px; border: 1px solid color-mix(in srgb, var(--g-success) 32%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-success-bg) 58%, var(--g-bg-surface)); }
+.farmer-no-action-status > .material-symbols-outlined { color: var(--g-success); font-size: 23px; }
+.farmer-no-action-status strong { display: block; color: var(--g-text-primary); font-size: 14px; }
+.farmer-no-action-status p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.5; }
+.farmer-no-action-status .g-badge { align-self: start; }
+.farmer-no-action-facts { margin-top: 12px; }
+.farmer-no-action-explanation { border: 1px solid color-mix(in srgb, var(--g-success) 25%, var(--g-border-subtle)); background: color-mix(in srgb, var(--g-success-bg) 35%, var(--g-bg-subtle)); }
+.farmer-no-action-evidence { margin-top: 2px; }
+.farmer-no-action-readiness { margin-top: 0; }
+.farmer-no-action-note { display: flex; align-items: flex-start; gap: 6px; margin: 0; line-height: 1.5; }
+.farmer-no-action-note > .material-symbols-outlined { flex: 0 0 auto; font-size: 17px; }
+.farmer-manual-warning { display: flex; align-items: flex-start; gap: 9px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--g-warning) 42%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-warning-bg) 78%, var(--g-bg-surface)); color: var(--g-warning); }
+.farmer-manual-warning > .material-symbols-outlined { flex: 0 0 auto; font-size: 21px; }
+.farmer-manual-warning strong { display: block; color: var(--g-text-primary); font-size: 14px; }
+.farmer-manual-warning p { margin: 3px 0 0; color: var(--g-text-secondary); font-size: 12px; line-height: 1.55; }
+.farmer-manual-facts { margin: 0; }
+.farmer-manual-water-input { display: grid; gap: 6px; color: var(--g-text-primary); font-size: 13px; font-weight: 600; }
+.farmer-manual-water-input :is(input, select) { width: 100%; min-height: 42px; padding: 0 12px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); font: inherit; font-weight: 500; outline: none; }
+.farmer-manual-water-input :is(input, select):focus { border-color: var(--g-primary); box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 15%, transparent); }
+.farmer-manual-preview { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.farmer-manual-preview > div { display: grid; gap: 3px; padding: 10px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border-subtle)); border-radius: var(--g-radius); background: color-mix(in srgb, var(--g-primary-bg) 48%, var(--g-bg-base)); }
+.farmer-manual-preview small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-manual-preview strong { color: var(--g-primary); font-size: 14px; }
+.farmer-manual-gates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 11px; border-radius: var(--g-radius); background: var(--g-bg-subtle); }
+.farmer-manual-gates strong { width: 100%; color: var(--g-text-primary); font-size: 12px; }
+.farmer-manual-gates span { padding: 3px 7px; border-radius: 999px; background: var(--g-warning-bg); color: var(--g-warning); font-size: 10px; font-weight: 600; }
 
 .farmer-stage-preview { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 9px; color: var(--g-text-secondary); font-size: 12px; }
 .farmer-stage-preview select { min-width: 130px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); color: var(--g-text-primary); padding: 5px 8px; }
@@ -3087,16 +3410,16 @@
 .farmer-agent-shortcuts button:hover { border-color: var(--g-success); transform: translateY(-1px); }
 .farmer-agent-shortcuts button > .material-symbols-outlined:first-child { color: var(--g-success); font-size: 18px; }
 .farmer-agent-shortcuts button > .material-symbols-outlined:last-child { color: var(--g-text-tertiary); font-size: 16px; }
-.farmer-agent-message { display: flex; margin: 0 0 22px; }
+.farmer-agent-message { display: flex; width: 100%; min-width: 0; margin: 0 0 22px; }
 .farmer-agent-message.is-user { justify-content: flex-end; }
-.farmer-agent-user-bubble { max-width: min(75%, 580px); padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: anywhere; }
-.farmer-agent-assistant-block { width: min(100%, 690px); }
+.farmer-agent-user-bubble { width: fit-content; max-width: min(75%, 580px); min-width: 0; padding: 11px 15px; border-radius: 17px 17px 5px 17px; background: var(--g-primary); color: #fff; font-size: 14px; line-height: 1.55; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
+.farmer-agent-assistant-block { width: min(100%, 690px); min-width: 0; }
 .farmer-agent-message-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-bottom: 7px; color: var(--g-text-secondary); font-size: 11px; }
 .farmer-agent-avatar { display: inline-grid; width: 24px; height: 24px; place-items: center; border-radius: 8px; background: var(--g-success-bg); color: var(--g-success); font-size: 14px; }
 .farmer-agent-message-meta strong { color: var(--g-text-primary); font-size: 12px; }
 .farmer-agent-message-meta .g-badge { font-size: 10px; }
 .farmer-agent-intent { padding: 2px 7px; border-radius: 999px; background: var(--g-bg-subtle); }
-.farmer-agent-answer { color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: anywhere; }
+.farmer-agent-answer { min-width: 0; color: var(--g-text-primary); font-size: 14px; line-height: 1.75; white-space: pre-wrap; overflow-wrap: break-word; word-break: normal; }
 .farmer-agent-answer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; margin-top: 10px; }
 .farmer-agent-details-button { display: inline-flex; align-items: center; gap: 5px; padding: 3px 0; border: 0; background: transparent; color: var(--g-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .farmer-agent-details-button:hover { color: var(--g-success); }
@@ -3208,6 +3531,7 @@
   .farmer-suggestion-flow { gap: 2px; }
   .farmer-suggestion-flow-node { width: 25px; height: 25px; }
   .farmer-suggestion-facts { grid-template-columns: 1fr; }
+  .farmer-manual-preview { grid-template-columns: 1fr; }
   .farmer-danger-badge { display: none; }
 }
 
@@ -3349,6 +3673,28 @@
 #farmer_app .farmer-sidebar {
   box-shadow: 10px 0 36px rgba(24, 67, 45, .12), inset -1px 0 0 rgba(255, 255, 255, .36);
 }
+
+/* Shared appearance-center controls for the standalone farmer shell. */
+.farmer-settings-preset-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.farmer-settings-preset { position: relative; display: grid; grid-template-rows: 30px auto; gap: 6px; min-width: 0; padding: 7px; border: 1px solid var(--g-border); border-radius: 9px; background: var(--g-bg-base); color: var(--g-text-primary); text-align: left; cursor: pointer; }
+.farmer-settings-preset:hover, .farmer-settings-preset.active { border-color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-preset > .ph { position: absolute; top: 6px; right: 6px; color: var(--g-primary); font-size: 14px; }
+.farmer-settings-preset-preview { display: grid; grid-template-columns: 9px 1fr; grid-template-rows: 6px 1fr; gap: 3px; overflow: hidden; padding: 4px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-bg-surface); }
+.farmer-settings-preset-preview i { grid-row: 1 / 3; border-radius: 2px; background: var(--g-border); }
+.farmer-settings-preset-preview b { border-radius: 2px; background: var(--g-bg-subtle); }
+.farmer-settings-preset-preview em { border-radius: 2px; background: var(--g-primary); }
+.farmer-settings-preset > span:last-of-type { display: grid; gap: 2px; min-width: 0; }
+.farmer-settings-preset strong, .farmer-settings-preset small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.farmer-settings-preset strong { font-size: 10px; }
+.farmer-settings-preset small { color: var(--g-text-secondary); font-size: 9px; }
+.farmer-settings-custom-accent input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.farmer-settings-custom-accent .ph { margin-left: auto; font-size: 14px; }
+.farmer-settings-preview { display: grid; gap: 7px; }
+.farmer-settings-preview-frame { display: grid; grid-template-columns: 34px 1fr; height: 54px; overflow: hidden; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
+.farmer-settings-preview-frame > div { background: var(--g-bg-subtle); }
+.farmer-settings-preview-frame section { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; padding: 10px; align-items: center; }
+.farmer-settings-preview-frame section i { display: block; height: 24px; border: 1px solid var(--g-border); border-radius: 5px; background: var(--g-primary-bg); }
+@media (max-width: 900px) { .farmer-settings-preset-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
 [data-theme="dark"] #farmer_app :is(.farmer-header, .farmer-sidebar) {
   background: rgba(17, 35, 28, .48);
@@ -3629,7 +3975,8 @@
 .farmer-settings-label { color: var(--g-text-secondary); font-size: 12px; font-weight: 600; }
 .farmer-settings-choice-row { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-choice { min-height: 36px; padding: 7px 8px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 11px/1.2 var(--g-font-family); }
-.farmer-settings-choice:hover, .farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice:hover { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); }
+.farmer-settings-choice.active { border-color: var(--g-primary); color: var(--g-primary); background: var(--g-primary-bg); box-shadow: 0 0 0 1.5px var(--g-primary); }
 .farmer-settings-accent-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 7px; }
 .farmer-settings-accent { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 7px 6px; border: 1px solid var(--farmer-glass-control-outline, var(--g-border)); border-radius: 8px; background: var(--farmer-glass-cell, var(--g-bg-base)); color: var(--g-text-secondary); cursor: pointer; font: 500 10px/1.2 var(--g-font-family); }
 .farmer-settings-accent:hover, .farmer-settings-accent.active { border-color: var(--swatch); color: var(--g-text-primary); }
@@ -3836,6 +4183,31 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
   box-shadow: 8px 0 30px rgba(31, 73, 51, .07), inset -1px 0 0 rgba(255, 255, 255, .74);
   -webkit-backdrop-filter: blur(30px) saturate(128%);
   backdrop-filter: blur(30px) saturate(128%);
+}
+/* Keep the desktop farmer shell in sync with the global navigation toggle.
+   The compact sidebar rule above has ID-level specificity, so explicitly
+   release its reserved column when the sidebar is collapsed. */
+@media (min-width: 761px) {
+  #farmer_app .farmer-sidebar.collapsed {
+    flex: 0 0 0;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    flex: 1 1 0%;
+    width: 0;
+    max-width: none;
+    min-width: 0;
+  }
 }
 #farmer_app .farmer-nav-main {
   display: flex;
@@ -4114,4 +4486,108 @@ html[data-surface-style="glass-soft"] #farmer_app .farmer-sidebar {
   .farmer-activity-panel .farmer-panel-header { align-items: flex-start; flex-direction: column; gap: 9px; }
   .farmer-activity-actions { width: 100%; }
   .farmer-activity-actions .g-btn { flex: 1 1 auto; }
+}
+
+.farmer-water-resource-readonly { margin: 12px 0; padding: 14px 16px; border: 1px solid var(--g-border-subtle); border-radius: 12px; background: var(--g-bg-surface); }
+.farmer-water-resource-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.farmer-water-resource-head h3 { margin: 2px 0 0; font-size: 15px; }
+.farmer-water-resource-body { display: grid; gap: 10px; }
+.farmer-water-resource-progress { height: 8px; border-radius: 4px; background: var(--g-bg-subtle); overflow: hidden; }
+.farmer-water-resource-bar { height: 100%; border-radius: 4px; background: linear-gradient(90deg, var(--g-primary), var(--g-info)); transition: width .4s ease; }
+.farmer-water-resource-stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+.farmer-water-resource-stats div { display: grid; gap: 2px; }
+.farmer-water-resource-stats small { color: var(--g-text-secondary); font-size: 11px; }
+.farmer-water-resource-stats strong { color: var(--g-text-primary); font-size: 14px; }
+.farmer-water-resource-stats .is-warning strong { color: var(--g-warning); }
+
+/* 交互收口：按钮与可点击卡片共享一致的悬停、按压和禁用反馈。 */
+#farmer_app :is(.g-btn, .farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-operation-subsystem-tab, .farmer-tools-tab, .farmer-case-item, .farmer-cm-card) {
+  -webkit-tap-highlight-color: transparent;
+}
+#farmer_app .g-btn {
+  min-height: 38px;
+  padding-inline: 14px;
+  border-radius: 11px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  gap: 7px;
+}
+#farmer_app .g-btn > .ph,
+#farmer_app .g-btn > .material-symbols-outlined { flex: 0 0 auto; font-size: 17px; }
+#farmer_app .g-btn:not(:disabled):active {
+  transform: translateY(1px) scale(.985);
+  box-shadow: inset 0 2px 5px rgba(21, 67, 43, .18), 0 2px 6px rgba(21, 67, 43, .10);
+}
+#farmer_app .g-btn:disabled { opacity: .66; }
+
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card) {
+  position: relative;
+  overflow: hidden;
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card)::after {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+  opacity: 0;
+  background: linear-gradient(115deg, transparent 18%, rgba(255, 255, 255, .25) 50%, transparent 82%);
+  transform: translateX(-115%);
+  transition: opacity .18s ease, transform .45s ease;
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card):not(:disabled):hover::after {
+  opacity: .7;
+  transform: translateX(115%);
+}
+#farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card):not(:disabled):active {
+  transform: translateY(1px) scale(.992);
+  box-shadow: inset 0 2px 7px rgba(21, 67, 43, .10), var(--farmer-glass-shadow, var(--g-shadow-1));
+}
+#farmer_app .farmer-stat-card:focus-visible,
+#farmer_app .farmer-plot-overview-card:focus-visible,
+#farmer_app .farmer-risk-mini-card:focus-visible,
+#farmer_app .farmer-priority-item:focus-visible,
+#farmer_app .farmer-activity-item:focus-visible,
+#farmer_app .farmer-case-item:focus-visible,
+#farmer_app .farmer-cm-card:focus-visible,
+#farmer_app .farmer-operation-subsystem-tab:focus-visible,
+#farmer_app .farmer-tools-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 38%, transparent);
+  outline-offset: 3px;
+}
+#farmer_app .farmer-operation-subsystem-tab:not(.active):hover,
+#farmer_app .farmer-tools-tab:not(.active):hover {
+  border-color: color-mix(in srgb, var(--g-primary) 28%, var(--g-border-subtle));
+  background: color-mix(in srgb, var(--g-primary-bg) 62%, transparent);
+  transform: translateY(-1px);
+}
+#farmer_app .farmer-operation-subsystem-tab:active,
+#farmer_app .farmer-tools-tab:active { transform: translateY(1px) scale(.995); }
+
+@media (prefers-reduced-motion: reduce) {
+  #farmer_app :is(.farmer-stat-card, .farmer-plot-overview-card, .farmer-risk-mini-card, .farmer-priority-item, .farmer-activity-item, .farmer-case-item, .farmer-cm-card)::after { transition: none; }
+}
+
+/* 桌面端收起农户导航时释放侧栏占位，让内容区完整扩展。 */
+@media (min-width: 761px) {
+  #farmer_app .farmer-sidebar.collapsed {
+    flex: 0 0 0;
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    opacity: 0;
+    overflow: hidden;
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  #farmer_app .farmer-sidebar.collapsed + .farmer-main {
+    flex: 1 1 0%;
+    width: 0;
+    max-width: none;
+    min-width: 0;
+  }
 }

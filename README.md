@@ -2,10 +2,17 @@
 
 > 方案基线：v0.5（2026-08-22）
 
-15 天软件版智慧农业实训项目：用可配置的农田模拟数据，串起 MQTT 数据传输、智能体决策和可视化闭环。平台采用“统一农业智能内核 + 可插拔 Crop Pack（作物包）”，在复用数据、告警、Agent、控制和可视化能力的同时，按作物与生长阶段加载指标、规则、知识、任务模板和策略。产品目标从单纯监测扩展为“计划、感知、核验、诊断、处方、执行、验证、预测、学习、协同、经营与可信运行”，但本期仍只交付纯软件仿真态，不依赖真实传感器、鸿蒙开发板或硬件接入。
+15 天软件版智慧农业实训项目：用可配置的农田模拟数据和已接入的 BearPi E53_IA1 实时遥测，串起 MQTT 数据传输、智能体决策和可视化闭环。平台采用“统一农业智能内核 + 可插拔 Crop Pack（作物包）”，在复用数据、告警、Agent、控制和可视化能力的同时，按作物与生长阶段加载指标、规则、知识、任务模板和策略。产品目标从单纯监测扩展为“计划、感知、核验、诊断、处方、执行、验证、预测、学习、协同、经营与可信运行”。当前基线是软件仿真与已验证真实遥测并行：真实硬件输入会按 `REAL/HARDWARE` 标记进入平台，未接入的现场设备仍使用模拟或虚拟路径。
 
-> 本期交付边界：模拟数据传输 + 智能体 + 可视化三主线及联调。
-> 真实硬件、鸿蒙端和端-智-云联调属于后续演进，不计入本期验收。
+> 本期交付边界：模拟数据传输 + BearPi E53_IA1 实时遥测接入 + 智能体 + 可视化三主线及联调。
+> BearPi 串口 -> MQTT -> API -> SSE 的真实遥测链路已纳入当前联调/验收；真实水泵/阀门/GPIO 执行器、其他现场网关、鸿蒙端和超出该链路的生产级端-智-云联调仍单独列为后续范围。
+
+## 当前硬件接入状态（2026-09-02）
+
+- **已接入并验证**：BearPi HM Nano E53_IA1 通过串口桥接温度、空气湿度和光照，发布到 MQTT 后由 API 接收并推送到页面；事件来源为 `REAL/HARDWARE`，同地块同指标的真实读数优先于模拟读数。
+- **继续使用模拟**：未接入的指标、情景波动、预测和安全回放由进程内 `SimulationEngine` 提供，来源标为 `SIMULATION`。
+- **仍未覆盖**：真实水泵/阀门/GPIO 执行器、其他现场网关与传感器、鸿蒙端，以及完整生产级端-智-云控制闭环。灌溉命令当前仍是虚拟执行，并不会伪装成真实动作。
+- **接入说明**：启动命令、设备绑定、来源仲裁和故障处理见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。
 
 核心设计继续保持原有三份文件，便于分工、评审和答辩：
 
@@ -33,7 +40,7 @@ AgriLoop 不以功能数量定义产品，而是按用户从“知道发生了�
 
 ## 项目亮点
 
-- **软件仿真闭环**：模拟器 -> MQTT -> 风险/根因诊断 -> 结构化处方 -> 虚拟灌溉 -> ACK -> 效果验证。
+- **混合数据闭环**：模拟器或 BearPi 实时适配器 -> MQTT/事件管道 -> 风险/根因诊断 -> 结构化处方 -> 虚拟灌溉 -> ACK -> 效果验证；每条数据保留来源。
 - **多作物可扩展**：通过版本化 Crop Pack 注入作物档案、生长阶段、动态指标、规则、知识、策略、情景和测试，新增作物主要增加配置，不重写平台。
 - **农务经营闭环**：用作物全周期计划生成任务，在今日农务中心汇总优先级，并比较计划、执行实际与资源效果。
 - **未来风险与提前量**：基于近期趋势、作物阶段、目标区间和模拟天气输出未来窗口、Time-to-Risk、误差范围与失效条件。
@@ -89,7 +96,7 @@ AgriLoop 不以功能数量定义产品，而是按用户从“知道发生了�
 | B-06 | 设备心跳、在线状态、数据新鲜度和健康分 |
 | B-07 | RAG 农事问答与灌溉建议 |
 | B-08 | 多地块总览和风险排序 |
-| B-09 | 模拟设备注册、绑定、解绑 |
+| B-09 | 模拟/真实设备注册、绑定、解绑（控制能力按设备来源受限） |
 | B-10 | 告警日志、筛选、确认、关闭和审计 |
 
 在此基础上，本期优先增加：Crop Pack、全周期任务模板、今日农务聚合、多风险根因诊断、结构化灌溉处方、情景模拟、执行效果验证、Agent 统一操作入口、分层 RAG 证据、决策回放、安全闸门和 AI 降级。P0 还必须证明质量门控、干旱/传感器漂移分流、规则优先于模型、至少一种虚拟执行非成功路径，以及执行/不执行最小双轨回放。田间核验、完整生产计划页面及计划 vs 实际分析按 P1 实现。15 天 P0 至少完成 2 种代表性作物的完整最小包；平台结构支持后续将首批高质量作物包扩展到 6–8 种。所有新增能力按 P0/P1/P2 管理，避免为了“功能多”牺牲可运行性。
@@ -102,7 +109,7 @@ flowchart TB
     BIZ[业务层\n计划 / 感知 / 诊断 / 处方 / 预测 / 学习 / 协同 / 价值]
     CROP[作物能力层\nCrop Registry / 阶段 / 指标 / 任务模板 / 风险重点 / 策略]
     AI[智能层\n确定性预测与就绪度 / Agent 编排 / RAG / 处方工具 / 安全策略]
-    SIM[仿真层\n情景模拟器 / MQTT / Redis Streams / 虚拟设备]
+    SIM[数据与仿真层\n情景模拟器 / BearPi 适配器 / MQTT / Redis Streams / 虚拟设备]
     DATA[数据层\n遥测 / 人工观察 / 预测 / 案例 / 资源计划 / 价值与审计账本]
     UI --> BIZ --> CROP --> AI --> SIM --> DATA
     SIM --> UI
@@ -114,7 +121,7 @@ flowchart TB
 **数据主线**
 
 ```text
-正常/异常情景模拟器
+正常/异常情景模拟器或 BearPi 实时适配器
   -> MQTT Broker
   -> 数据校验、去重、质量评分
   -> Redis Streams
@@ -164,7 +171,7 @@ flowchart LR
       PUSH[WebSocket/SSE]
     end
     subgraph Infra[仿真与基础设施]
-      SIM[Python/Node Simulator]
+      SIM[Python/Node Simulator + BearPi Adapter]
       MQTT[Mosquitto/EMQX]
       STREAM[Redis Streams]
       PG[(PostgreSQL)]
@@ -256,7 +263,7 @@ LLM/RAG 超时
 - **D11**：异常 -> 根因诊断 -> 决策就绪度 -> 处方 -> 审批 -> 虚拟执行 -> ACK -> 效果验证 -> 回放跑通；质量门控、规则/模型冲突和至少一种非成功执行不会被误判为成功。
 - **D14**：基线 10 项通过，`drought` 与 `sensor-drift` 可重复且结论分流，干旱支持执行/不执行最小双轨，AI 断开后核心功能仍可用。
 
-如果进度落后，优先保护基线、数据链路、规则告警、虚拟灌溉、RAG 问答和安全闸门；复杂 3D、视觉病害、语音和外部天气 API 只做 P2。
+如果进度落后，优先保护基线、数据链路、规则告警、虚拟灌溉、RAG 问答和安全闸门；复杂 3D、生产级视觉病害、语音和外部天气 API 只做 P2。
 
 ## 后端实现与运行
 
@@ -277,7 +284,7 @@ docs/api/                OpenAPI 与 JSON Schema
 ./gradlew :apps:api-service:bootRun
 ```
 
-真实依赖仿真执行：
+带外部依赖的混合运行（PostgreSQL/Redis/MQTT）：
 
 ```bash
 docker compose -f infra/docker-compose.yml up --build
@@ -286,7 +293,7 @@ docker compose -f infra/docker-compose.yml up --build
 # 系统管理员可在「仿真模拟」页启停并调节采样间隔与时间流速。
 ```
 
-BearPi HM Nano E53_IA1 的本地实时适配器见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。它通过串口桥接温度、空气湿度和光照到 MQTT，并标记 `REAL/HARDWARE`；真实读数在后端优先于同指标模拟值。板卡烧录 E53_IA1 固件前不要把物理端到端状态写成已完成。
+BearPi HM Nano E53_IA1 的实时适配器见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。它已经通过串口把温度、空气湿度和光照桥接到 MQTT，并标记 `REAL/HARDWARE`；真实读数在后端优先于同指标模拟值，缺少的指标仍由模拟器补齐。该链路的接入证据可作为当前验收范围，不能外推为真实水泵/阀门或所有现场设备均已完成。
 
 默认演示用户为 `farmer`（种植农户）、`admin`（农场管理员）和 `sysadmin`（系统管理员）；演示密码只在受控环境配置，不进入 Git。API 默认端口为 `8080`，登录后可使用 `/api/v1/overview`、`/api/v1/plots/{plotId}/telemetry`、`/api/v1/diagnoses/evaluate`、`/api/v1/irrigation/estimate`、`/api/v1/commands/virtual`、`/api/v1/events/stream` 等接口。
 
@@ -341,26 +348,28 @@ P0 使用固定 `drought`；只有 CAP-09 已通过回测时才改用 `gradual-d
 ```text
 smart-agriculture/
 ├─ README.md
-├─ docs/
-│  ├─ 01_智慧农业_基本功能清单.md
-│  ├─ 02_智慧农业_功能架构.md
-│  ├─ 03_智慧农业_技术架构.md
-│  ├─ 04_智慧农业_大致路线与流程.md
+├─ 01_智慧农业_基本功能清单.md
+├─ 02_智慧农业_功能架构.md
+├─ 03_智慧农业_技术架构.md
+├─ 04_智慧农业_大致路线与流程.md
+├─ docs/                    # API、硬件、验收和运行合同
 │  ├─ api/openapi.yaml
-│  ├─ data/event-contract.md
-│  └─ defense/demo-script.md
+│  ├─ hardware/bearpi-e53-ia1.md
+│  └─ acceptance/
 ├─ apps/
-│  ├─ web-console/
-│  ├─ api-service/          # 含 SimulationEngine 进程内模拟器
-│  └─ ai-tools/
+│  ├─ web-ui/               # 三角色 Web 工作台
+│  ├─ api-service/           # Spring Boot + 进程内 SimulationEngine
+│  └─ wechat-mini-program/  # 原生微信小程序端
+├─ hardware/                # BearPi 串口/MQTT 适配器
 ├─ crop-packs/              # 作物档案、阶段、指标、规则、知识、情景和测试
-├─ infra/docker-compose.yml
+├─ infra/                   # Docker Compose、Mosquitto、Supervisor
+├─ scripts/                 # 独立运行、验证、部署和健康检查
 └─ .github/workflows/ci.yml
 ```
 
 ## 本地启动约定
 
-后端与静态 Web 工作台均已补齐，推荐以下方式启动软件仿真态：
+后端与静态 Web 工作台均已补齐，默认可按以下方式启动软件仿真态；需要接入 BearPi 时，再按后面的硬件桥接说明启动实时遥测：
 
 ```bash
 docker compose -f infra/docker-compose.yml up -d
@@ -381,6 +390,14 @@ cd apps/web-ui && npx vite
 ```
 
 然后打开 `http://127.0.0.1:3000/login.html`（账号 `farmer` / `demo123`）。模拟遥测由 API 内置引擎生成，无需单独启动 Python 进程。
+
+需要接入已验证的 BearPi E53_IA1 实时输入时，在保持 API、MQTT 和前端运行的情况下执行：
+
+```powershell
+py hardware/connect_bearpi.py --port COM5 --plot-id plot-a01
+```
+
+该命令会把板卡的温度、空气湿度和光照以 `REAL/HARDWARE` 来源发送到服务器；未覆盖的指标继续由模拟器补齐。完整参数和故障处理见 [`docs/hardware/bearpi-e53-ia1.md`](docs/hardware/bearpi-e53-ia1.md)。
 
 ### Windows 本地虚拟浇水验证（推荐）
 
@@ -418,8 +435,11 @@ Set-Location apps/web-ui; npm test; Set-Location ../..
 APP_MODE=simulation
 MQTT_URL=tcp://localhost:1883
 REDIS_URL=redis://localhost:6379
-AI_MODE=rules-only   # rules-only | mock | maxkb | openai-compatible（外部不可用自动降级）
-LLM_MAX_TOKENS=512  # 连续问答/清单留足完整输出空间
+AI_MODE=openai-compatible  # rules-only | mock | maxkb | openai-compatible（外部不可用自动降级）
+LLM_ENABLE_THINKING=false  # 生产对话只生成最终答复，不启用思考模式
+LLM_PRESERVE_THINKING=false  # 不把思考过程返回前端
+LLM_REASONING_EFFORT=none  # 不向兼容接口发送推理强度参数
+LLM_MAX_TOKENS=768  # 连续问答/清单留足完整输出空间
 COMMAND_MODE=virtual
 ```
 
@@ -438,4 +458,4 @@ COMMAND_MODE=virtual
 - [技术架构](./03_智慧农业_技术架构.md)
 - [大致路线与流程](./04_智慧农业_大致路线与流程.md)
 - [基础功能清单](./01_智慧农业_基本功能清单.md)：原始需求基线。
-- 当前版本不声称已经完成真实传感器、鸿蒙端或硬件联调；相关内容只作为未来增加 `DeviceGatewayDataSource` 的扩展方向。
+- 当前版本已完成 BearPi E53_IA1 的真实遥测接入与来源仲裁，并支持 Qwen 原生图片分析；仍未完成的范围包括真实水泵/阀门/GPIO 控制、其他现场传感器/网关、鸿蒙端，以及生产级端-智-云全链路和生产级视觉/语音能力。上述未覆盖设备仍沿用 `SIMULATION` 或虚拟执行，并作为后续 `DeviceGatewayDataSource`/执行器适配方向。

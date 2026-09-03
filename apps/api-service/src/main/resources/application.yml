@@ -13,7 +13,10 @@ spring:
     default-property-inclusion: non_null
     time-zone: Asia/Shanghai
   datasource:
-    url: ${DATABASE_URL:jdbc:h2:mem:agriloop;MODE=PostgreSQL;DB_CLOSE_DELAY=-1}
+    # Standalone collaboration must survive an API restart. Generated H2
+    # files live under the ignored data/ directory; simulation deployments
+    # continue to override this URL with PostgreSQL below.
+    url: ${DATABASE_URL:jdbc:h2:file:./data/agriloop;MODE=PostgreSQL;DB_CLOSE_ON_EXIT=FALSE}
     username: ${DATABASE_USER:sa}
     password: ${DATABASE_PASSWORD:}
     driver-class-name: ${DATABASE_DRIVER:org.h2.Driver}
@@ -21,8 +24,9 @@ spring:
       maximum-pool-size: ${DATABASE_POOL_SIZE:8}
   servlet:
     multipart:
-      max-file-size: 2MB
-      max-request-size: 8MB
+      max-file-size: 8MB
+      # Four original images may total 24 MB; JSON/Base64 framing adds overhead.
+      max-request-size: 40MB
   flyway:
     enabled: ${FLYWAY_ENABLED:true}
     baseline-on-migrate: true
@@ -36,15 +40,18 @@ spring:
 
 agriloop:
   mode: ${APP_MODE:standalone}
-  ai-mode: ${AI_MODE:rules-only}
+  # Model-first by default; the service still degrades explicitly to rules
+  # when the configured OpenAI-compatible endpoint is unavailable.
+  ai-mode: ${AI_MODE:openai-compatible}
   llm-base-url: ${LLM_BASE_URL:http://127.0.0.1:8000/v1}
   llm-model: ${LLM_MODEL:Qwen3.8-27B}
+  llm-vision-model: ${LLM_VISION_MODEL:Qwen3.8-27B}
   llm-api-key: ${LLM_API_KEY:}
-  llm-timeout-ms: ${LLM_TIMEOUT_MS:60000}
-  llm-max-tokens: ${LLM_MAX_TOKENS:512}
+  llm-timeout-ms: ${LLM_TIMEOUT_MS:30000}
+  llm-max-tokens: ${LLM_MAX_TOKENS:768}
   llm-enable-thinking: ${LLM_ENABLE_THINKING:false}
   llm-preserve-thinking: ${LLM_PRESERVE_THINKING:false}
-  llm-reasoning-effort: ${LLM_REASONING_EFFORT:low}
+  llm-reasoning-effort: ${LLM_REASONING_EFFORT:none}
   llm-history-messages: ${LLM_HISTORY_MESSAGES:8}
   command-mode: ${COMMAND_MODE:virtual}
   forecast-mode: ${FORECAST_MODE:deterministic}
@@ -52,6 +59,9 @@ agriloop:
   value-mode: ${VALUE_MODE:simulation}
   jwt-secret: ${JWT_SECRET:change-me-in-production-change-me-in-production}
   jwt-ttl-minutes: ${JWT_TTL_MINUTES:720}
+  # Intentionally has no repository default. SYSTEM_ADMIN creation remains
+  # disabled until the deployment operator supplies a secret value.
+  system-admin-authorization-code: ${SYSTEM_ADMIN_AUTHORIZATION_CODE:}
   mqtt-url: ${MQTT_URL:tcp://localhost:1883}
   mqtt-client-id: ${MQTT_CLIENT_ID:agriloop-api}
   mqtt-username: ${MQTT_USERNAME:}
@@ -62,6 +72,7 @@ agriloop:
   seed-data: ${SEED_DATA:true}
   sse-heartbeat-seconds: ${SSE_HEARTBEAT_SECONDS:15}
   max-irrigation-seconds: ${MAX_IRRIGATION_SECONDS:900}
+  max-lighting-seconds: ${MAX_LIGHTING_SECONDS:28800}
   daily-water-limit-litres: ${DAILY_WATER_LIMIT_LITRES:5000}
   crop-pack-path: ${CROP_PACK_PATH:classpath:/crop-packs}
   simulator-control-enabled: ${SIMULATOR_CONTROL_ENABLED:true}
@@ -70,6 +81,16 @@ agriloop:
   simulator-program: ${SIMULATOR_PROGRAM:agriloop-simulator}
   simulation-config-path: ${SIMULATION_CONFIG_PATH:data/plot-simulation.json}
   attachment-dir: ${ATTACHMENT_DIR:data/attachments}
+  # Official daily wholesale quotations. This is not a securities-grade tick
+  # feed: the API stores one attributable daily snapshot for historical curves.
+  market-price-enabled: ${MARKET_PRICE_ENABLED:true}
+  market-price-base-url: ${MARKET_PRICE_BASE_URL:https://pfsc.agri.cn}
+  market-price-province-code: ${MARKET_PRICE_PROVINCE_CODE:500000}
+  market-price-province-name: ${MARKET_PRICE_PROVINCE_NAME:重庆市}
+  market-price-preferred-market: ${MARKET_PRICE_PREFERRED_MARKET:重庆双福国际农贸城}
+  market-price-aes-key: ${MARKET_PRICE_AES_KEY:7s9K$pG2xQ8zR5mB7vA3sD9fH2jW40cV}
+  market-price-timeout-ms: ${MARKET_PRICE_TIMEOUT_MS:8000}
+  market-price-cache-minutes: ${MARKET_PRICE_CACHE_MINUTES:30}
 
 management:
   endpoints:
@@ -132,5 +153,8 @@ spring:
 
 agriloop:
   mode: standalone
+  # Unit tests do not start a model server. Keep their fallback explicit so
+  # they never wait on a network timeout while production remains model-first.
+  ai-mode: rules-only
   seed-data: true
   simulator-auto-start: false

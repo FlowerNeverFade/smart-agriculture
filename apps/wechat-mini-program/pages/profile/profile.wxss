@@ -1,0 +1,41 @@
+.profile-hero { display: flex; align-items: center; margin: 8rpx 0 26rpx; }
+.avatar { display: flex; align-items: center; justify-content: center; width: 90rpx; height: 90rpx; border-radius: 28rpx; color: #fff; background: #237b55; font-size: 38rpx; font-weight: 700; }
+.profile-identity { margin-left: 18rpx; }
+.profile-name { color: #203a2c; font-size: 34rpx; font-weight: 700; }
+.profile-role { margin-top: 6rpx; color: #6f8376; font-size: 23rpx; }
+.retry-button { display: block; width: 220rpx; margin: 18rpx 0 0; font-size: 24rpx; line-height: 64rpx; }
+.notice-box { margin: 14rpx 0; padding: 14rpx 18rpx; border-radius: 10rpx; color: #806329; background: #fff7df; font-size: 23rpx; line-height: 1.5; }
+.profile-section { padding: 24rpx; }
+.profile-row, .setting-row, .service-head, .service-row { display: flex; align-items: center; justify-content: space-between; gap: 14rpx; }
+.profile-row { min-height: 62rpx; border-bottom: 1rpx solid #edf1ed; color: #718278; font-size: 24rpx; }
+.profile-row:last-of-type { border-bottom: 0; }
+.profile-value { color: #30483a; text-align: right; }
+.permission-wrap { display: flex; flex-wrap: wrap; gap: 8rpx; margin-top: 14rpx; }
+.permission-chip { padding: 7rpx 12rpx; border-radius: 999rpx; color: #47705a; background: #edf7ef; font-size: 20rpx; }
+.setting-row { min-height: 80rpx; padding: 10rpx 0; border-bottom: 1rpx solid #edf1ed; }
+.setting-row:last-child { border-bottom: 0; }
+.setting-copy { min-width: 0; flex: 1; }
+.setting-title { color: #385642; font-size: 25rpx; font-weight: 600; }
+.setting-sub { margin-top: 4rpx; color: #829087; font-size: 21rpx; line-height: 1.45; }
+.api-value { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.copy-button { flex: 0 0 auto; padding: 0 16rpx; font-size: 22rpx; line-height: 54rpx; }
+.service-head { align-items: flex-start; }
+.service-list { margin-top: 12rpx; }
+.service-row { min-height: 52rpx; border-bottom: 1rpx solid #edf1ed; color: #617568; font-size: 23rpx; }
+.service-row:last-child { border-bottom: 0; }
+.service-status { font-size: 22rpx; }
+.service-good { color: #217853; }
+.service-medium { color: #a17425; }
+.service-bad { color: #ac493f; }
+.service-empty { padding: 20rpx 0; }
+.link-button { padding: 0; color: #1c7651 !important; background: transparent !important; font-size: 22rpx; line-height: 44rpx; }
+.refresh-button { margin: 10rpx 0 0; }
+.technical-toggle { display: flex; align-items: center; justify-content: space-between; padding: 18rpx 6rpx; color: #4d7059; font-size: 23rpx; }
+.technical-box { margin-bottom: 20rpx; padding: 16rpx; border-radius: 12rpx; color: #718278; background: #edf5ee; font-size: 22rpx; line-height: 1.6; }
+.technical-box view + view { margin-top: 8rpx; }
+.logout-button { margin-top: 10rpx; font-size: 25rpx; line-height: 70rpx; }
+
+@media (max-width: 380px) {
+  .profile-name { font-size: 30rpx; }
+  .api-value { max-width: 390rpx; }
+}

@@ -99,3 +99,52 @@ test('plot detail uses debounced backend preview and stale-response sequencing',
   assert.match(app, /}, delay\);/);
   assert.match(app, /persisted: false/);
 });
+
+test('system admin resource audit remains reachable from the standalone shell', async () => {
+  const sysadmin = await readFile(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const sysadminHtml = await readFile(new URL('../sysadmin.html', import.meta.url), 'utf8');
+  assert.ok(roleViews('SYSTEM_ADMIN').includes('admin-resources'));
+  assert.match(sysadmin, /id: 'admin-resources'/);
+  assert.match(sysadmin, /'admin-resources-view': AdminResourcesView/);
+  assert.match(sysadmin, /resourcePlans: api\.listResourcePlans\(\{\}\)/);
+  assert.match(sysadmin, /resourceRequests: api\.listResourceRequests\(\{\}\)/);
+  assert.match(sysadmin, /api\.getWaterResourceProfile\(farmId\)/);
+  assert.match(sysadminHtml, /id="tmpl-admin-resources"/);
+  assert.match(sysadminHtml, /系统管理员 \/ 只读审计/);
+  assert.match(sysadminHtml, /农户需求与回执审计/);
+});
+
+test('farm admin names the water-only workspace irrigation scheduling without changing its route', async () => {
+  const management = await readFile(new URL('../js/modules/admin-work-management.js', import.meta.url), 'utf8');
+  const resource = await readFile(new URL('../js/modules/admin-resource-planning.js', import.meta.url), 'utf8');
+
+  assert.match(management, />灌溉调度<\/button>/);
+  assert.match(management, /activeTab === 'resources'/);
+  assert.match(resource, /农务任务 \/ 灌溉调度/);
+  assert.match(resource, /id="resource-title">灌溉调度工作台/);
+  assert.doesNotMatch(management, />资源安排<\/button>/);
+});
+
+test('all three resource workspaces identify durable sync and disable live writes when persistence is unavailable', async () => {
+  const adminResource = await readFile(new URL('../js/modules/admin-resource-planning.js', import.meta.url), 'utf8');
+  const farmer = await readFile(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const farmerHtml = await readFile(new URL('../farmer.html', import.meta.url), 'utf8');
+  const sysadmin = await readFile(new URL('../js/sysadmin.js', import.meta.url), 'utf8');
+  const sysadminHtml = await readFile(new URL('../sysadmin.html', import.meta.url), 'utf8');
+
+  assert.match(adminResource, /持久化后端协同/);
+  assert.match(adminResource, /数据库不可用 · 仅可查看/);
+  assert.match(adminResource, /api\.getSystemStatus/);
+  assert.match(adminResource, /collaborationReadOnly/);
+
+  assert.match(farmer, /resource_persistence_status/);
+  assert.match(farmer, /api\.getSystemStatus\(\)/);
+  assert.match(farmer, /RESOURCE_PERSISTENCE_UNAVAILABLE/);
+  assert.match(farmerHtml, /resource_collaboration_read_only/);
+  assert.match(farmerHtml, /演示数据 · 不跨账号|resource_sync_label/);
+
+  assert.match(sysadmin, /resourcePersistence/);
+  assert.match(sysadmin, /持久化后端共享事实/);
+  assert.match(sysadminHtml, /collaborationLabel/);
+  assert.match(sysadminHtml, /系统管理员 \/ 只读审计/);
+});

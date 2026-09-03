@@ -1,0 +1,223 @@
+.page-intro {
+  margin: 6rpx 0 28rpx;
+}
+
+.farm-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 18rpx;
+  padding-bottom: 18rpx;
+}
+
+.picker-label {
+  color: #77877c;
+  font-size: 24rpx;
+}
+
+.farm-picker-value {
+  color: #1c6d4b;
+  font-size: 26rpx;
+  font-weight: 600;
+}
+
+.picker-arrow {
+  margin-left: 8rpx;
+  color: #6d8175;
+  font-size: 30rpx;
+}
+
+.retry-button {
+  display: block;
+  width: 220rpx;
+  margin: 18rpx 0 0;
+  font-size: 24rpx;
+  line-height: 64rpx;
+}
+
+.plot-list-card {
+  padding: 22rpx;
+}
+
+.plot-list-card.selected {
+  border-color: #62a27e;
+  box-shadow: 0 8rpx 24rpx rgba(34, 111, 72, .12);
+}
+
+.plot-list-head,
+.detail-head,
+.detail-device,
+.forecast-head,
+.telemetry-row,
+.forecast-point {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.plot-name {
+  color: #203a2c;
+  font-size: 30rpx;
+  font-weight: 700;
+}
+
+.plot-sub {
+  margin-top: 5rpx;
+  color: #788a7e;
+  font-size: 23rpx;
+}
+
+.plot-list-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10rpx;
+  margin-top: 22rpx;
+}
+
+.plot-list-metrics > view {
+  padding: 11rpx 10rpx;
+  border-radius: 10rpx;
+  background: #f6f9f6;
+}
+
+.metric-key,
+.metric-number {
+  display: block;
+}
+
+.metric-key {
+  color: #849188;
+  font-size: 21rpx;
+}
+
+.metric-number {
+  margin-top: 4rpx;
+  color: #2c4839;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.detail-card {
+  margin-top: 28rpx;
+  padding: 24rpx;
+}
+
+.detail-head {
+  align-items: flex-start;
+  gap: 16rpx;
+}
+
+.small-button {
+  flex: 0 0 auto;
+  padding: 0 18rpx;
+  font-size: 23rpx;
+  line-height: 58rpx;
+}
+
+.detail-device {
+  margin-top: 18rpx;
+  color: #5f7467;
+  font-size: 22rpx;
+}
+
+.metric-tabs {
+  display: flex;
+  gap: 10rpx;
+  margin-top: 22rpx;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.metric-tab {
+  flex: 0 0 auto;
+  padding: 0 16rpx;
+  color: #6e8175 !important;
+  background: #f1f5f1 !important;
+  font-size: 22rpx;
+  line-height: 58rpx;
+}
+
+.metric-tab.active {
+  color: #ffffff !important;
+  background: #217b55 !important;
+}
+
+.metric-current {
+  margin-top: 22rpx;
+  padding: 20rpx;
+  border-radius: 12rpx;
+  background: #f5faf5;
+}
+
+.current-label {
+  color: #6f8475;
+  font-size: 23rpx;
+}
+
+.current-value {
+  margin: 4rpx 0;
+  color: #1e5e40;
+  font-size: 48rpx;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.telemetry-list {
+  margin-top: 16rpx;
+}
+
+.telemetry-row {
+  min-height: 62rpx;
+  border-bottom: 1rpx solid #edf1ed;
+  color: #708174;
+  font-size: 22rpx;
+}
+
+.telemetry-value {
+  margin-left: auto;
+  margin-right: 20rpx;
+  color: #2e4b3a;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+
+.detail-empty {
+  margin-top: 12rpx;
+  padding: 22rpx;
+}
+
+.forecast-box {
+  margin-top: 22rpx;
+  padding: 18rpx;
+  border: 1rpx solid #dcebe0;
+  border-radius: 12rpx;
+  background: #f5fbf6;
+}
+
+.forecast-box.unavailable {
+  border-color: #e8e8dc;
+  background: #fafaf4;
+}
+
+.forecast-title {
+  color: #2e513b;
+  font-size: 25rpx;
+  font-weight: 700;
+}
+
+.forecast-summary {
+  margin-top: 12rpx;
+  color: #63796a;
+  font-size: 23rpx;
+  line-height: 1.55;
+}
+
+.forecast-points {
+  margin-top: 12rpx;
+}
+
+.forecast-point {
+  min-height: 50rpx;
+  color: #788a7e;
+  font-size: 21rpx;
+}

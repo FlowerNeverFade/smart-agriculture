@@ -418,6 +418,10 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   transition: border-color 190ms ease, background-color 190ms ease, box-shadow 190ms ease;
 }
 
+.field[hidden] { display: none; }
+
+.register-farm-profile[hidden] { display: none; }
+
 .field::after {
   content: "";
   position: absolute;
@@ -803,7 +807,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
   border-radius: 50%;
   background: rgba(211, 237, 215, .34);
   color: var(--green-deep);
-  font-family: Georgia, serif;
+  font-family: inherit;
   font-size: 23px;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55);
 }
@@ -828,7 +832,7 @@ body.has-liquid-field .environment__fallback { opacity: 0; }
 .recovery-code-box code {
   flex: 1;
   color: var(--ink);
-  font-family: "Courier New", monospace;
+  font-family: inherit;
   font-size: 14px;
   font-weight: 700;
   letter-spacing: .08em;

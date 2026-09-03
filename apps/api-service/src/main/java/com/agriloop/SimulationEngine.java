@@ -57,7 +57,10 @@ class SimulationEngine {
             new MetricSpec("CO2", "ppm", 0, 10000),
             new MetricSpec("PH", "pH", 0, 14),
             new MetricSpec("WATER_LEVEL", "%", 0, 100),
-            new MetricSpec("RAINFALL", "mm/h", 0, 250)
+            new MetricSpec("RAINFALL", "mm/h", 0, 250),
+            new MetricSpec("NITROGEN", "mg/kg", 0, 300),
+            new MetricSpec("PHOSPHORUS", "mg/kg", 0, 200),
+            new MetricSpec("POTASSIUM", "mg/kg", 0, 400)
     );
     private static final Map<String, String> SCENARIO_ALIASES = Map.ofEntries(
             Map.entry("normal", "normal"),
@@ -156,16 +159,16 @@ class SimulationEngine {
     }
 
     Map<String, Object> status() {
-        synchronized (lock) {
-            Map<String, Object> response = snapshot();
-            response.put("available", properties.isSimulatorControlEnabled());
-            if (!properties.isSimulatorControlEnabled()) {
-                response.put("status", "UNAVAILABLE");
-                response.put("reason", "SIMULATOR_CONTROL_DISABLED");
-                response.put("running", false);
-            }
-            return response;
+        // Status fields are atomic or volatile. Do not wait for the simulation tick lock here:
+        // one tick can ingest many plot metrics and may legitimately run longer than the UI timeout.
+        Map<String, Object> response = snapshot();
+        response.put("available", properties.isSimulatorControlEnabled());
+        if (!properties.isSimulatorControlEnabled()) {
+            response.put("status", "UNAVAILABLE");
+            response.put("reason", "SIMULATOR_CONTROL_DISABLED");
+            response.put("running", false);
         }
+        return response;
     }
 
     Map<String, Object> start() {
@@ -399,6 +402,9 @@ class SimulationEngine {
                 }
             }
             case "WATER_LEVEL" -> value = state.water;
+            case "NITROGEN" -> value = 120.0 + Math.sin(index / 5.5) * 10.0 + Math.cos(simulatedHours / 9.0) * 6.0;
+            case "PHOSPHORUS" -> value = 45.0 + Math.sin(index / 7.0 + 1.2) * 5.0 + Math.cos(simulatedHours / 14.0) * 3.0;
+            case "POTASSIUM" -> value = 180.0 + Math.sin(index / 6.0 + 2.4) * 12.0 + Math.cos(simulatedHours / 11.0) * 7.0;
             default -> {
                 double rainfall = params.get("rainfallRate");
                 if ("heavy-rain".equals(normalized)) {
@@ -417,6 +423,9 @@ class SimulationEngine {
             case "SOIL_MOISTURE" -> 0.12;
             case "CO2" -> 5.0;
             case "WATER_LEVEL" -> 0.16;
+            case "NITROGEN" -> 2.4;
+            case "PHOSPHORUS" -> 1.2;
+            case "POTASSIUM" -> 3.0;
             case "RAINFALL" -> 0.7;
             default -> 0.08;
         } * volatility;
@@ -453,7 +462,13 @@ class SimulationEngine {
             String facilityType = PlotFacility.forPlot(plot);
             Map<String, Object> simulation = engine.plotSimulationRecord(plotId);
             if (!Jsons.bool(simulation, "enabled", true)) continue;
-            if (mockDeviceControlledOffline(plotId)) continue;
+            Map<String, Object> simulationDevice = simulationDeviceForPlot(plotId);
+            if (simulationDeviceControlledOffline(simulationDevice)) continue;
+            // A successful administrator ONLINE command is a deliberate
+            // override of the DEVICE_OFFLINE scenario. Keep producing the
+            // virtual readings so the device can recover instead of being
+            // overwritten by the next scenario tick.
+            boolean manualOnlineOverride = simulationDeviceManuallyOnline(simulationDevice);
             String scenario = normalizeScenario(Jsons.text(simulation, "scenario", "NORMAL"));
             Map<String, Object> rawParams = Jsons.map(mapper, simulation.get("parameters"));
             Map<String, Double> params = scenarioParameters(scenario, rawParams);
@@ -490,12 +505,18 @@ class SimulationEngine {
             ZonedDateTime physicsTs = simBase.plusMillis(Math.round(elapsedWall * plotScale * 1000.0)).atZone(ZONE);
             double offlineRatio = "device-offline".equals(scenario) ? params.get("offlineRatio") : 0.0;
             int phase = (index + plotId.chars().sum()) % 20;
-            boolean scenarioOffline = offlineRatio > 0 && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
+            boolean scenarioOffline = !manualOnlineOverride && offlineRatio > 0
+                    && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
             if (!scenarioOffline) {
                 evolveState(state, rng, scenario, physicsTs, index, params, interval, facilityType);
             }
             String farmId = Jsons.text(plot, "farmId", "farm-demo");
-            String deviceId = "mock-" + plotId;
+            // A plot may be bound to a custom simulator device id (for
+            // example, a registered gateway id such as "002"). Publish all
+            // samples and status updates to that bound id so the admin view
+            // observes the same device that it controls. Keep the historical
+            // mock id only as a fallback for plots without a device record.
+            String deviceId = Jsons.text(simulationDevice, "deviceId", "mock-" + plotId);
             if (scenarioOffline) {
                 publishDeviceStatus(deviceId, farmId, plotId, "OFFLINE", scenario, revision, wallNow);
                 continue;
@@ -527,12 +548,90 @@ class SimulationEngine {
         return plots;
     }
 
-    private boolean mockDeviceControlledOffline(String plotId) {
-        Map<String, Object> device = store.find("device", "mock-" + plotId);
+    /** Resolve the simulator endpoint that is actually bound to this plot. */
+    private Map<String, Object> simulationDeviceForPlot(String plotId) {
+        List<Map<String, Object>> candidates = new ArrayList<>();
+        for (Map<String, Object> device : store.list("device")) {
+            if (!plotId.equals(Jsons.text(device, "plotId", ""))) continue;
+            if (!isSimulationDevice(device)) continue;
+            String binding = Jsons.text(device, "bindingState", "").trim();
+            String status = Jsons.text(device, "status", "").trim();
+            if ("UNBOUND".equalsIgnoreCase(binding) || "UNBOUND".equalsIgnoreCase(status)) continue;
+            candidates.add(device);
+        }
+        // Prefer an explicitly controlled device, then a bound/online one.
+        // This matters briefly after a rebind, when an older simulator record
+        // can coexist with the newly selected device in the store cache.
+        candidates.sort((left, right) -> {
+            int controlled = Boolean.compare(hasExplicitControl(right), hasExplicitControl(left));
+            if (controlled != 0) return controlled;
+            int bound = Boolean.compare(isBound(right), isBound(left));
+            if (bound != 0) return bound;
+            int online = Boolean.compare(isOnline(right), isOnline(left));
+            if (online != 0) return online;
+            int seen = Jsons.instant(right.get("lastSeen"), Instant.EPOCH)
+                    .compareTo(Jsons.instant(left.get("lastSeen"), Instant.EPOCH));
+            if (seen != 0) return seen;
+            return Jsons.text(left, "deviceId", "").compareTo(Jsons.text(right, "deviceId", ""));
+        });
+        if (!candidates.isEmpty()) return candidates.get(0);
+
+        // Preserve the original implicit simulator for seeded/legacy plots,
+        // but do not resurrect a device that an administrator explicitly
+        // unbound.
+        Map<String, Object> legacy = store.find("device", "mock-" + plotId);
+        if (isSimulationDevice(legacy)
+                && !"UNBOUND".equalsIgnoreCase(Jsons.text(legacy, "bindingState", ""))
+                && !"UNBOUND".equalsIgnoreCase(Jsons.text(legacy, "status", ""))) {
+            return legacy;
+        }
+        return Map.of();
+    }
+
+    private boolean isSimulationDevice(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
+        String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
+                .trim().toUpperCase(Locale.ROOT);
+        String deviceId = Jsons.text(device, "deviceId", "").trim().toLowerCase(Locale.ROOT);
+        if ("REAL".equals(source) || "HARDWARE".equals(source)) return false;
+        return Set.of("SIMULATION", "SIMULATED", "SIMULATOR").contains(source) || deviceId.startsWith("mock-");
+    }
+
+    private boolean isBound(Map<String, Object> device) {
+        return "BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", ""));
+    }
+
+    private boolean isOnline(Map<String, Object> device) {
+        return "ONLINE".equalsIgnoreCase(Jsons.text(device, "status", ""));
+    }
+
+    private boolean hasExplicitControl(Map<String, Object> device) {
+        String override = Jsons.text(device, "manualStatusOverride", "").trim();
+        if (!override.isBlank()) return true;
+        return "SUCCEEDED".equalsIgnoreCase(Jsons.text(device, "controlStatus", ""))
+                && !Jsons.text(device, "desiredStatus", "").isBlank()
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
+    }
+
+    private boolean simulationDeviceControlledOffline(Map<String, Object> device) {
         if (device == null || device.isEmpty()) return false;
         String controlStatus = Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT);
         String desired = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
-        return "SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desired);
+        String override = Jsons.text(device, "manualStatusOverride", "").toUpperCase(Locale.ROOT);
+        return "OFFLINE".equals(override)
+                || ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desired));
+    }
+
+    private boolean simulationDeviceManuallyOnline(Map<String, Object> device) {
+        if (device == null || device.isEmpty()) return false;
+        if (!isSimulationDevice(device)) return false;
+        String override = Jsons.text(device, "manualStatusOverride", "").toUpperCase(Locale.ROOT);
+        if ("ONLINE".equals(override)) return true;
+        // Commands created before manualStatusOverride was introduced still
+        // carry the durable command fields, so they must remain recoverable.
+        return "SUCCEEDED".equals(Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT))
+                && "ONLINE".equals(Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT))
+                && !Jsons.text(device, "lastControlCommandId", "").isBlank();
     }
 
     private Map<String, Object> buildEvent(PlotState state, Random rng, String scenario, String plotId, String farmId,

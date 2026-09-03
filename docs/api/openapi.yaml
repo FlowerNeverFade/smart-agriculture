@@ -1,7 +1,7 @@
 openapi: 3.0.3
 info:
   title: AgriLoop 农智闭环后端 API
-  version: 1.3.1
+  version: 1.3.4
   description: |
     Spring Boot 3/Java 17 software-simulation backend. Protected endpoints
     require JWT; command actions require idempotencyKey and an explicit
@@ -14,6 +14,7 @@ security:
 tags:
   - name: auth
   - name: farm
+  - name: market
   - name: telemetry
   - name: decision
   - name: execution
@@ -34,14 +35,20 @@ paths:
     post:
       tags: [auth]
       security: []
-      description: 创建普通种植用户；恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
+      description: |
+        创建 FARMER 或 FARM_ADMIN 无需额外授权；FARM_ADMIN 必须提交 farmProfile，服务端原子创建独立空农场，
+        不再加入 farm-demo。创建 SYSTEM_ADMIN 必须提交服务端环境变量 SYSTEM_ADMIN_AUTHORIZATION_CODE 对应的授权码。
+        恢复码只在成功响应中返回一次，服务端仅保存 BCrypt 哈希。
       requestBody:
         required: true
         content: {application/json: {schema: {$ref: '#/components/schemas/RegisterRequest'}}}
       responses:
         '201': {description: 账号创建成功，返回 JWT、用户与一次性展示的恢复码, content: {application/json: {schema: {$ref: '#/components/schemas/ApiEnvelope'}}}}
-        '400': {description: 账号格式或密码强度不符合要求}
+        '400': {description: 账号格式、密码强度或 FARM_ADMIN 农场资料不符合要求（FARM_PROFILE_INVALID）}
+        '403': {description: SYSTEM_ADMIN_AUTHORIZATION_INVALID 授权码无效}
+        '429': {description: SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED，连续失败 5 次后限制 15 分钟}
         '409': {description: 账号已存在}
+        '503': {description: SYSTEM_ADMIN_CREATION_DISABLED 或 ACCOUNT_PERSISTENCE_UNAVAILABLE}
   /api/v1/auth/password/reset:
     post:
       tags: [auth]
@@ -68,6 +75,44 @@ paths:
         '401': {description: 未登录或当前密码不正确}
   /api/v1/auth/me:
     get: {tags: [auth], responses: {'200': {description: 当前用户}}}
+  /api/v1/users/me/preferences/farmer-workspace:
+    get:
+      tags: [farm]
+      description: 返回当前农户账号跨设备使用的地块排列顺序；新增或恢复的授权地块会稳定追加。
+      responses:
+        '200': {description: 当前农户工作台地块顺序}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [farm]
+      description: 保存当前农户工作台地块顺序；使用 expectedRevision 防止多设备静默覆盖。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FarmerWorkspacePreferenceUpdateRequest'}}}}
+      responses:
+        '200': {description: 地块顺序已保存}
+        '400': {description: 地块顺序格式或数量无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 其他设备已更新顺序，需重新读取}
+        '503': {description: 数据库不可用，写入未保存}
+  /api/v1/users/me/preferences/farm-admin-workspace:
+    get:
+      tags: [farm]
+      description: 返回当前农场管理员在指定授权农场的地块排列顺序；配置按账号与农场隔离，新增或停用地块会稳定合并。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQueryRequired'}
+      responses:
+        '200': {description: 当前农场管理员工作台地块顺序}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [farm]
+      description: 保存当前农场管理员在指定授权农场的地块排列顺序；使用 expectedRevision 防止多设备静默覆盖。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQueryRequired'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FarmAdminWorkspacePreferenceUpdateRequest'}}}}
+      responses:
+        '200': {description: 地块顺序已保存}
+        '400': {description: 地块顺序格式或数量无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 其他设备已更新顺序，需重新读取}
+        '503': {description: 数据库不可用，写入未保存}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
   /api/v1/system/ai-mode:
@@ -82,11 +127,32 @@ paths:
     put: {tags: [management], description: 仅管理员可更新全局采样间隔（5–60 秒）和时间流速（1–288x），运行中下一拍生效, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设置已保存}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/overview:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前授权农场的多地块风险总览}, '403': {$ref: '#/components/responses/Forbidden'}}}
+  /api/v1/market-prices:
+    get:
+      tags: [market]
+      description: |
+        仅 FARM_ADMIN 可读取其授权农场的日度批发市场参考行情。默认只返回本场在种作物，
+        scope=all 返回系统映射的全部监测品种。正式数据按来源日期原样归档，缺失日期不插值，
+        不是证券级实时成交或自动卖出信号。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQueryRequired'}
+        - {name: rangeDays, in: query, schema: {type: integer, enum: [7, 30, 90], default: 30}}
+        - {name: scope, in: query, schema: {type: string, enum: [farm, all], default: farm}}
+      responses:
+        '200':
+          description: 官方日行情、最近持久化快照或明确的不可用状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - {$ref: '#/components/schemas/ApiEnvelope'}
+                  - {type: object, properties: {data: {$ref: '#/components/schemas/MarketPriceOverview'}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/farms:
     get: {tags: [farm], responses: {'200': {description: 授权农场列表}}}
   /api/v1/plots:
     get: {tags: [farm], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}, {name: status, in: query, schema: {type: string, enum: [ACTIVE, INACTIVE]}}, {name: includeInactive, in: query, schema: {type: boolean, default: false}}], responses: {'200': {description: 按农场和生命周期过滤的授权地块列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
-    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建 ACTIVE 地块, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 创建地块}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [farm], description: 仅农场管理员可在自己管理的农场创建持久化 ACTIVE 地块；不复制示范农场遥测、设备或任务, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 地块持久化成功}, '403': {$ref: '#/components/responses/Forbidden'}, '503': {description: PLOT_PERSISTENCE_UNAVAILABLE，数据库不可用且不会创建临时地块}}}
   /api/v1/plots/{plotId}:
     patch: {tags: [farm], parameters: [{$ref: '#/components/parameters/PlotId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 修改作物、品种、生长阶段、生长周期或面积}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/devices:
@@ -154,6 +220,7 @@ paths:
       responses: {'200': {description: 作物包状态已更新}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 作物包不存在}}
   /api/v1/rule-sets:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 全局及当前农场启用的确定性告警规则集}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    post: {tags: [management], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已保存当前农场告警规则}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 规则编号已存在}}}
   /api/v1/alert-learning-cases:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}, {name: candidateId, in: query, schema: {type: string}}], responses: {'200': {description: 农场级告警闭环学习案例}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/farms/{farmId}/crop-packs:
@@ -254,11 +321,40 @@ paths:
   /api/v1/diagnoses/{diagnosisId}/explain:
     post: {tags: [decision], parameters: [{$ref: '#/components/parameters/DiagnosisId'}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 基于确定性诊断证据的 AI 解释；不改变主因、置信度或安全门}}}
   /api/v1/decisions/{subjectType}/{subjectId}/readiness:
-    get: {tags: [decision], parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 四态决策就绪度}}}
+    get:
+      tags: [decision]
+      parameters: [{name: subjectType, in: path, required: true, schema: {type: string}}, {name: subjectId, in: path, required: true, schema: {type: string}}]
+      responses:
+        '200':
+          description: 四态决策就绪度；blockingEvidence 决定是否阻断，advisoryEvidence 只提示，executionAllowed 是最终执行判定。missingEvidence 与 conflicts 作为兼容和审计字段保留。
+          content: {application/json: {schema: {$ref: '#/components/schemas/DecisionReadinessEnvelope'}}}
   /api/v1/decision-readiness/{readinessId}/evidence-requests:
-    post: {tags: [decision], parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 补证工单}}}
+    post:
+      tags: [decision]
+      parameters: [{name: readinessId, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/EvidenceRequestCreate'}}}}
+      responses:
+        '200': {description: 已持久化的 OPEN 补证申请；包含 evidenceType、requesterId/requesterName、farmId、plotId、reason、createdAt 和当前状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 巡田/补证操作记录数据库不可用，写入未保存，错误码 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE}
   /api/v1/inspections:
-    post: {tags: [decision], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}, responses: {'200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}}}
+    post:
+      tags: [decision]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/InspectionCreateRequest'}}}}
+      responses:
+        '200': {description: 已持久化的 USER_PROVIDED 巡田证据；关联任务时同时写入工单证据引用}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 巡田/补证操作记录数据库不可用，写入未保存，错误码 OPERATION_RECORD_PERSISTENCE_UNAVAILABLE}
+    get:
+      tags: [decision]
+      description: 按当前 JWT 角色读取持久化巡田记录；FARMER 仅返回本人提交或关联任务分配给本人的记录，FARM_ADMIN 返回指定授权农场全部记录。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQuery'}
+        - {name: plotId, in: query, schema: {type: string}, description: 可选地块筛选；与 farmId 同时提供时必须属于该农场}
+      responses:
+        '200': {description: 按 observedAt 倒序返回当前账号可见的巡田记录}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '503': {description: 操作记录读取不可用}
   /api/v1/inspections/{inspectionId}/photos:
     post:
       tags: [decision]
@@ -291,16 +387,65 @@ paths:
             image/webp: {}
         '404': {description: 照片不存在}
   /api/v1/plots/{plotId}/inspections:
-    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}}}
+    get: {tags: [decision], parameters: [{$ref: '#/components/parameters/PlotId'}], responses: {'200': {description: 按观测时间倒序返回当前账号有权查看的持久化巡田证据}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/plots/{plotId}/irrigation-guard:
     get:
       tags: [decision]
       parameters:
         - {$ref: '#/components/parameters/PlotId'}
       responses:
-        '200': {description: 当前阶段迟滞状态、持久化灌溉冷却窗口和最近有效命令；仅限授权地块}
+        '200': {description: 当前阶段迟滞状态、无时间冷却的灌溉可用状态、自动浇水阈值和最近有效命令；仅限授权地块}
+  /api/v1/plots/{plotId}/automatic-watering:
+    get:
+      tags: [decision]
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      responses:
+        '200': {description: 当前地块自动浇水开关、阈值和来源；仅限授权地块}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [decision]
+      description: 按当前操作人确认开启或关闭自动浇水；关闭只阻断自动触发，不改变手动灌溉的安全确认流程。
+      parameters:
+        - {$ref: '#/components/parameters/PlotId'}
+      requestBody: {$ref: '#/components/requestBodies/JsonObject'}
+      responses:
+        '200': {description: 已保存的自动浇水开关状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/estimate:
-    post: {tags: [decision], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+    post: {tags: [decision], description: 生成灌溉处方并返回诊断、证据、就绪度、虚拟执行参数和 manualFallback；仅在存在阻塞且仍有可用水量时提供人工兜底入口, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 结构化灌溉处方}}}
+  /api/v1/irrigation/auto:
+    post: {tags: [decision], description: 土壤含水量低于 10% 且通过数据质量、设备、资源和权限校验时发起一次虚拟浇水；同一遥测事件使用幂等键避免重复命令, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 自动浇水触发、未触发或阻断结果}}}
+  /api/v1/irrigation/manual:
+    post:
+      tags: [execution]
+      description: 当前地块处于数据冲突、数据质量、设备状态或决策就绪度阻塞时，由有权限的操作人输入水量并确认一次虚拟人工浇灌；仅绕过决策门，仍校验地块权限、幂等、单次/每日水量、资源容量和最大执行时长。新的幂等键不受次数或冷却限制；结果沿用命令、ACK、效果评价和模拟遥测链路。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationRequest'}}}}
+      responses: {'200': {description: 带 manualOverride、sourcePlanId、bypassedGates、ACK 和效果评价的虚拟人工浇灌命令, content: {application/json: {schema: {$ref: '#/components/schemas/ManualIrrigationCommand'}}}}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键、处方上下文或人工兜底状态冲突}, '422': {description: 水量、时长或资源安全约束拒绝}}
+  /api/v1/lighting/virtual:
+    post:
+      tags: [execution]
+      description: 农户操作系统的虚拟补光入口。光照低于当前作物模型包阶段下限时可由本人确认执行；补光时长直接按小时选取，设备离线仅在 standalone/simulation 本地演示模式且 allowOfflineDemo=true 时放行，并明确记录为 SIMULATED，不控制真实灯具。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualLightingRequest'}}}}
+      responses: {'200': {description: 带离线演示标记、ACK、光照效果评价和模拟遥测的 LIGHT_BOOST 命令}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 幂等键或阶段光照状态冲突}, '422': {description: 光照不可用、未确认或设备不满足离线演示条件}}
+  /api/v1/lighting/estimate:
+    post:
+      tags: [decision]
+      description: 按当前作物模型包和白天/夜间目标生成光照处方；返回光照诊断、证据、决策就绪度、补光增量和 1/2/4/6/8 小时计划。夜间、正常或高光只返回 NO_ACTION，不生成可执行命令。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/requestBodies/JsonObject'}}}}
+      responses: {'200': {description: 结构化光照处方与就绪度}, '403': {$ref: '#/components/responses/Forbidden'}, '422': {description: 地块或光照指标不可用}}
+  /api/v1/plots/{plotId}/lighting-guard:
+    get:
+      tags: [decision]
+      description: 读取当前地块光照状态、动态目标带、设备状态、补光可执行门和最近 LIGHT_BOOST 命令。
+      parameters:
+        - name: plotId
+          in: path
+          required: true
+          schema: {type: string}
+      responses:
+        '200': {description: 光照安全门与动态时段状态}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/irrigation/plans/{planId}:
     get:
       tags: [decision]
@@ -313,17 +458,40 @@ paths:
         '200': {description: 按地块权限读取原始灌溉处方}
         '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/chat:
-    post: {tags: [decision], description: 携带 message、plotId、conversationId；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出与可选 actionProposal}}}
+    post: {tags: [decision], description: 携带 message、plotId、conversationId；可选 displayMessage 用于保存用户可读问题，避免将模型提示词写入历史；可选 images 最多 4 张 JPG/PNG/WebP 原文件 data URL，单张最大 8MB、总计最大 24MB，浏览器不缩放、不转码、不压缩；由原生多模态模型读取且不持久化原图；按当前角色返回连续回答或受控操作预览, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 受控 Agent 输出、可选 vision 元数据与 actionProposal}, '400': {description: 图片格式、数量或体积不符合限制}, '409': {description: 旧浏览器识图组件已停用，需刷新页面}}}
   /api/v1/agent/conversations:
     get:
       tags: [decision]
-      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；农户仅能看到自己的会话。
+      description: 按当前 JWT 账号返回最近的 Agent 会话摘要；可按地块过滤，过滤发生在排序和数量限制之前；农户仅能看到自己的会话。
       parameters:
         - {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 50, default: 20}}
+        - {name: archived, in: query, schema: {type: boolean, default: false}}
+        - {name: plotId, in: query, required: false, schema: {type: string}}
       responses:
         '200': {description: 会话标题、关联地块、最后时间和消息数}
         '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
   /api/v1/agent/conversations/{conversationId}:
+    put:
+      tags: [decision]
+      description: 更新当前账号拥有的 Agent 会话摘要；可修改标题或置顶状态，服务端校验会话归属。
+      parameters:
+        - {name: conversationId, in: path, required: true, schema: {type: string, maxLength: 120}}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title: {type: string, maxLength: 36}
+                pinned: {type: boolean}
+              minProperties: 1
+      responses:
+        '200': {description: 更新后的会话摘要}
+        '400': {description: 没有可更新字段或标题无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {description: 对话不存在}
     delete:
       tags: [decision]
       description: 删除当前账号拥有的 Agent 对话及其消息；服务端校验会话归属。
@@ -364,7 +532,7 @@ paths:
     post:
       tags: [execution]
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/VirtualCommandRequest'}}}}
-      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等/冷却冲突}, '422': {description: 就绪度/安全拒绝}}
+      responses: {'200': {description: 虚拟命令}, '409': {description: 幂等或自动浇水资格冲突}, '422': {description: 就绪度/安全拒绝}}
   /api/v1/commands/{commandId}:
     get: {tags: [execution], parameters: [{$ref: '#/components/parameters/CommandId'}], responses: {'200': {description: 命令与 ACK}}}
   /api/v1/commands/{commandId}/ack:
@@ -395,11 +563,13 @@ paths:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AssignWorkOrderRequest'}}}}, responses: {'200': {description: 管理员将任务分配或重新分配给有对应地块权限的活跃种植农户}}}
   /api/v1/work-orders/{workOrderId}/transition:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 农户开始、重新处理、提交结果或管理员取消任务}}}
+  /api/v1/work-orders/{workOrderId}/report-issue:
+    post: {tags: [management], description: 农户填写具体问题并创建与原任务关联的 FARMER_REPORT 工单；同一农户对同一任务的未结束上报幂等复用，管理员通过工单列表和实时事件接收, parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {required: false, content: {application/json: {schema: {type: object, required: [description], properties: {description: {type: string, minLength: 2, maxLength: 1000}, priority: {type: string, enum: [HIGH, MEDIUM, LOW]}}}}}}, responses: {'200': {description: 关联的 FARMER_REPORT 工单与原任务摘要}, '400': {description: 问题描述为空或超过长度限制}, '403': {description: 仅允许该任务的执行农户上报}, '409': {description: 原任务已结束}}}
   /api/v1/work-orders/{workOrderId}/review:
     post: {tags: [management], parameters: [{name: workOrderId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 管理员验收通过或退回任务}}}
   /api/v1/farm-members:
-    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场正式成员；只返回 FARMER/FARM_ADMIN 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
-    post: {tags: [management], description: 农场管理员创建种植农户账号并分配当前农场的活跃地块；若实现返回恢复码则只展示一次, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已创建种植农户成员}, '400': {description: 账号或初始密码不符合要求}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员账号已存在}}}
+    get: {tags: [management], parameters: [{name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 当前农场种植农户；只返回 FARMER 和任务分配所需的安全字段}, '403': {description: 当前账号无该农场成员读取权限}}}
+    post: {tags: [management], description: 仅创建种植农户账号并分配当前农场地块；明确拒绝 FARM_ADMIN 和 SYSTEM_ADMIN，关闭角色提升入口, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'201': {description: 已创建种植农户成员}, '400': {description: 账号或初始密码不符合要求}, '403': {description: 无农场管理权限或 MEMBER_ROLE_FORBIDDEN}, '409': {description: 成员账号已存在}, '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}}}
   /api/v1/farm-members/{userId}/status:
     patch:
       tags: [management]
@@ -413,8 +583,37 @@ paths:
     delete: {tags: [management], description: 从当前农场移除种植农户并保留其其他农场范围, parameters: [{name: userId, in: path, required: true, schema: {type: string}}, {name: farmId, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 成员已从当前农场移除}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 成员不存在或不属于当前农场}}}
   /api/v1/farm-members/{userId}/scope:
     patch: {tags: [management], description: 仅维护当前农场种植农户的地块范围；保留其他农场范围且禁止修改角色, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的当前农场成员视图}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 成员不属于当前农场}}}
+  /api/v1/users:
+    get:
+      tags: [management]
+      description: SYSTEM_ADMIN 读取全平台真实账号及安全范围字段；不返回密码、恢复码哈希或 credentialVersion。
+      responses:
+        '200': {description: 全局账号列表, content: {application/json: {schema: {allOf: [{$ref: '#/components/schemas/ApiEnvelope'}, {type: object, properties: {data: {type: array, items: {$ref: '#/components/schemas/UserAccount'}}}}]}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [management]
+      description: SYSTEM_ADMIN 创建三类账号；SYSTEM_ADMIN 仍须再次提交服务端授权码。成功响应中的恢复码只显示一次。
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateUserAccountRequest'}}}}
+      responses:
+        '201': {description: 账号持久化成功，返回安全账号字段与一次性恢复码}
+        '400': {description: 账号、密码、角色或范围无效}
+        '403': {description: ACCOUNT_MANAGEMENT_FORBIDDEN 或 SYSTEM_ADMIN_AUTHORIZATION_INVALID}
+        '429': {description: SYSTEM_ADMIN_AUTHORIZATION_RATE_LIMITED}
+        '409': {description: 账号已存在}
+        '503': {description: SYSTEM_ADMIN_CREATION_DISABLED 或 ACCOUNT_PERSISTENCE_UNAVAILABLE}
+  /api/v1/users/{userId}/status:
+    patch:
+      tags: [management]
+      description: SYSTEM_ADMIN 启用或停用 FARMER/FARM_ADMIN；所有 SYSTEM_ADMIN 账号永久保护。
+      parameters: [{name: userId, in: path, required: true, schema: {type: string}}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/AccountStatusRequest'}}}}
+      responses:
+        '200': {description: 更新后的安全账号视图}
+        '403': {description: ACCOUNT_MANAGEMENT_FORBIDDEN 或 ACCOUNT_SYSTEM_ADMIN_PROTECTED}
+        '404': {description: 账号不存在}
+        '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}
   /api/v1/users/{userId}:
-    delete: {tags: [management], description: 系统管理员删除任意角色账号（含农场管理员/系统管理员）；不可删除自己, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {$ref: '#/components/responses/Forbidden'}, '404': {description: 账号不存在}}}
+    delete: {tags: [management], description: SYSTEM_ADMIN 删除 FARMER 或 FARM_ADMIN；所有 SYSTEM_ADMIN 账号永久保护且不能删除, parameters: [{name: userId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 账号已删除}, '400': {description: 不能删除自己的账号}, '403': {description: ACCOUNT_DELETE_FORBIDDEN 或 ACCOUNT_SYSTEM_ADMIN_PROTECTED}, '404': {description: 账号不存在}, '503': {description: ACCOUNT_PERSISTENCE_UNAVAILABLE}}}
   /api/v1/alerts:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQuery'}], responses: {'200': {description: 当前农场范围内的告警列表}, '403': {$ref: '#/components/responses/Forbidden'}}}
   /api/v1/alerts/{alertId}/ack:
@@ -456,6 +655,9 @@ paths:
   /api/v1/devices:
     get: {tags: [management], parameters: [{$ref: '#/components/parameters/FarmIdQueryRequired'}], responses: {'200': {description: 当前农场的设备事实列表}}}
     post: {tags: [management], description: 注册设备；sourceMode 可选 SIMULATION（默认）或 REAL，初始固定 OFFLINE/UNBOUND，模拟设备可受控切换，真实设备需等待 MQTT 回执, requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 设备已注册并保存 dataOrigin}, '400': {description: sourceMode 无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备编号已存在}}}
+  /api/v1/devices/{deviceId}:
+    patch: {tags: [management], description: 仅修改设备名称和设备类型；设备编号、所属农场和接入来源不可变, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 更新后的设备事实}, '400': {description: 名称或类型无效}, '403': {$ref: '#/components/responses/Forbidden'}}}
+    delete: {tags: [management], description: 永久删除设备主记录；必须离线、未绑定且没有待回执控制命令，并通过 confirmName 精确确认；遥测、命令和审计历史保留, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}, {name: confirmName, in: query, required: true, schema: {type: string}}], responses: {'200': {description: 设备已删除且历史记录保留}, '400': {description: 名称确认不匹配}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备在线、已绑定或控制回执未完成}}}
   /api/v1/devices/{deviceId}/bind:
     post: {tags: [management], description: 设备与地块必须属于同一农场，且地块必须为 ACTIVE, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 绑定设备但不改变心跳状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 跨农场或停用地块绑定被拒绝}}}
   /api/v1/devices/{deviceId}/unbind:
@@ -493,6 +695,118 @@ components:
         schemaVersion: {type: string}
         data: {type: object, nullable: true}
         error: {type: object, nullable: true}
+    DecisionReadinessEnvelope:
+      allOf:
+        - {$ref: '#/components/schemas/ApiEnvelope'}
+        - type: object
+          properties:
+            data: {$ref: '#/components/schemas/DecisionReadiness'}
+    DecisionReadiness:
+      type: object
+      required: [readinessId, subject, plotId, status, hardGates, missingEvidence, blockingEvidence, advisoryEvidence, executionAllowed, conflicts, requiredActions, policyVersion]
+      properties:
+        readinessId: {type: string}
+        subject:
+          type: object
+          required: [type, id]
+          properties:
+            type: {type: string}
+            id: {type: string}
+        plotId: {type: string}
+        status: {type: string, enum: [READY, NEEDS_EVIDENCE, HUMAN_REVIEW, UNAVAILABLE]}
+        score: {type: number, minimum: 0, maximum: 1}
+        hardGates: {type: object, additionalProperties: {type: string, enum: [PASS, REVIEW, FAIL]}}
+        missingEvidence: {type: array, items: {type: string}, description: 兼容字段；包含阻断和提醒证据，不能单独决定执行}
+        blockingEvidence: {type: array, items: {type: string}, description: 当前必须补齐的硬阻断证据}
+        advisoryEvidence: {type: array, items: {type: string}, description: 当前仅提示但不阻断常规低风险人工确认灌溉的证据}
+        executionAllowed: {type: boolean, description: 前端执行按钮和后端控制接口共同使用的最终允许标记}
+        conflicts: {type: array, items: {type: string}}
+        requiredActions: {type: array, items: {type: object, additionalProperties: true}}
+        policyVersion: {type: string, example: readiness-v2}
+        evaluatedAt: {type: string, format: date-time}
+    MarketPriceOverview:
+      type: object
+      required: [farmId, scope, rangeDays, sourceStatus, historyPersistence, availableCropCount, totalCropCount, source, crops]
+      properties:
+        farmId: {type: string}
+        scope: {type: string, enum: [FARM_CROPS, ALL_CATALOG]}
+        rangeDays: {type: integer, enum: [7, 30, 90]}
+        sourceStatus: {type: string, enum: [LIVE, CACHED, UNAVAILABLE, DISABLED]}
+        asOf: {type: string, format: date, nullable: true}
+        generatedAt: {type: string, format: date-time}
+        historyPersistence: {type: string, description: 当前快照归档介质；IN_MEMORY_FALLBACK 表示历史无法跨重启保留}
+        farmCropCodes: {type: array, items: {type: string}}
+        availableCropCount: {type: integer, minimum: 0}
+        totalCropCount: {type: integer, minimum: 0}
+        source:
+          type: object
+          required: [provider, name, url, cadence, provinceCode, provinceName, unit, method, disclaimer]
+          properties:
+            provider: {type: string, enum: [MOA_PFSC]}
+            name: {type: string}
+            url: {type: string, format: uri}
+            cadence: {type: string, enum: [DAILY]}
+            provinceCode: {type: string}
+            provinceName: {type: string}
+            preferredMarket: {type: string}
+            unit: {type: string, enum: [元/公斤]}
+            method: {type: string, description: 参考市场报价优先；否则使用省内上报市场简单平均，非成交量加权}
+            disclaimer: {type: string}
+        crops: {type: array, items: {$ref: '#/components/schemas/MarketPriceCrop'}}
+    MarketPriceCrop:
+      type: object
+      required: [cropCode, cropName, marketVarietyName, emoji, inFarm, available, status, unit, marketCount, history, salesObservation]
+      properties:
+        cropCode: {type: string}
+        cropName: {type: string}
+        marketVarietyName: {type: string, description: 上游行情系统中的匹配品种名称}
+        emoji: {type: string}
+        inFarm: {type: boolean}
+        available: {type: boolean}
+        status: {type: string, enum: [LIVE, CACHED, UNAVAILABLE]}
+        quoteDate: {type: string, format: date, nullable: true}
+        latestPrice: {type: number, format: double, nullable: true}
+        unit: {type: string, enum: [元/公斤]}
+        change: {type: number, format: double, nullable: true}
+        changePct: {type: number, format: double, nullable: true}
+        sevenDayChangePct: {type: number, format: double, nullable: true}
+        movingAverage7: {type: number, format: double, nullable: true}
+        minPrice: {type: number, format: double, nullable: true}
+        maxPrice: {type: number, format: double, nullable: true}
+        marketCount: {type: integer, minimum: 0}
+        priceBasis: {type: string, enum: [PREFERRED_MARKET, PROVINCE_SIMPLE_AVERAGE], nullable: true}
+        preferredMarket: {type: string}
+        marketQuotes: {type: array, items: {$ref: '#/components/schemas/MarketPriceQuote'}}
+        history: {type: array, description: 仅包含实际归档日；客户端必须把缺失日期保留为空白, items: {$ref: '#/components/schemas/MarketPricePoint'}}
+        historyDays: {type: integer, minimum: 0}
+        requestedRangeDays: {type: integer, enum: [7, 30, 90]}
+        salesObservation:
+          type: object
+          required: [tone, label, message, basis, actionable]
+          properties:
+            tone: {type: string, enum: [NEUTRAL, STRONG, WEAK, RANGE]}
+            label: {type: string}
+            message: {type: string}
+            basis: {type: string}
+            actionable: {type: boolean, description: 仅表示真实样本是否达到规则计算门槛，不构成交易建议}
+    MarketPricePoint:
+      type: object
+      required: [date, price, minPrice, maxPrice, marketCount, priceBasis]
+      properties:
+        date: {type: string, format: date}
+        price: {type: number, format: double, nullable: true}
+        minPrice: {type: number, format: double, nullable: true}
+        maxPrice: {type: number, format: double, nullable: true}
+        marketCount: {type: integer, minimum: 0}
+        priceBasis: {type: string, nullable: true}
+    MarketPriceQuote:
+      type: object
+      required: [marketName, price, unit, preferred]
+      properties:
+        marketName: {type: string}
+        price: {type: number, format: double, minimum: 0}
+        unit: {type: string, enum: [元/公斤]}
+        preferred: {type: boolean}
     LoginRequest:
       type: object
       required: [username, password]
@@ -506,7 +820,45 @@ components:
       properties:
         username: {type: string, minLength: 4, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$'}
         password: {type: string, format: password, minLength: 8, maxLength: 64}
-        role: {type: string, enum: [FARMER], default: FARMER}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN], default: FARMER}
+        authorizationCode: {type: string, format: password, writeOnly: true, description: 仅 role=SYSTEM_ADMIN 时必填；与服务端环境配置进行恒定时间比较}
+        farmProfile: {$ref: '#/components/schemas/FarmRegistrationProfile'}
+    FarmRegistrationProfile:
+      type: object
+      description: 仅 role=FARM_ADMIN 时必填；成功后创建该管理员独占的空农场。
+      required: [name, region]
+      properties:
+        name: {type: string, minLength: 2, maxLength: 60}
+        region: {type: string, minLength: 2, maxLength: 80}
+    CreateUserAccountRequest:
+      type: object
+      required: [username, password, role]
+      properties:
+        username: {type: string, minLength: 4, maxLength: 32, pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{3,31}$'}
+        password: {type: string, format: password, writeOnly: true, minLength: 8, maxLength: 64}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN]}
+        farmId: {type: string, description: FARMER/FARM_ADMIN 必填；SYSTEM_ADMIN 忽略}
+        plotIds: {type: array, items: {type: string}, description: FARMER 可选；FARM_ADMIN 自动获得所属农场完整范围}
+        authorizationCode: {type: string, format: password, writeOnly: true, description: 创建 SYSTEM_ADMIN 时必填}
+    AccountStatusRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled: {type: boolean}
+    UserAccount:
+      type: object
+      required: [userId, username, role, roleLabel, farmIds, plotIds, enabled, status]
+      properties:
+        userId: {type: string}
+        username: {type: string}
+        role: {type: string, enum: [FARMER, FARM_ADMIN, SYSTEM_ADMIN]}
+        roleLabel: {type: string}
+        farmIds: {type: array, items: {type: string}}
+        plotIds: {type: array, items: {type: string}}
+        enabled: {type: boolean}
+        status: {type: string, enum: [ACTIVE, INACTIVE]}
+        createdAt: {type: string, format: date-time}
+        updatedAt: {type: string, format: date-time}
     PasswordResetRequest:
       type: object
       required: [username, recoveryCode, newPassword]
@@ -520,6 +872,37 @@ components:
       properties:
         currentPassword: {type: string, format: password}
         newPassword: {type: string, format: password, minLength: 8, maxLength: 64}
+    FarmerWorkspacePreference:
+      type: object
+      required: [userId, scope, plotOrder, revision]
+      properties:
+        userId: {type: string}
+        scope: {type: string, enum: [FARMER_WORKSPACE]}
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        revision: {type: integer, minimum: 0}
+        updatedAt: {type: string, format: date-time, nullable: true}
+    FarmerWorkspacePreferenceUpdateRequest:
+      type: object
+      required: [plotOrder, expectedRevision]
+      properties:
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        expectedRevision: {type: integer, minimum: 0}
+    FarmAdminWorkspacePreference:
+      type: object
+      required: [userId, farmId, scope, plotOrder, revision]
+      properties:
+        userId: {type: string}
+        farmId: {type: string}
+        scope: {type: string, enum: [FARM_ADMIN_WORKSPACE]}
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        revision: {type: integer, minimum: 0}
+        updatedAt: {type: string, format: date-time, nullable: true}
+    FarmAdminWorkspacePreferenceUpdateRequest:
+      type: object
+      required: [plotOrder, expectedRevision]
+      properties:
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        expectedRevision: {type: integer, minimum: 0}
     TelemetryEvent:
       type: object
       required: [eventId, plotId, deviceId, metric, value, ts]
@@ -583,6 +966,50 @@ components:
         approvalRequired: {type: boolean, default: false, description: 固定为 false，保留安全确认而非管理员审批}
         confirmationMode: {type: string, enum: [OPERATOR_CONFIRMED]}
         outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
+    ManualIrrigationRequest:
+      type: object
+      required: [plotId, sourcePlanId, waterLitre, idempotencyKey, confirmed]
+      properties:
+        plotId: {type: string}
+        sourcePlanId: {type: string, description: 当前被阻塞灌溉处方编号；服务端会重新确认阻塞状态}
+        waterLitre: {type: number, format: double, minimum: 0.1, description: 本次人工浇灌水量（升），仍受单次、每日和资源上限约束}
+        idempotencyKey: {type: string, minLength: 1}
+        confirmed: {type: boolean, description: 当前操作人已核对地块、原因和水量并确认虚拟人工浇灌}
+        source: {type: string, default: farmer-manual-fallback}
+    VirtualLightingRequest:
+      type: object
+      required: [plotId, idempotencyKey, confirmed]
+      properties:
+        plotId: {type: string}
+        planId: {type: string, description: 可选的后端光照处方编号；执行时会重新校验处方与当前安全门}
+        boostLux: {type: number, minimum: 1000, description: 模拟补光增量，服务端按阶段上限裁剪}
+        durationSeconds: {type: integer, minimum: 1, maximum: 28800, default: 7200, description: 补光计划时长（秒），前端直接显示 1/2/4/6/8 小时；虚拟执行不会等待真实时长}
+        idempotencyKey: {type: string, minLength: 8}
+        confirmed: {type: boolean, description: 当前农户已核对地块并确认虚拟补光}
+        allowOfflineDemo: {type: boolean, default: false, description: 仅本地 standalone/simulation 模式允许离线设备虚拟执行}
+        source: {type: string, default: farmer-operation-system}
+        outcome: {type: string, enum: [SUCCEEDED, PARTIAL, FAILED, TIMEOUT]}
+    ManualIrrigationCommand:
+      type: object
+      required: [commandId, plotId, planId, sourcePlanId, manualOverride, waterLitre, manualWaterLitre, confirmationMode, executionMode, provenance, virtualOnly, cooldownMinutes]
+      properties:
+        commandId: {type: string}
+        plotId: {type: string}
+        planId: {type: string, description: 本次虚拟执行使用的刷新后灌溉处方}
+        sourcePlanId: {type: string, description: 农户发起人工兜底时查看的被阻塞处方}
+        manualOverride: {type: boolean, enum: [true]}
+        manualWaterLitre: {type: number, minimum: 0.1}
+        waterLitre: {type: number, minimum: 0.1}
+        durationSeconds: {type: integer, minimum: 1}
+        bypassedGates: {type: array, items: {type: string}}
+        overrideReasonCode: {type: string}
+        confirmationMode: {type: string, enum: [OPERATOR_MANUAL_OVERRIDE]}
+        executionMode: {type: string, enum: [SIMULATED]}
+        provenance: {type: string, enum: [SIMULATED]}
+        virtualOnly: {type: boolean, enum: [true]}
+        cooldownMinutes: {type: integer, minimum: 0, enum: [0]}
+        ack: {$ref: '#/components/schemas/CommandAck'}
+        evaluation: {type: object, additionalProperties: true, description: ACK 后的效果评价；无数值型湿度基线时 status=INCONCLUSIVE}
     CommandAck:
       type: object
       required: [status]
@@ -626,6 +1053,17 @@ components:
         assigneeId: {type: string, description: 当前农场中拥有工单地块权限的活跃 FARMER 用户 ID}
         note: {type: string, description: 分配说明}
         dueAt: {type: string, format: date-time, description: 可选；重新处置逾期任务时设置晚于当前时间的新处理时限}
+    EvidenceRequestCreate:
+      type: object
+      required: [reason]
+      properties:
+        farmId: {type: string}
+        plotId: {type: string}
+        title: {type: string}
+        reason: {type: string, minLength: 1, description: 为什么需要补充现场证据}
+        evidenceType: {type: string, enum: [FIELD_INSPECTION, RETEST, DEVICE_CHECK], default: FIELD_INSPECTION}
+        actionType: {type: string, default: INSPECTION}
+        priority: {type: string, enum: [HIGH, MEDIUM, LOW], default: MEDIUM}
     InspectionCreateRequest:
       type: object
       required: [farmId, plotId, observedAt]
@@ -639,6 +1077,7 @@ components:
         soilSurface: {type: string, example: DRY}
         cropCondition: {type: string, example: LEAF_SLIGHT_WILT}
         deviceStatus: {type: string, example: NORMAL}
+        evidenceType: {type: string, enum: [FIELD_INSPECTION, RETEST, DEVICE_CHECK], default: FIELD_INSPECTION, description: RETEST 类型必须同时提供 portableSoilMoisture；普通巡田没有便携仪读数时只能形成现场观察证据}
         portableSoilMoisture: {type: number, minimum: 0, maximum: 100, nullable: true}
         notes: {type: string, description: 现场可复核说明}
     InspectionRecord:
@@ -655,6 +1094,20 @@ components:
             updatedAt: {type: string, format: date-time}
             revision: {type: integer, minimum: 1}
             evidenceSummary: {type: string}
+            evidenceStatus: {type: string, enum: [OBSERVATION_ONLY, ACTIVE, CLEAR, UNAVAILABLE, RESOLVED, SUPERSEDED], description: 当前人工证据与遥测比对状态；历史冲突只标记状态，不删除原始记录}
+            portableComparison:
+              type: object
+              nullable: true
+              properties:
+                telemetryValue: {type: number}
+                portableValue: {type: number}
+                deviation: {type: number, minimum: 0}
+                status: {type: string, enum: [ACTIVE, CLEAR]}
+                evaluatedAt: {type: string, format: date-time}
+            resolvedByInspectionId: {type: string, nullable: true}
+            resolvedAt: {type: string, format: date-time, nullable: true}
+            supersededByInspectionId: {type: string, nullable: true}
+            supersededAt: {type: string, format: date-time, nullable: true}
             provenance: {type: string, enum: [USER_PROVIDED]}
             sourceType: {type: string, enum: [HUMAN_OBSERVATION]}
             photos:

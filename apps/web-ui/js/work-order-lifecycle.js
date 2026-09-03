@@ -1,6 +1,6 @@
-import { api } from './api.js?v=20260831-ai-role-v1';
-import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260831-three-branch-v1';
-import { roleCan } from './roles.js?v=20260831-three-branch-v1';
+import { api } from './api.js?v=20260902-manager-plot-order-v1';
+import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-performance-v1';
+import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 
@@ -21,6 +21,14 @@ const INSPECTION_LABELS = Object.freeze({
   crop: { NORMAL: '长势正常', LEAF_SLIGHT_WILT: '叶片轻微萎蔫', DISEASE_SUSPECTED: '疑似病害' },
   device: { NORMAL: '外观完好', LOOSE: '接头松动', LEAKING: '管线渗漏', OFFLINE: '离线或无显示' }
 });
+
+const EVIDENCE_TYPE_LABELS = Object.freeze({
+  FIELD_INSPECTION: '现场巡田',
+  RETEST: '传感器复测',
+  DEVICE_CHECK: '设备检查'
+});
+
+const MANAGER_SECTION_IDS = Object.freeze(['tasks', 'evidence', 'inspections']);
 
 const WORK_ACTION_META = Object.freeze({
   SOWING: { label: '播种', title: '完成播种作业', reason: '按种植计划完成整地、播种并记录实际执行情况。', targetStageCode: 'seedling', targetStageLabel: '苗期' },
@@ -83,7 +91,11 @@ export function isAlertVerificationOrder(order) {
   return String(order?.taskPurpose || '').trim().toUpperCase() === 'ALERT_VERIFICATION';
 }
 
-export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '') {
+export function isFarmerIssueReport(order) {
+  return String(order?.sourceType || '').trim().toUpperCase() === 'FARMER_REPORT';
+}
+
+export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '', requireDifferent = false) {
   const currentAssigneeId = String(order?.assigneeId || '');
   const eligible = (Array.isArray(members) ? members : []).filter((member) => {
     const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
@@ -93,8 +105,11 @@ export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '')
       && (!farmId || farmIds.includes('*') || farmIds.includes(farmId))
       && (plotIds.includes('*') || plotIds.includes(order?.plotId));
   });
-  const alternatives = eligible.filter((member) => member.userId !== currentAssigneeId);
-  const candidates = alternatives.length ? alternatives : eligible;
+  const alternatives = eligible.filter((member) => String(member.userId || '') !== currentAssigneeId);
+  // Bulk overdue disposition must hand the work to somebody else.  Keep the
+  // fallback for ordinary assignment flows, where retaining the current
+  // assignee is still a valid choice when no alternative exists.
+  const candidates = requireDifferent ? alternatives : (alternatives.length ? alternatives : eligible);
   const ranked = candidates.map((member) => {
     const assigned = (Array.isArray(workOrders) ? workOrders : []).filter((item) => item.assigneeId === member.userId);
     return {
@@ -110,12 +125,16 @@ export function chooseWorkOrderAssignee(members, workOrders, order, farmId = '')
 }
 
 export function finalizedWorkOrderAssignment(order, response, member, renewedDueAt = '') {
+  const responseStatus = String(response?.status || '').trim().toUpperCase();
+  const assignedStatus = !responseStatus || ['OPEN', 'PENDING', 'NEW'].includes(responseStatus)
+    ? 'ASSIGNED'
+    : response.status;
   return {
     ...order,
     ...(response || {}),
     workOrderId: response?.workOrderId || response?.workItemId || order?.workOrderId || order?.workItemId,
     workItemId: response?.workItemId || response?.workOrderId || order?.workItemId || order?.workOrderId,
-    status: response?.status || 'ASSIGNED',
+    status: assignedStatus,
     assigneeId: response?.assigneeId || member?.userId || order?.assigneeId || null,
     assigneeName: response?.assigneeName || member?.displayName || member?.username || order?.assigneeName || null,
     dueAt: renewedDueAt || response?.dueAt || order?.dueAt || null
@@ -185,6 +204,8 @@ export const WorkOrderLifecycleView = {
     const memberLoadError = ref('');
     const inspectionLoading = ref(false);
     const inspectionLoadError = ref('');
+    const showAllInspections = ref(false);
+    const activeManagerSection = ref('tasks');
     const lifecycleNow = ref(Date.now());
     const statusFilter = ref('IN_PROGRESS');
     const scopeFilter = ref(normalizeWorkSummaryScope(props.routeParams?.scope));
@@ -198,7 +219,10 @@ export const WorkOrderLifecycleView = {
     const showReviewModal = ref(false);
     const showCancelModal = ref(false);
     const showInspectionModal = ref(false);
+    const showInspectionDetailModal = ref(false);
     const activeOrder = ref(null);
+    const activeInspection = ref(null);
+    const inspectionDetailTrigger = ref(null);
     const assignment = ref({ assigneeId: '', note: '', dueAt: '' });
     const submission = ref({ resultSummary: '', evidenceText: '' });
     const review = ref({ note: '', verificationResult: 'CONFIRMED_ABNORMAL' });
@@ -225,11 +249,28 @@ export const WorkOrderLifecycleView = {
     const inspectionOperatorName = (record) => record.operatorName || props.state.farmMembers.find((member) => member.userId === record.operatorId)?.displayName || record.operatorId || '未记录';
     const inspectionObservationLabel = (group, value) => INSPECTION_LABELS[group]?.[String(value || '').toUpperCase()] || value || '—';
     const inspectionTaskName = (record) => props.state.workOrders.find((order) => order.workOrderId === record.workOrderId)?.title || (record.workOrderId ? `任务 ${record.workOrderId}` : '未关联任务');
+    const inspectionQualityLabel = (record) => ({ GOOD: '资料完整', INCOMPLETE: '资料待补充' }[String(record?.quality?.status || '').toUpperCase()] || '未评估');
+    const inspectionCompletenessLabel = (record) => {
+      const completeness = Number(record?.quality?.completeness);
+      return Number.isFinite(completeness) ? `${Math.round(Math.min(1, Math.max(0, completeness)) * 100)}%` : '—';
+    };
+    const inspectionPhotoPreview = (photo) => {
+      const value = String(photo?.previewUrl || photo?.url || photo?.downloadUrl || '').trim();
+      return /^(?:data:image\/|blob:|https?:\/\/)/i.test(value) ? value : '';
+    };
+    const inspectionPhotoSize = (photo) => {
+      const bytes = Number(photo?.sizeBytes);
+      if (!Number.isFinite(bytes) || bytes < 0) return '大小未记录';
+      if (bytes < 1024) return `${Math.round(bytes)} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    };
 
     const scopedOrders = computed(() => {
       const orders = Array.isArray(props.state.workOrders) ? props.state.workOrders : [];
       if (!isFarmer.value) return orders;
       return orders.filter((order) => {
+        if (isFarmerIssueReport(order)) return false;
         if (order.assigneeId === currentActorId.value) return true;
         // A farmer must be able to track an evidence request they created
         // before it is assigned.  The backend applies the same rule in
@@ -270,6 +311,13 @@ export const WorkOrderLifecycleView = {
       .slice()
       .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0)));
     const recentInspections = computed(() => inspections.value.slice(0, 8));
+    const visibleInspections = computed(() => showAllInspections.value ? inspections.value : recentInspections.value);
+    const evidenceRequests = computed(() => scopedOrders.value
+      .filter((order) => String(order.sourceType || '').toUpperCase() === 'READINESS')
+      .slice()
+      .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0)));
+    const evidenceTypeLabel = (value) => EVIDENCE_TYPE_LABELS[String(value || 'FIELD_INSPECTION').toUpperCase()] || '补证申请';
+    const requesterName = (order) => order.requesterName || props.state.farmMembers.find((member) => member.userId === (order.requesterId || order.createdBy))?.displayName || order.requesterId || order.createdBy || '未记录';
     const relatedInspections = (order) => inspections.value.filter((record) =>
       record.workOrderId === order?.workOrderId || (order?.evidenceRefs || []).includes(record.inspectionId));
     const eligibleInspectionOrders = computed(() => scopedOrders.value.filter((order) => {
@@ -299,21 +347,32 @@ export const WorkOrderLifecycleView = {
       today: '今日任务',
       overdue: '已逾期',
       unassigned: '待分配',
-      approval: '待审批'
+      approval: '待审批',
+      'farmer-reports': '农户问题上报'
     }[scopeFilter.value] || ''));
-    const clearSummaryScope = () => emit('navigate', 'work-orders', { tab: 'tasks', status: 'IN_PROGRESS', farmId: currentFarmId.value });
-    const applyStatusFilter = (status) => emit('navigate', 'work-orders', { tab: 'tasks', status, farmId: currentFarmId.value });
+    const taskFilterParams = (params = {}) => ({
+      tab: 'tasks',
+      farmId: currentFarmId.value,
+      ...params,
+      ...(assigneeFilter.value ? { assigneeId: assigneeFilter.value } : {})
+    });
+    const clearSummaryScope = () => emit('navigate', 'work-orders', taskFilterParams({ status: 'IN_PROGRESS' }));
+    const applyStatusFilter = (status) => emit('navigate', 'work-orders', taskFilterParams({ status: status || 'ALL' }));
     const onStatusSelect = () => applyStatusFilter(statusFilter.value);
+    const onAssigneeSelect = () => emit('navigate', 'work-orders', taskFilterParams({
+      status: statusFilter.value || 'ALL',
+      scope: scopeFilter.value || undefined
+    }));
     const applySummaryScope = (scope) => {
       const target = managerSummaryTarget(scope, currentFarmId.value);
-      if (target) emit('navigate', target.view, target.params);
+      if (target) emit('navigate', target.view, target.view === 'work-orders' ? { ...target.params, ...(assigneeFilter.value ? { assigneeId: assigneeFilter.value } : {}) } : target.params);
     };
 
     const statusMeta = (order) => STATUS_META[workStatus(order?.status)] || { label: '状态未知', tone: 'muted', step: '请联系管理员确认' };
     const priorityLabel = (priority) => ({ HIGH: '紧急', MEDIUM: '中', LOW: '普通' }[priority] || '普通');
-    const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建' }[String(source || '').toUpperCase()] || '系统任务');
+    const sourceLabel = (source) => ({ ALERT: '告警转入', CROP_PLAN: '生产计划', READINESS: '补证请求', DEVICE_HEALTH: '设备检查', MANUAL: '人工创建', FARMER_REPORT: '农户问题上报' }[String(source || '').toUpperCase()] || '系统任务');
     const taskTypeLabel = (type) => workActionMeta(type).label;
-    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
+    const actionLabel = (action) => ({ CREATE: '创建任务', ASSIGN: '分配任务', REASSIGN: '重新分配', START: '开始执行', RESTART: '重新处理', RESUME: '重新处理', EVIDENCE_ADDED: '补充巡田证据', ISSUE_REPORTED: '上报问题', SUBMIT: '提交结果', APPROVE: '验收通过', REJECT: '退回处理', CANCEL: '取消任务' }[String(action || '').toUpperCase()] || '更新任务');
     const formatTime = (value) => {
       if (!value) return '—';
       const date = new Date(value);
@@ -324,7 +383,7 @@ export const WorkOrderLifecycleView = {
       const index = props.state.workOrders.findIndex((order) => order.workOrderId === saved.workOrderId);
       if (index >= 0) props.state.workOrders.splice(index, 1, { ...props.state.workOrders[index], ...saved });
       else props.state.workOrders.unshift(saved);
-      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders', 'plots'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
+      emit('data-invalidated', { type: 'data-invalidated', domains: ['overview', 'workOrders', 'plots', 'inspections'], farmId: saved.farmId || currentFarmId.value, plotId: saved.plotId || null, reason: 'work-order-updated' });
     };
 
     const runAction = async (operation, successMessage) => {
@@ -462,17 +521,23 @@ export const WorkOrderLifecycleView = {
       const failures = [];
       try {
         for (const order of targets) {
-          const currentMember = eligibleFarmers(order).find((member) => member.userId === order.assigneeId);
-          const choice = mode === 'DISPOSE' && currentMember
-            ? { member: currentMember, activeLoad: memberActiveTaskCount(currentMember.userId) }
-            : chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
+          // Both bulk actions are a hand-off: the expired owner's task must be
+          // assigned to another eligible, active farmer before it can return to
+          // the in-progress lane.  Never silently send it back to the owner.
+          const choice = chooseWorkOrderAssignee(
+            props.state.farmMembers,
+            props.state.workOrders,
+            order,
+            currentFarmId.value,
+            true
+          );
           if (!choice) {
-            failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
+            failures.push(`${order.title || order.workOrderId}：没有其他具备该地块权限的在岗农户可接手`);
             continue;
           }
           try {
             const renewedDueAt = overdueRecoveryDueAt(order, lifecycleNow.value);
-            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务继续处置';
+            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务处置并转交其他农户';
             const response = await api.assignWorkOrder(order.workOrderId, {
               assigneeId: choice.member.userId,
               dueAt: renewedDueAt,
@@ -495,6 +560,42 @@ export const WorkOrderLifecycleView = {
 
     const autoReassignOverdue = () => processOverdueTasks('REASSIGN');
     const autoDisposeOverdue = () => processOverdueTasks('DISPOSE');
+
+    const autoAssignUnassigned = async () => {
+      if (!canManage.value || isBusy.value) return;
+      const targets = filteredOrders.value.filter((order) => workStatus(order.status) === 'OPEN' && !order.assigneeId);
+      if (!targets.length) {
+        toast('当前筛选下没有待分配任务', 'error');
+        return;
+      }
+      await refreshFarmMembers(false);
+      isBusy.value = true;
+      let assignedCount = 0;
+      const failures = [];
+      try {
+        for (const order of targets) {
+          const choice = chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
+          if (!choice?.member?.userId) {
+            failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
+            continue;
+          }
+          try {
+            const response = await api.assignWorkOrder(order.workOrderId, {
+              assigneeId: choice.member.userId,
+              note: `农智助手分配：已按地块权限、在岗状态和当前任务负载排序（当前待办 ${choice.activeLoad} 项）`
+            });
+            publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member));
+            assignedCount += 1;
+          } catch (error) {
+            failures.push(`${order.title || order.workOrderId}：${error?.message || '分配失败'}`);
+          }
+        }
+        if (assignedCount) toast(`农智助手已分配 ${assignedCount} 项任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
+        else toast(failures[0] || '没有可分配的任务', 'error');
+      } finally {
+        isBusy.value = false;
+      }
+    };
 
     const startTask = (order, restart = false) => runAction(
       () => api.transitionWorkOrder(order.workOrderId, { action: restart ? 'RESTART' : 'START', note: restart ? '按退回意见重新处理' : '开始执行任务' }),
@@ -653,24 +754,14 @@ export const WorkOrderLifecycleView = {
 
     const loadInspections = async (announce = false) => {
       if (inspectionLoading.value) return false;
-      const plotIds = props.state.plots.map((plot) => plot.plotId).filter(Boolean);
-      if (!plotIds.length) {
-        props.state.inspections.splice(0, props.state.inspections.length);
-        return true;
-      }
       inspectionLoading.value = true;
       inspectionLoadError.value = '';
       try {
-        const results = await Promise.allSettled(plotIds.map((plotId) => api.getInspections(plotId)));
-        const rejected = results.filter((result) => result.status === 'rejected');
-        const records = Array.from(new Map(results
-          .filter((result) => result.status === 'fulfilled')
-          .flatMap((result) => result.value || [])
+        const scope = isFarmer.value ? {} : (currentFarmId.value ? { farmId: currentFarmId.value } : {});
+        const records = Array.from(new Map((await api.getInspections(scope) || [])
           .map((record) => [record.inspectionId, record])).values())
           .sort((a, b) => new Date(b.observedAt || b.createdAt || 0) - new Date(a.observedAt || a.createdAt || 0));
         props.state.inspections.splice(0, props.state.inspections.length, ...records);
-        if (rejected.length && !records.length) throw rejected[0].reason;
-        if (rejected.length) inspectionLoadError.value = `${rejected.length} 个地块的巡田记录暂不可用`;
         if (announce) toast(`已重新读取 ${records.length} 条巡田证据`);
         return true;
       } catch (error) {
@@ -685,6 +776,29 @@ export const WorkOrderLifecycleView = {
     const openInspection = (order = null) => {
       inspectionForm.value = emptyInspectionForm(props.state.plots, order?.plotId || plotFilter.value, order?.workOrderId || '');
       showInspectionModal.value = true;
+    };
+
+    const openInspectionDetail = (record, event = null) => {
+      if (!record?.inspectionId) return;
+      inspectionDetailTrigger.value = event?.currentTarget || document.activeElement;
+      activeInspection.value = record;
+      showInspectionDetailModal.value = true;
+      nextTick(() => document.querySelector('.inspection-detail-dialog [aria-label="关闭巡田详情"]')?.focus());
+    };
+
+    const closeInspectionDetail = () => {
+      showInspectionDetailModal.value = false;
+      activeInspection.value = null;
+      nextTick(() => {
+        inspectionDetailTrigger.value?.focus?.();
+        inspectionDetailTrigger.value = null;
+      });
+    };
+
+    const openInspectionDetailFromKeyboard = (event, record) => {
+      if (!['Enter', ' '].includes(event.key)) return;
+      event.preventDefault();
+      openInspectionDetail(record, event);
     };
 
     const onInspectionPhotos = (event) => {
@@ -722,11 +836,13 @@ export const WorkOrderLifecycleView = {
             props.state.workOrders.splice(0, props.state.workOrders.length, ...refreshed);
           } catch (_error) { /* 已保存的巡田记录仍保留，后续刷新会重新读取工单。 */ }
         }
-        await loadInspections(false);
+        const refreshed = await loadInspections(false);
         showInspectionModal.value = false;
         inspectionForm.value = emptyInspectionForm(props.state.plots, draft.plotId);
-        emit('data-invalidated', { type: 'data-invalidated', domains: ['workOrders'], farmId: currentFarmId.value, plotId: saved.plotId, reason: 'inspection-created' });
-        toast(draft.workOrderId ? '巡田证据已保存，并已关联到任务' : '巡田证据已保存，可在下方历史记录中查看');
+        emit('data-invalidated', { type: 'data-invalidated', domains: ['workOrders', 'inspections'], farmId: currentFarmId.value, plotId: saved.plotId, reason: 'inspection-created' });
+        if (saved?.photoUploadError) toast(`巡田记录已保存，照片上传失败：${saved.photoUploadError}`, 'warning');
+        else if (!refreshed) toast(`巡田记录已保存，但列表刷新失败：${inspectionLoadError.value || '请稍后重试'}`, 'warning');
+        else toast(draft.workOrderId ? '巡田证据已保存，并已关联到任务' : '巡田证据已保存，可在下方历史记录中查看');
       } catch (error) {
         toast(error.message || '巡田记录保存失败', 'error');
       } finally {
@@ -744,13 +860,52 @@ export const WorkOrderLifecycleView = {
       window.setTimeout(() => target?.classList.remove('is-highlighted'), 3200);
     };
 
+    const setManagerSection = (section) => {
+      if (!isEmbeddedManager.value || !MANAGER_SECTION_IDS.includes(section)) return;
+      activeManagerSection.value = section;
+    };
+
+    const onManagerSectionKeydown = (event, section) => {
+      const currentIndex = MANAGER_SECTION_IDS.indexOf(section);
+      if (currentIndex < 0) return;
+      let nextIndex = currentIndex;
+      if (event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % MANAGER_SECTION_IDS.length;
+      else if (event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + MANAGER_SECTION_IDS.length) % MANAGER_SECTION_IDS.length;
+      else if (event.key === 'Home') nextIndex = 0;
+      else if (event.key === 'End') nextIndex = MANAGER_SECTION_IDS.length - 1;
+      else return;
+      event.preventDefault();
+      const tabList = event.currentTarget?.closest('[role="tablist"]');
+      activeManagerSection.value = MANAGER_SECTION_IDS[nextIndex];
+      nextTick(() => tabList?.querySelectorAll('[role="tab"]')?.[nextIndex]?.focus());
+    };
+
     watch(() => props.routeParams, (params) => {
       const nextScope = normalizeWorkSummaryScope(params?.scope);
+      if (isEmbeddedManager.value && (params?.scope || params?.status || params?.assigneeId || params?.highlight || params?.openCreateTask)) {
+        activeManagerSection.value = 'tasks';
+      }
       scopeFilter.value = nextScope;
+      const requestedAssignee = String(params?.assigneeId || '').trim();
+      const hasLoadedMembers = props.state.farmMembers.length > 0;
+      const matchingMember = props.state.farmMembers.find((member) => String(member?.userId || '') === requestedAssignee
+        && String(member?.role || '').toUpperCase() === 'FARMER'
+        && String(member?.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+        && (() => {
+          const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
+          return !farmIds.length || farmIds.includes('*') || farmIds.includes(currentFarmId.value);
+        })());
+      // Live member data can arrive after the route.  Keep the deep-link until
+      // it is loaded, then reject stale or cross-role member ids.
+      assigneeFilter.value = requestedAssignee && (!hasLoadedMembers || matchingMember) ? requestedAssignee : '';
       if (params?.openCreateTask && canManage.value) openCreate(params.plotId || '');
       const routeStatus = String(params?.status || '').toUpperCase();
-      if (['IN_PROGRESS', 'OPEN', 'SUBMITTED', 'OVERDUE', 'DONE'].includes(routeStatus)) {
+      if (routeStatus === 'ALL') {
+        statusFilter.value = '';
+      } else if (['IN_PROGRESS', 'OPEN', 'SUBMITTED', 'OVERDUE', 'DONE'].includes(routeStatus)) {
         statusFilter.value = routeStatus;
+      } else if (requestedAssignee && !nextScope) {
+        statusFilter.value = '';
       } else {
         statusFilter.value = ({ overdue: 'OVERDUE', unassigned: 'OPEN', approval: 'SUBMITTED', today: '' }[nextScope] ?? 'IN_PROGRESS');
       }
@@ -765,6 +920,19 @@ export const WorkOrderLifecycleView = {
       loadInspections(false);
     }, { immediate: true });
 
+    watch(() => props.state.farmMembers.map((member) => `${member.userId}:${member.status}`).join('|'), () => {
+      const requestedAssignee = String(props.routeParams?.assigneeId || '').trim();
+      if (!requestedAssignee || !props.state.farmMembers.length) return;
+      const matchingMember = props.state.farmMembers.some((member) => String(member?.userId || '') === requestedAssignee
+        && String(member?.role || '').toUpperCase() === 'FARMER'
+        && String(member?.status || 'ACTIVE').toUpperCase() === 'ACTIVE'
+        && (() => {
+          const farmIds = Array.isArray(member?.farmIds) ? member.farmIds : [];
+          return !farmIds.length || farmIds.includes('*') || farmIds.includes(currentFarmId.value);
+        })());
+      if (!matchingMember) assigneeFilter.value = '';
+    }, { immediate: true });
+
     watch(() => inspectionForm.value.plotId, () => {
       const selected = props.state.workOrders.find((order) => order.workOrderId === inspectionForm.value.workOrderId);
       if (selected && selected.plotId !== inspectionForm.value.plotId) inspectionForm.value.workOrderId = '';
@@ -777,27 +945,30 @@ export const WorkOrderLifecycleView = {
 
     return {
       role, canManage, canInspect, isFarmer, isAuditor, isEmbeddedManager, isLiveSession, isBusy, memberLoading, memberLoadError, inspectionLoading, inspectionLoadError,
+      activeManagerSection, setManagerSection, onManagerSectionKeydown,
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
       pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
-      inspections, recentInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
-      isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, formatTime, workStatus, TERMINAL_STATUSES,
-      showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal,
-      activeOrder, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
-      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue,
+      inspections, recentInspections, visibleInspections, showAllInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
+      inspectionQualityLabel, inspectionCompletenessLabel, inspectionPhotoPreview, inspectionPhotoSize,
+      evidenceRequests, evidenceTypeLabel, requesterName,
+      isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, isFarmerIssueReport, formatTime, workStatus, TERMINAL_STATUSES,
+      showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal, showInspectionDetailModal,
+      activeOrder, activeInspection, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
+      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
-      clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect,
-      loadInspections, openInspection, onInspectionPhotos, submitInspection
+      clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect, onAssigneeSelect,
+      loadInspections, openInspection, onInspectionPhotos, submitInspection, openInspectionDetail, closeInspectionDetail, openInspectionDetailFromKeyboard
     };
   },
   template: `
     <section class="work-lifecycle" :class="{ 'is-embedded-manager': isEmbeddedManager }"
       :aria-labelledby="isEmbeddedManager ? null : 'work-lifecycle-title'"
-      :aria-label="isEmbeddedManager ? '任务列表' : null">
+      :aria-label="isEmbeddedManager ? '任务中心' : null">
       <header class="work-lifecycle-header" :class="{ 'is-actions-only': isEmbeddedManager }">
         <div v-if="!isEmbeddedManager">
-          <p class="work-lifecycle-kicker">WORK ORDERS</p>
+          <p class="work-lifecycle-kicker">农务工单</p>
           <h1 id="work-lifecycle-title">{{ pageTitle }}</h1>
           <p>{{ pageHint }}</p>
         </div>
@@ -807,39 +978,66 @@ export const WorkOrderLifecycleView = {
         </div>
       </header>
 
-      <div class="work-summary" aria-label="任务概况">
-        <button type="button" :class="{ 'is-active': statusFilter === 'IN_PROGRESS' && !scopeFilter }" @click="applyStatusFilter('IN_PROGRESS')"><span>进行中</span><strong>{{ summary.progressing }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
-        <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
-        <button type="button" :class="{ 'is-active': statusFilter === 'DONE' && !scopeFilter }" @click="applyStatusFilter('DONE')"><span>已完成</span><strong>{{ summary.completed }}</strong></button>
-      </div>
+      <nav v-if="isEmbeddedManager" class="work-manager-section-tabs" role="tablist" aria-label="任务中心内容">
+        <button id="manager-section-tab-tasks" type="button" role="tab" aria-controls="manager-section-panel-tasks"
+          :aria-selected="activeManagerSection === 'tasks'" :tabindex="activeManagerSection === 'tasks' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'tasks' }" @click="setManagerSection('tasks')" @keydown="onManagerSectionKeydown($event, 'tasks')">
+          <span>任务列表</span><strong>{{ scopedOrders.length }}</strong>
+        </button>
+        <button id="manager-section-tab-evidence" type="button" role="tab" aria-controls="manager-section-panel-evidence"
+          :aria-selected="activeManagerSection === 'evidence'" :tabindex="activeManagerSection === 'evidence' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'evidence' }" @click="setManagerSection('evidence')" @keydown="onManagerSectionKeydown($event, 'evidence')">
+          <span>补证申请</span><strong>{{ evidenceRequests.length }}</strong>
+        </button>
+        <button id="manager-section-tab-inspections" type="button" role="tab" aria-controls="manager-section-panel-inspections"
+          :aria-selected="activeManagerSection === 'inspections'" :tabindex="activeManagerSection === 'inspections' ? 0 : -1"
+          :class="{ active: activeManagerSection === 'inspections' }" @click="setManagerSection('inspections')" @keydown="onManagerSectionKeydown($event, 'inspections')">
+          <span>巡田记录</span><strong>{{ inspections.length }}</strong>
+        </button>
+      </nav>
 
-      <div v-if="scopeFilter" class="work-route-filter" role="status">
-        <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
-        <button type="button" @click="clearSummaryScope">查看全部任务</button>
-      </div>
-
-      <div class="work-filters">
-        <label><span>任务状态</span><select class="g-select" v-model="statusFilter" @change="onStatusSelect">
-          <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option>
-        </select></label>
-        <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
-        <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
-        <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
-      </div>
-
-      <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
-        <div><strong>逾期任务处置</strong><span>一键处置由原负责人继续处理；一键重新分配会更换合适农户。完成后均转入进行中。</span></div>
-        <div class="work-overdue-disposition-actions">
-          <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
-          <span>已选 {{ selectedOverdueOrders.length }} 项</span>
-          <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
-          <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
+      <section id="manager-section-panel-tasks" class="work-section-panel work-task-section"
+        v-show="!isEmbeddedManager || activeManagerSection === 'tasks'"
+        :role="isEmbeddedManager ? 'tabpanel' : null" :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-tasks' : null">
+        <div class="work-summary" aria-label="任务概况">
+          <button type="button" :class="{ 'is-active': statusFilter === 'IN_PROGRESS' && !scopeFilter }" @click="applyStatusFilter('IN_PROGRESS')"><span>进行中</span><strong>{{ summary.progressing }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'OPEN' && !scopeFilter }" @click="applyStatusFilter('OPEN')"><span>待分配</span><strong>{{ summary.open }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'SUBMITTED' && !scopeFilter }" @click="applyStatusFilter('SUBMITTED')"><span>待验收</span><strong>{{ summary.submitted }}</strong></button>
+          <button type="button" class="summary-danger" :class="{ 'is-active': scopeFilter === 'overdue' || (statusFilter === 'OVERDUE' && !scopeFilter) }" @click="applySummaryScope('overdue')"><span>已逾期</span><strong>{{ summary.overdue }}</strong></button>
+          <button type="button" :class="{ 'is-active': statusFilter === 'DONE' && !scopeFilter }" @click="applyStatusFilter('DONE')"><span>已完成</span><strong>{{ summary.completed }}</strong></button>
         </div>
-      </section>
 
-      <div v-if="filteredOrders.length" class="work-order-list" :class="{ 'is-manager-card-grid': canManage }">
+        <div v-if="scopeFilter" class="work-route-filter" role="status">
+          <span>已从农场总览筛选：<strong>{{ scopeLabel }}</strong></span>
+          <button type="button" @click="clearSummaryScope">查看全部任务</button>
+        </div>
+
+        <div class="work-filters">
+          <label><span>任务状态</span><select class="g-select" v-model="statusFilter" @change="onStatusSelect">
+            <option value="IN_PROGRESS">进行中</option><option value="OPEN">待分配</option><option value="SUBMITTED">待验收</option><option value="OVERDUE">已逾期</option><option value="DONE">已完成</option><option value="">全部状态</option>
+          </select></label>
+          <label><span>地块</span><select class="g-select" v-model="plotFilter"><option value="">全部地块</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
+          <label v-if="canManage"><span>执行农户</span><select class="g-select" v-model="assigneeFilter" @change="onAssigneeSelect"><option value="">全部农户</option><option v-for="member in state.farmMembers.filter(item => item.role === 'FARMER')" :key="member.userId" :value="member.userId">{{ member.displayName || member.username }}</option></select></label>
+          <label class="work-search"><span>快速查找</span><input class="g-input" v-model.trim="keyword" placeholder="任务、地块或负责人"></label>
+        </div>
+
+        <section v-if="canManage && (scopeFilter === 'unassigned' || (statusFilter === 'OPEN' && !scopeFilter))" class="work-unassigned-disposition" aria-label="待分配任务智能分配">
+          <div><strong>待分配任务</strong><span>农智助手将结合地块权限、农户在岗状态和当前待办负载进行分配，结果仍可逐项调整。</span></div>
+          <button type="button" class="g-btn primary compact" :disabled="isBusy || !filteredOrders.some(order => workStatus(order.status) === 'OPEN' && !order.assigneeId)" @click="autoAssignUnassigned"><app-icon name="auto_awesome"></app-icon>{{ isBusy ? '分配中…' : 'AI一键分配任务' }}</button>
+        </section>
+
+        <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
+          <div><strong>逾期任务处置</strong><span>一键处置和一键重新分配都会转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
+          <div class="work-overdue-disposition-actions">
+            <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
+            <span>已选 {{ selectedOverdueOrders.length }} 项</span>
+            <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
+            <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
+          </div>
+        </section>
+
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '任务列表滚动区域' : null">
+          <div v-if="filteredOrders.length" class="work-order-list" :class="{ 'is-manager-card-grid': canManage }">
         <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card"
           :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order), 'is-manager-summary': canManage }]"
           :data-work-order-id="order.workOrderId" :role="canManage ? 'button' : null" :tabindex="canManage ? 0 : null"
@@ -847,7 +1045,7 @@ export const WorkOrderLifecycleView = {
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
-              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
+              <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="isFarmerIssueReport(order)" class="work-source work-issue-report">农户问题</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
               <h2>{{ order.title || '未命名任务' }}</h2>
               <p>{{ order.reason || '暂无执行说明' }}</p>
             </div>
@@ -894,32 +1092,111 @@ export const WorkOrderLifecycleView = {
             <span v-if="!isOverdueView">完整结果与操作记录</span>
             <strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong>
           </footer>
-        </article>
-      </div>
-      <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
-
-      <section class="inspection-history" aria-labelledby="inspection-history-title">
-        <header>
-          <div><p class="work-lifecycle-kicker">HUMAN EVIDENCE</p><h2 id="inspection-history-title">最近巡田证据</h2><span>人工记录不会覆盖传感器数据，每条都保留人员、时间和关联任务。</span></div>
-          <button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button>
-        </header>
-        <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
-        <div v-if="recentInspections.length" class="inspection-record-list">
-          <article v-for="record in recentInspections" :key="record.inspectionId">
-            <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
-            <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
-            <div class="inspection-observations">
-              <span>土壤：{{ inspectionObservationLabel('soil', record.soilSurface) }}</span>
-              <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
-              <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
-              <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
-              <span>现场照片：{{ (record.photos || []).length }} 张 · USER_PROVIDED</span>
-            </div>
-            <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><code>{{ record.inspectionId }}</code></footer>
           </article>
+          </div>
+          <div v-else class="work-empty"><app-icon name="task_alt"></app-icon><h2>没有符合条件的任务</h2><p>{{ isFarmer ? '管理员分配任务后会显示在这里。' : '可以调整筛选条件，或创建一项新任务。' }}</p></div>
         </div>
-        <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
       </section>
+
+      <section v-if="canManage" v-show="!isEmbeddedManager || activeManagerSection === 'evidence'" id="manager-section-panel-evidence"
+        class="evidence-request-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
+        :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-evidence' : 'evidence-request-history-title'">
+        <header>
+          <div><p class="work-lifecycle-kicker">现场补证</p><h2 id="evidence-request-history-title">补证申请</h2><span>独立于任务状态筛选，当前农场的新申请会直接显示在这里。</span></div>
+          <span class="evidence-request-count">共 {{ evidenceRequests.length }} 条</span>
+        </header>
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '补证申请滚动区域' : null">
+          <div v-if="evidenceRequests.length" class="evidence-request-list">
+            <article v-for="request in evidenceRequests" :key="request.workOrderId" class="evidence-request-card" @click="openDetail(request)">
+              <header>
+                <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(request).tone">{{ statusMeta(request).label }}</span><span class="work-source">{{ evidenceTypeLabel(request.evidenceType) }}</span></div>
+                <time>{{ formatTime(request.createdAt) }}</time>
+              </header>
+              <h3>{{ request.title || evidenceTypeLabel(request.evidenceType) + '补证申请' }}</h3>
+              <p>{{ request.reason || '申请补充现场证据' }}</p>
+              <dl class="evidence-request-facts"><div><dt>提交人</dt><dd>{{ requesterName(request) }}</dd></div><div><dt>地块</dt><dd>{{ plotName(request.plotId) }}</dd></div></dl>
+              <footer>
+                <button type="button" class="g-btn secondary compact" @click.stop="openDetail(request)">查看详情</button>
+                <button v-if="workStatus(request.status) === 'OPEN'" type="button" class="g-btn primary compact" @click.stop="openAssign(request)">进入分配</button>
+              </footer>
+            </article>
+          </div>
+          <div v-else class="inspection-empty-state"><app-icon name="assignment_late"></app-icon><strong>当前农场暂无补证申请</strong><span>农户提交后，新的 OPEN 申请会在这里显示。</span></div>
+        </div>
+      </section>
+
+      <section v-show="!isEmbeddedManager || activeManagerSection === 'inspections'" id="manager-section-panel-inspections"
+        class="inspection-history work-section-panel" :role="isEmbeddedManager ? 'tabpanel' : null"
+        :aria-labelledby="isEmbeddedManager ? 'manager-section-tab-inspections' : 'inspection-history-title'">
+        <header>
+          <div><p class="work-lifecycle-kicker">人工巡田证据</p><h2 id="inspection-history-title">巡田记录</h2><span>共 {{ inspections.length }} 条；默认展示最新 8 条，人工记录不会覆盖传感器数据。</span></div>
+          <div class="inspection-history-actions"><button v-if="inspections.length > 8" type="button" class="g-btn secondary compact" @click="showAllInspections = !showAllInspections">{{ showAllInspections ? '收起记录' : '查看全部' }}</button><button type="button" class="g-btn secondary compact" :disabled="inspectionLoading" @click="loadInspections(true)">{{ inspectionLoading ? '读取中' : '刷新记录' }}</button></div>
+        </header>
+        <div class="work-section-scroll" :tabindex="isEmbeddedManager ? 0 : null" :aria-label="isEmbeddedManager ? '巡田记录滚动区域' : null">
+          <div v-if="inspectionLoadError" class="inspection-load-error"><span>{{ inspectionLoadError }}</span><button type="button" @click="loadInspections(true)">重新读取</button></div>
+          <div v-if="visibleInspections.length" class="inspection-record-list">
+            <article v-for="record in visibleInspections" :key="record.inspectionId" class="inspection-record-card" role="button" tabindex="0"
+              :aria-label="'查看巡田记录详情：' + plotName(record.plotId) + '，' + formatTime(record.observedAt)"
+              @click="openInspectionDetail(record, $event)" @keydown="openInspectionDetailFromKeyboard($event, record)">
+              <header><div><strong>{{ plotName(record.plotId) }}</strong><span>{{ formatTime(record.observedAt) }}</span></div><span class="inspection-provenance">人工记录</span></header>
+              <p>{{ record.notes || record.evidenceSummary || '已记录现场情况' }}</p>
+              <div class="inspection-observations">
+                <span>土壤：{{ inspectionObservationLabel('soil', record.soilSurface) }}</span>
+                <span>作物：{{ inspectionObservationLabel('crop', record.cropCondition) }}</span>
+                <span>设备：{{ inspectionObservationLabel('device', record.deviceStatus) }}</span>
+                <span>便携仪：{{ record.portableSoilMoisture ?? '—' }}{{ record.portableSoilMoisture == null ? '' : '%' }}</span>
+                <span>现场照片：{{ (record.photos || []).length }} 张 · 人工提供</span>
+              </div>
+              <footer><span>{{ inspectionOperatorName(record) }} · {{ inspectionTaskName(record) }}</span><span class="inspection-record-detail-link"><code>{{ record.inspectionId }}</code><strong>查看详情 <app-icon name="arrow_forward"></app-icon></strong></span></footer>
+            </article>
+          </div>
+          <div v-else-if="!inspectionLoading" class="inspection-empty-state"><app-icon name="fact_check"></app-icon><strong>还没有巡田证据</strong><span>{{ canInspect ? '完成现场核验后，可以在这里保存第一条记录。' : '有权限的农户提交后会显示在这里。' }}</span></div>
+        </div>
+      </section>
+
+      <div v-if="showInspectionDetailModal && activeInspection" class="g-modal-overlay" @click.self="closeInspectionDetail" @keydown.esc="closeInspectionDetail">
+        <section class="g-modal work-dialog inspection-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="inspection-detail-title">
+          <div class="g-modal-header">
+            <div><small>巡田记录 · {{ activeInspection.inspectionId }}</small><h3 id="inspection-detail-title">{{ plotName(activeInspection.plotId) }}巡田详情</h3></div>
+            <button type="button" class="g-btn icon-only" @click="closeInspectionDetail" aria-label="关闭巡田详情"><app-icon name="close"></app-icon></button>
+          </div>
+          <div class="g-modal-body inspection-detail-body">
+            <div class="inspection-detail-lead"><span class="inspection-provenance">人工记录</span><time>巡田时间：{{ formatTime(activeInspection.observedAt) }}</time></div>
+            <p class="inspection-detail-notes">{{ activeInspection.notes || activeInspection.evidenceSummary || '未填写现场说明' }}</p>
+            <dl class="inspection-detail-facts">
+              <div><dt>地块</dt><dd>{{ plotName(activeInspection.plotId) }}</dd></div>
+              <div><dt>记录人员</dt><dd>{{ inspectionOperatorName(activeInspection) }}</dd></div>
+              <div><dt>关联任务</dt><dd>{{ inspectionTaskName(activeInspection) }}</dd></div>
+              <div><dt>记录编号</dt><dd>{{ activeInspection.inspectionId }}</dd></div>
+              <div><dt>证据质量</dt><dd>{{ inspectionQualityLabel(activeInspection) }}</dd></div>
+              <div><dt>资料完整度</dt><dd>{{ inspectionCompletenessLabel(activeInspection) }}</dd></div>
+              <div><dt>创建时间</dt><dd>{{ formatTime(activeInspection.createdAt || activeInspection.observedAt) }}</dd></div>
+              <div><dt>最近更新</dt><dd>{{ formatTime(activeInspection.updatedAt || activeInspection.createdAt || activeInspection.observedAt) }}</dd></div>
+            </dl>
+            <section class="inspection-detail-section" aria-labelledby="inspection-observation-title">
+              <h4 id="inspection-observation-title">现场观察</h4>
+              <div class="inspection-detail-observations">
+                <article><span>土壤表层</span><strong>{{ inspectionObservationLabel('soil', activeInspection.soilSurface) }}</strong></article>
+                <article><span>作物状态</span><strong>{{ inspectionObservationLabel('crop', activeInspection.cropCondition) }}</strong></article>
+                <article><span>设备外观</span><strong>{{ inspectionObservationLabel('device', activeInspection.deviceStatus) }}</strong></article>
+                <article><span>便携仪含水率</span><strong>{{ activeInspection.portableSoilMoisture ?? '未测量' }}{{ activeInspection.portableSoilMoisture == null ? '' : '%' }}</strong></article>
+              </div>
+            </section>
+            <section class="inspection-detail-section" aria-labelledby="inspection-photo-title">
+              <div class="inspection-detail-section-heading"><h4 id="inspection-photo-title">现场照片</h4><span>共 {{ (activeInspection.photos || []).length }} 张 · 人工提供</span></div>
+              <div v-if="activeInspection.photos?.length" class="inspection-detail-photos">
+                <figure v-for="photo in activeInspection.photos" :key="photo.photoId || photo.fileName">
+                  <img v-if="inspectionPhotoPreview(photo)" :src="inspectionPhotoPreview(photo)" :alt="'巡田现场照片：' + (photo.fileName || '未命名照片')">
+                  <div v-else class="inspection-photo-placeholder"><app-icon name="image"></app-icon><span>照片已安全存档</span></div>
+                  <figcaption><strong>{{ photo.fileName || '未命名照片' }}</strong><span>{{ inspectionPhotoSize(photo) }}</span></figcaption>
+                </figure>
+              </div>
+              <p v-else class="inspection-detail-empty">本条巡田记录未上传现场照片。</p>
+            </section>
+          </div>
+          <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="closeInspectionDetail">关闭</button></div>
+        </section>
+      </div>
 
       <div v-if="showDetailModal && activeOrder" class="g-modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
         <section class="g-modal work-dialog work-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="work-detail-title">
@@ -933,6 +1210,7 @@ export const WorkOrderLifecycleView = {
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
             <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
+            <div v-if="isFarmerIssueReport(activeOrder)" class="work-result work-issue-report-detail"><strong>农户具体描述</strong><p>{{ activeOrder.issueDescription || activeOrder.description || activeOrder.reason }}</p><small>上报人：{{ activeOrder.reporterName || activeOrder.reporterId || '农户' }}</small></div>
             <dl class="work-order-facts work-detail-facts">
               <div><dt>地块</dt><dd>{{ plotName(activeOrder.plotId) }}</dd></div>
               <div><dt>负责人</dt><dd :class="{ 'needs-owner': !activeOrder.assigneeId }">{{ farmerName(activeOrder) }}</dd></div>
@@ -1027,7 +1305,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showInspectionModal" class="g-modal-overlay" @click.self="showInspectionModal = false" @keydown.esc="showInspectionModal = false">
         <form class="g-modal work-dialog inspection-dialog" @submit.prevent="submitInspection">
-          <div class="g-modal-header"><div><small>人工核验 · USER_PROVIDED</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>人工核验 · 人工提供</small><h3>录入巡田证据</h3></div><button type="button" class="g-btn icon-only" @click="showInspectionModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-grid">
             <p class="inspection-guidance span-2">请只记录现场看到或实际测到的情况。保存后会生成唯一证据编号，不会修改传感器原始数据。</p>
             <label><span>地块</span><select class="g-select" v-model="inspectionForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>

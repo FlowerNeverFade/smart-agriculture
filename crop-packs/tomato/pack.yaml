@@ -18,6 +18,7 @@ stages:
       airHumidityHigh: 80
       lightLow: 15000
       lightHigh: 30000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 400
       co2High: 800
       phLow: 5.8
@@ -40,6 +41,7 @@ stages:
       airHumidityHigh: 80
       lightLow: 20000
       lightHigh: 40000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 500
       co2High: 900
       phLow: 5.8
@@ -62,6 +64,7 @@ stages:
       airHumidityHigh: 75
       lightLow: 25000
       lightHigh: 45000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 600
       co2High: 1000
       phLow: 5.8
@@ -84,6 +87,7 @@ stages:
       airHumidityHigh: 75
       lightLow: 25000
       lightHigh: 50000
+      lightSchedule: {dayStart: '06:00', dayEnd: '18:00', nightLow: 0, nightHigh: 1000}
       co2Low: 600
       co2High: 1000
       phLow: 5.8
@@ -103,7 +107,7 @@ metrics:
   - {code: PH, label: 土壤酸碱度, unit: pH, availability: SIMULATION_ONLY, range: {min: 0, max: 14}}
   - {code: WATER_LEVEL, label: 水箱水位, unit: '%', availability: SUPPORTED, range: {min: 0, max: 100}}
 rules:
-  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 120, emergencyThreshold: 8}
+  - {code: WATER_DEFICIT, metric: SOIL_MOISTURE, operator: LT, durationMinutes: 5, hysteresis: 2, cooldownMinutes: 0, alertCooldownMinutes: 120, emergencyThreshold: 10, automaticWateringThreshold: 10}
   - {code: HEAT_STRESS, metric: AIR_TEMPERATURE, operator: GT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
   - {code: COLD_STRESS, metric: AIR_TEMPERATURE, operator: LT, durationMinutes: 10, hysteresis: 1, cooldownMinutes: 60}
 healthProfile:
@@ -118,7 +122,7 @@ healthProfile:
     LIGHT: 0.12
     WATER_LEVEL: 0.12
     CO2: 0.10
-prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 120, maxDailyWaterLitres: 5000}
+prescriptionConstraints: {maxDurationSeconds: 900, cooldownMinutes: 0, automaticWateringThreshold: 10, maxDailyWaterLitres: 5000}
 forecastProfile: {algorithm: robust-trend-v1, horizonsMinutes: [60, 120, 240], minValidSamples: 6, maxStalenessSeconds: 120}
 coordinationProfile: {stageSensitivity: 0.9, starvationGuardMinutes: 120}
 knowledge:
