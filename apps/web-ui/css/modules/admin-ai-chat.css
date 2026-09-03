@@ -246,6 +246,7 @@
   min-height: 0;
   padding: 34px clamp(20px, 5vw, 64px) 28px;
   overflow-y: auto;
+  overflow-anchor: none;
   scroll-behavior: smooth;
   scrollbar-gutter: stable;
 }
@@ -730,6 +731,30 @@
 /* Codex-style plot folders and full workspace presentation. */
 .g-main.is-ai-view, .role-farm-admin .g-main.is-ai-view { padding: 0 !important; overflow: hidden; }
 .g-main.is-ai-view .admin-ai-chat {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Every workspace entry point (farm admin, system admin and the standalone
+   farmer shell) uses the same full-height AI surface.  The farmer page wraps
+   this component in a legacy max-width workspace, so explicitly release that
+   constraint when the global navigation is collapsed. */
+#app .g-main.is-ai-view,
+#farmer_app .g-main.is-ai-view {
+  min-width: 0;
+  min-height: 0;
+}
+#farmer_app .g-main.is-ai-view > .farmer-agent-workspace {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+}
+#farmer_app .g-main.is-ai-view .admin-ai-chat {
+  width: 100%;
   height: 100%;
   min-height: 0;
   border: 0;

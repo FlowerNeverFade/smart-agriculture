@@ -3,7 +3,7 @@ import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentRespo
 import { analyzeImageFiles } from './image-vision.js?v=20260902-v5911-zhcn-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260902-v5911-zhcn-v1';
 
-const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
+const { ref, computed, inject, onMounted, onBeforeUnmount, onActivated, nextTick, watch } = Vue;
 
 const AI_SIDEBAR_MIN = 184;
 const AI_SIDEBAR_MAX = 560;
@@ -311,30 +311,43 @@ export const AdminAiChatView = {
     });
     watch(selectedPlotId, (value, oldValue) => { if (!selectingConversation) switchPlotContext(value, oldValue); });
 
+    let scrollRequestId = 0;
+    const setMessageListToBottom = () => {
+      const el = messageList.value;
+      // When a kept-alive view is being activated, Vue may have rendered the
+      // node before the route transition has given it a height.  Leave the
+      // retry to the scheduled pass below instead of letting a zero-sized
+      // node keep the scroll position at the top.
+      if (!el || !el.isConnected || el.clientHeight <= 0) return false;
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const previousBehavior = el.style.scrollBehavior;
+      el.style.scrollBehavior = 'auto';
+      el.scrollTop = maxScrollTop;
+      el.style.scrollBehavior = previousBehavior;
+      return el.scrollTop >= Math.max(0, maxScrollTop - 8);
+    };
+
     // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
     // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画。
-    // 大列表/异步图片渲染会推高 scrollHeight，只滚一次可能停在半途看不到最新消息，
-    // 因此追加几次延迟滚动，确保最新对话可见。
+    // 历史列表可能在页面过渡、keep-alive 激活或异步图片渲染后才有最终高度，
+    // 因此在这些时序点重试，确保最新消息可见。
     const scrollToBottomInstant = async () => {
+      const requestId = ++scrollRequestId;
       await nextTick();
-      const el = messageList.value;
-      if (!el) return;
-      const prev = el.style.scrollBehavior;
-      el.style.scrollBehavior = 'auto';
-      el.scrollTop = el.scrollHeight;
-      el.style.scrollBehavior = prev;
-      [0, 60, 180].forEach((delay) => setTimeout(() => {
-        const target = messageList.value;
-        if (!target) return;
-        if (target.scrollTop + target.clientHeight < target.scrollHeight - 8) {
-          const prevBehavior = target.style.scrollBehavior;
-          target.style.scrollBehavior = 'auto';
-          target.scrollTop = target.scrollHeight;
-          target.style.scrollBehavior = prevBehavior;
-        }
-      }, delay));
+      const attempt = () => {
+        if (requestId !== scrollRequestId) return;
+        setMessageListToBottom();
+      };
+      attempt();
+      [0, 60, 180, 360, 700].forEach((delay) => setTimeout(attempt, delay));
     };
+    // A kept-alive Agent view does not run onMounted again after navigating
+    // away and back.  Re-apply the latest-message position on every activate.
+    onActivated?.(() => scrollToBottomInstant());
+    watch(() => [messages.value.length, loadingHistory.value], ([, loading]) => {
+      if (!loading && messages.value.length) scrollToBottomInstant();
+    });
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
       if (!id) delete params.conversationId;
@@ -627,6 +640,7 @@ export const AdminAiChatView = {
       nextTick(() => messageList.value?.addEventListener('scroll', handleMessageScroll));
     });
     onBeforeUnmount(() => {
+      scrollRequestId += 1;
       stopSidebarResize();
       window.removeEventListener('resize', normalizeViewportWidth);
       messageList.value?.removeEventListener('scroll', handleMessageScroll);
