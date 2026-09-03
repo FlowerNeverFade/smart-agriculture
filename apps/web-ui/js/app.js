@@ -14,7 +14,7 @@ import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminPlotFarmOptions, adminPlotsForFarm, adminPlotStatusSummary, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5924-system-farm-scope-v1';
 import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
@@ -2597,6 +2597,11 @@ const AdminOverviewView = {
     const toast = inject('toast');
     const showEvents = ref(true);
     const farmFilter = ref('all');
+    watch(() => props.state?.adminContext?.farmId, (farmId) => {
+      if (props.state?.currentUser?.role !== 'SYSTEM_ADMIN') return;
+      const normalized = String(farmId || '').trim();
+      farmFilter.value = normalized || 'all';
+    }, { immediate: true });
     const statusFilter = ref('abnormal');
     const selectedPlot = ref(null);
     const showPlotModal = ref(false);
@@ -2658,27 +2663,22 @@ const AdminOverviewView = {
       if (selectedPlot.value) selectedPlot.value.monitoredMetrics = [...plotMetricForm.value];
       showPlotModal.value = false;
     };
-    const filteredPlots = computed(() => (props.state.adminGlobalPlots || []).filter((plot) => {
-      const farmMatches = farmFilter.value === 'all' || plot.farm === farmFilter.value;
+    const farmScopedPlots = computed(() => adminPlotsForFarm(
+      props.state.adminGlobalPlots,
+      farmFilter.value,
+      props.state.farms
+    ));
+    const filteredPlots = computed(() => farmScopedPlots.value.filter((plot) => {
       let statusMatches = true;
       if (statusFilter.value === 'abnormal') {
         statusMatches = plot.status !== 'HEALTHY';
       } else if (statusFilter.value !== 'all') {
         statusMatches = plot.status === statusFilter.value;
       }
-      return farmMatches && statusMatches;
+      return statusMatches;
     }));
-    const plotFarms = computed(() => [...new Set((props.state.adminGlobalPlots || []).map(plot => plot.farm))]);
-    const plotSummary = computed(() => {
-      const plots = props.state.adminGlobalPlots || [];
-      return {
-        total: plots.length,
-        healthy: plots.filter(plot => plot.status === 'HEALTHY').length,
-        warning: plots.filter(plot => plot.status === 'WARNING').length,
-        critical: plots.filter(plot => plot.status === 'CRITICAL').length,
-        offline: plots.filter(plot => plot.status === 'OFFLINE').length
-      };
-    });
+    const plotFarms = computed(() => adminPlotFarmOptions(props.state.adminGlobalPlots, props.state.farms));
+    const plotSummary = computed(() => adminPlotStatusSummary(farmScopedPlots.value));
     const healthPercent = (plot) => {
       if (plot?.healthScore !== undefined && plot?.healthScore !== null && plot.healthScore !== '') {
         const numeric = Number(plot.healthScore);

@@ -9,6 +9,9 @@ import {
   adminCropKey,
   adminHealthTone,
   adminMetricLabel,
+  adminPlotFarmOptions,
+  adminPlotsForFarm,
+  adminPlotStatusSummary,
   adminSummary,
   adminWorkActionMeta,
   adminWorkAttentionSummary,
@@ -52,6 +55,39 @@ test('authorized farm selection never invents a live farm', () => {
   assert.equal(selectAuthorizedFarm(farms, 'farm-b'), 'farm-b');
   assert.equal(selectAuthorizedFarm(farms, 'unknown'), 'farm-a');
   assert.equal(selectAuthorizedFarm([], 'farm-demo'), '');
+});
+
+test('system admin plot landscape follows the selected farm id and keeps legacy names compatible', () => {
+  const farms = [
+    { farmId: 'farm-a', name: '甲农场' },
+    { farmId: 'farm-b', name: '乙农场' },
+    { farmId: 'farm-empty', name: '空农场' }
+  ];
+  const plots = [
+    { plotId: 'a-1', farmId: 'farm-a', farm: '甲农场', status: 'HEALTHY' },
+    { plotId: 'a-2', farm: '甲农场', status: 'OFFLINE' },
+    { plotId: 'b-1', farmId: 'farm-b', farm: '乙农场', status: 'WARNING' },
+    { plotId: 'b-2', farmId: 'farm-b', farm: '乙农场', status: 'CRITICAL' }
+  ];
+
+  const farmA = adminPlotsForFarm(plots, 'farm-a', farms);
+  const farmB = adminPlotsForFarm(plots, 'farm-b', farms);
+  assert.deepEqual(farmA.map(plot => plot.plotId), ['a-1', 'a-2']);
+  assert.deepEqual(adminPlotStatusSummary(farmA), {
+    total: 2, healthy: 1, warning: 0, critical: 0, offline: 1
+  });
+  assert.deepEqual(adminPlotStatusSummary(farmB), {
+    total: 2, healthy: 0, warning: 1, critical: 1, offline: 0
+  });
+  assert.deepEqual(adminPlotFarmOptions(plots, farms), [
+    { value: 'farm-a', label: '甲农场' },
+    { value: 'farm-b', label: '乙农场' },
+    { value: 'farm-empty', label: '空农场' }
+  ]);
+  assert.deepEqual(adminPlotStatusSummary(adminPlotsForFarm(plots, 'farm-empty', farms)), {
+    total: 0, healthy: 0, warning: 0, critical: 0, offline: 0
+  });
+  assert.equal(adminPlotsForFarm(plots, 'all', farms).length, 4);
 });
 
 test('admin tabs and hash routes retain the shared farm context', () => {

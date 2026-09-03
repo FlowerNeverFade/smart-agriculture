@@ -1230,7 +1230,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260903-v5923-main-merge-v1"></script>
+  <script type="module" src="js/app.js?v=20260903-v5924-system-farm-scope-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 
@@ -1344,7 +1344,7 @@
           <div class="admin-landscape-actions">
             <select v-model="farmFilter" aria-label="按农场筛选">
               <option value="all">全部农场</option>
-              <option v-for="farm in plotFarms" :key="farm" :value="farm">{{ farm }}</option>
+              <option v-for="farm in plotFarms" :key="farm.value" :value="farm.value">{{ farm.label }}</option>
             </select>
             <select v-model="statusFilter" aria-label="按健康状态筛选">
               <option value="all">全部状态</option>

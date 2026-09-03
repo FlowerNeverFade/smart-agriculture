@@ -281,6 +281,75 @@ export function selectAuthorizedFarm(farms = [], requestedFarmId = '') {
   return list.find(farm => farm.farmId === requestedFarmId)?.farmId || list[0]?.farmId || '';
 }
 
+function normalizedFarmReference(value) {
+  const normalized = String(value || '').trim();
+  return normalized && normalized !== '—' ? normalized : '';
+}
+
+function farmAliases(farm = {}) {
+  return [normalizedFarmReference(farm?.farmId), normalizedFarmReference(farm?.name)].filter(Boolean);
+}
+
+export function adminPlotsForFarm(plots = [], selectedFarm = 'all', farms = []) {
+  const list = Array.isArray(plots) ? plots : [];
+  const selected = normalizedFarmReference(selectedFarm);
+  if (!selected || selected === 'all') return list;
+
+  const farmList = Array.isArray(farms) ? farms : [];
+  const selectedRecord = farmList.find(farm => farmAliases(farm).includes(selected));
+  const selectedAliases = new Set([selected, ...farmAliases(selectedRecord)]);
+  return list.filter(plot => (
+    [normalizedFarmReference(plot?.farmId), normalizedFarmReference(plot?.farm)]
+      .filter(Boolean)
+      .some(alias => selectedAliases.has(alias))
+  ));
+}
+
+export function adminPlotFarmOptions(plots = [], farms = []) {
+  const farmList = Array.isArray(farms) ? farms : [];
+  const farmById = new Map(farmList
+    .filter(farm => normalizedFarmReference(farm?.farmId))
+    .map(farm => [normalizedFarmReference(farm.farmId), farm]));
+  const farmByName = new Map(farmList
+    .filter(farm => normalizedFarmReference(farm?.name))
+    .map(farm => [normalizedFarmReference(farm.name), farm]));
+  const options = new Map();
+
+  farmList.forEach(farm => {
+    const farmId = normalizedFarmReference(farm?.farmId);
+    const farmName = normalizedFarmReference(farm?.name);
+    const value = farmId || farmName;
+    if (!value || options.has(value)) return;
+    options.set(value, { value, label: farmName || value });
+  });
+
+  (Array.isArray(plots) ? plots : []).forEach(plot => {
+    const plotFarmId = normalizedFarmReference(plot?.farmId);
+    const plotFarmName = normalizedFarmReference(plot?.farm);
+    const farm = farmById.get(plotFarmId) || farmByName.get(plotFarmName);
+    const value = plotFarmId || normalizedFarmReference(farm?.farmId) || plotFarmName;
+    if (!value || options.has(value)) return;
+    options.set(value, {
+      value,
+      label: plotFarmName || normalizedFarmReference(farm?.name) || value
+    });
+  });
+
+  return [...options.values()];
+}
+
+export function adminPlotStatusSummary(plots = []) {
+  const list = Array.isArray(plots) ? plots : [];
+  const count = status => list.filter(plot => String(plot?.status || '').toUpperCase() === status).length;
+  return {
+    total: list.length,
+    healthy: count('HEALTHY'),
+    warning: count('WARNING'),
+    critical: count('CRITICAL'),
+    offline: count('OFFLINE')
+  };
+}
+
 export function isLatestFarmResponse(requestVersion, currentVersion, farmId, currentFarmId) {
   return requestVersion === currentVersion && Boolean(farmId) && farmId === currentFarmId;
 }
