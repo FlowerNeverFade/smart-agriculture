@@ -37,7 +37,7 @@ class ControlledLearningService {
     private static final Duration MAX_SNAPSHOT_AGE = Duration.ofHours(6);
     private static final int MIN_CANDIDATE_CASES = 2;
     private static final double MIN_CANDIDATE_SUCCESS_RATE = .80d;
-    private static final String EVALUATOR_VERSION = "controlled-learning-gate-1.1";
+    private static final String EVALUATOR_VERSION = "controlled-learning-gate-1.2";
 
     private final AgriStore store;
     private final AgriEventBus events;
@@ -60,11 +60,22 @@ class ControlledLearningService {
         requirePrincipal(principal);
         String requestedFarm = text(farmId);
         String requestedPlot = text(plotId);
+        if (!requestedFarm.isBlank() && store.find("farm", requestedFarm) == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在：" + requestedFarm);
+        }
         if (!requestedFarm.isBlank() && !principal.isSystemAdmin() && !principal.canAccessFarm(requestedFarm)) {
             throw forbidden("无权访问该农场的学习案例");
         }
-        if (!requestedPlot.isBlank() && principal.isFarmer() && !principal.canAccessPlot(requestedPlot)) {
-            throw forbidden("无权访问该地块的学习案例");
+        if (!requestedPlot.isBlank()) {
+            Map<String, Object> requestedPlotRecord = store.find("plot", requestedPlot);
+            if (requestedPlotRecord == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在：" + requestedPlot);
+            String requestedPlotFarm = text(requestedPlotRecord.get("farmId"));
+            if (!requestedFarm.isBlank() && !requestedFarm.equals(requestedPlotFarm)) {
+                throw forbidden("传入的农场与地块不一致");
+            }
+            if (!canAccessPlot(principal, requestedPlotFarm, requestedPlot)) {
+                throw forbidden("无权访问该地块的学习案例");
+            }
         }
         String wantedStatus = upper(qualityStatus);
         if (!wantedStatus.isBlank() && !QUALITY_STATUSES.contains(wantedStatus)) {
@@ -170,15 +181,39 @@ class ControlledLearningService {
                                             Map<String, Object> feedback, Map<String, Object> plan,
                                             Map<String, Object> evaluation, UserPrincipal principal) {
         if (plan == null || principal == null) return Map.of();
+        String normalizedTrace = text(traceId);
+        if (normalizedTrace.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "TRACE_ID_REQUIRED", "缺少决策记录编号");
         String plotId = text(plan.get("plotId"));
         Map<String, Object> plot = store.find("plot", plotId);
         String farmId = firstNonBlank(text(plan.get("farmId")), text(plot == null ? null : plot.get("farmId")));
-        if (farmId.isBlank() || !canAccessPlot(principal, farmId, plotId)) return Map.of();
+        if (plot == null || farmId.isBlank() || !canAccessPlot(principal, farmId, plotId)) {
+            throw forbidden("无权为该地块创建学习案例");
+        }
+        Map<String, Object> run = store.find("agent-run", normalizedTrace);
+        String runOwner = firstNonBlank(text(run == null ? null : run.get("userId")), text(run == null ? null : run.get("accountId")));
+        if (!runOwner.isBlank() && !principal.userId.equals(runOwner)) throw forbidden("不能把其他账号的决策写入当前学习案例");
+        String runPlot = text(run == null ? null : run.get("plotId"));
+        if (!runPlot.isBlank() && !runPlot.equals(plotId)) throw forbidden("决策记录与灌溉处方地块不一致");
+        String runFarm = text(run == null ? null : run.get("farmId"));
+        if (!runFarm.isBlank() && !runFarm.equals(farmId)) throw forbidden("决策记录与灌溉处方农场不一致");
         String evaluationId = text(evaluation == null ? null : evaluation.get("evaluationId"));
         String planId = text(plan.get("planId"));
         String feedbackId = text(feedback == null ? null : feedback.get("feedbackId"));
+        if (evaluation != null) {
+            String evaluationPlan = text(evaluation.get("planId"));
+            String evaluationCommand = text(evaluation.get("commandId"));
+            String planCommand = text(plan.get("commandId"));
+            if ((!evaluationPlan.isBlank() && !planId.equals(evaluationPlan))
+                    && (planCommand.isBlank() || !planCommand.equals(evaluationCommand))) {
+                throw new ApiException(HttpStatus.CONFLICT, "EVALUATION_SCOPE_MISMATCH", "效果评价与灌溉处方不一致");
+            }
+            String evaluationPlot = text(evaluation.get("plotId"));
+            if (!evaluationPlot.isBlank() && !plotId.equals(evaluationPlot)) {
+                throw new ApiException(HttpStatus.CONFLICT, "EVALUATION_SCOPE_MISMATCH", "效果评价与地块不一致");
+            }
+        }
         Map<String, Object> existing = store.list("decision-case").stream()
-                .filter(c -> !text(traceId).isBlank() && text(traceId).equals(text(c.get("traceId"))))
+                .filter(c -> normalizedTrace.equals(text(c.get("traceId"))))
                 .filter(c -> planId.isBlank() || planId.equals(text(c.get("planId"))))
                 .filter(c -> evaluationId.isBlank() || evaluationId.equals(text(c.get("evaluationId"))))
                 .findFirst().orElse(null);
@@ -189,7 +224,7 @@ class ControlledLearningService {
         }
         Map<String, Object> record = new LinkedHashMap<>();
         record.put("caseId", Jsons.id("case"));
-        record.put("traceId", text(traceId));
+        record.put("traceId", normalizedTrace);
         record.put("planId", planId);
         record.put("evaluationId", evaluationId);
         record.put("feedbackId", feedbackId);
@@ -210,9 +245,19 @@ class ControlledLearningService {
         record.put("simulationConfirmed", bool(input == null ? null : input.get("simulationConfirmed"))
                 || bool(input == null ? null : input.get("userConfirmed"))
                 || "ACCEPTED".equalsIgnoreCase(text(feedback == null ? null : feedback.get("decision")))
-                || "REQUEST_APPROVAL".equalsIgnoreCase(text(feedback == null ? null : feedback.get("decision"))));
-        record.put("conversationId", firstNonBlank(text(input == null ? null : input.get("conversationId")), text(feedback == null ? null : feedback.get("conversationId"))));
-        record.put("accountId", firstNonBlank(text(input == null ? null : input.get("accountId")), principal.userId));
+                || "CONFIRMED".equalsIgnoreCase(text(feedback == null ? null : feedback.get("decision"))));
+        String canonicalConversation = firstNonBlank(text(run == null ? null : run.get("conversationId")),
+                text(run == null ? null : run.get("sessionId")),
+                text(feedback == null ? null : feedback.get("conversationId")));
+        String suppliedConversation = text(input == null ? null : input.get("conversationId"));
+        if (!canonicalConversation.isBlank() && !suppliedConversation.isBlank() && !canonicalConversation.equals(suppliedConversation)) {
+            throw forbidden("反馈会话与决策记录不一致");
+        }
+        record.put("conversationId", canonicalConversation);
+        // Never trust identity fields from the request body.  The principal
+        // and the trace reservation are the sole source of account scope.
+        record.put("accountId", principal.userId);
+        record.put("actorId", principal.userId);
         record.put("agentVersion", firstNonBlank(text(plan.get("agentVersion")), "rules-only"));
         record.put("fingerprint", Integer.toHexString(Objects.hash(traceId, planId, evaluationId, feedbackId)));
         record.put("createdAt", Instant.now().toString());
@@ -271,6 +316,11 @@ class ControlledLearningService {
         Map<String, Object> evaluated = evaluate(reviewSource, false);
         List<String> hard = strings(evaluated.get("excludedReason"));
         List<String> pending = strings(evaluated.get("pendingReason"));
+        if (QUALIFIED.equals(target) && REJECTED.equals(upper(current.get("qualityStatus")))
+                && !QUALIFIED.equals(upper(current.get("reviewDecision")))) {
+            throw new ApiException(HttpStatus.CONFLICT, "QUALITY_CASE_REJECTED",
+                    "已驳回案例不能通过普通审核重新纳入正向学习，请创建新的案例或走重新复核流程");
+        }
         if (QUALIFIED.equals(target) && (!hard.isEmpty() || !pending.isEmpty())) {
             throw new ApiException(HttpStatus.CONFLICT, "QUALITY_GATE_BLOCKED", "确定性质量门仍有排除原因，不能人工强行纳入正向学习")
                     .withDetails(Map.of("excludedReason", hard, "pendingReason", pending));
@@ -287,6 +337,13 @@ class ControlledLearningService {
                 ? List.of(firstNonBlank(text(note), "人工审核未纳入正向学习")) : hard);
         current.put("learningUses", learningUses(target, target.equals(QUALIFIED), true));
         current.put("qualityReviewRevision", Jsons.whole(current, "qualityReviewRevision", 0) + 1);
+        // The review mutates the fields that participate in the quality
+        // fingerprint (most importantly reviewDecision/humanReviewed).  Keep
+        // the persisted fingerprint in sync so a subsequent list/read does
+        // not immediately downgrade an approved case back to PENDING.
+        current.put("qualityEvaluationFingerprint", evaluationFingerprint(current));
+        current.put("qualityEvaluatedAt", Instant.now().toString());
+        current.put("qualityEvaluatorVersion", EVALUATOR_VERSION);
         store.save(ref.type, caseId, current);
         events.publish("learning.case.reviewed", current);
         store.logEvent("learning.case.reviewed", current);
@@ -299,8 +356,8 @@ class ControlledLearningService {
      * approved cross-scope request is made by a system administrator.
      */
     List<Map<String, Object>> similarCases(String traceId, Map<String, Object> context, UserPrincipal principal) {
-        Map<String, Object> target = targetContext(traceId, context);
         if (principal == null) principal = systemCompatibilityPrincipal();
+        Map<String, Object> target = targetContext(traceId, context, principal);
         String farmId = text(target.get("farmId"));
         String plotId = text(target.get("plotId"));
         if (!farmId.isBlank() && !principal.isSystemAdmin() && !principal.canAccessFarm(farmId)) throw forbidden("无权检索该农场的学习案例");
@@ -318,6 +375,10 @@ class ControlledLearningService {
           for (Map<String, Object> raw : store.list(type)) {
             Map<String, Object> row = normalize(type, raw);
             if (!QUALIFIED.equals(upper(row.get("qualityStatus"))) || !strings(row.get("learningUses")).contains(POSITIVE_RETRIEVAL)) continue;
+            // Governance users may inspect malformed legacy rows, but a row
+            // without a live, matching farm/plot scope is never positive
+            // retrieval evidence for any role.
+            if (!validCaseScope(row)) continue;
             if (!canRead(row, principal)) continue;
             String rowFarm = text(row.get("farmId"));
             String rowPlot = text(row.get("plotId"));
@@ -335,10 +396,12 @@ class ControlledLearningService {
             // A missing context value must not broaden retrieval to another
             // session or another plot.  Legacy cases without these fields are
             // still usable only when the current request also has no value.
-            if (targetConversation.isBlank() != text(row.get("conversationId")).isBlank()) continue;
-            if (!targetConversation.isBlank() && !targetConversation.equals(text(row.get("conversationId")))) continue;
-            if (targetAccount.isBlank() != text(row.get("accountId")).isBlank()) continue;
-            if (!targetAccount.isBlank() && !targetAccount.equals(text(row.get("accountId")))) continue;
+            if (!crossFarmScope) {
+                if (targetConversation.isBlank() != text(row.get("conversationId")).isBlank()) continue;
+                if (!targetConversation.isBlank() && !targetConversation.equals(text(row.get("conversationId")))) continue;
+                if (targetAccount.isBlank() != text(row.get("accountId")).isBlank()) continue;
+                if (!targetAccount.isBlank() && !targetAccount.equals(text(row.get("accountId")))) continue;
+            }
             if (!seenCases.add(text(row.get("caseId")))) continue;
             Map<String, Object> view = new LinkedHashMap<>();
             view.put("caseId", row.get("caseId"));
@@ -354,6 +417,15 @@ class ControlledLearningService {
             view.put("cropPackVersion", row.get("cropPackVersion"));
             view.put("selectionReason", row.get("selectionReason"));
             view.put("learningUses", List.of(POSITIVE_RETRIEVAL));
+            if (crossFarmScope) {
+                // Cross-farm reuse is a governance action.  Do not return the
+                // originating account, conversation or raw evidence snapshot
+                // to the caller even though the system administrator can read
+                // the aggregate case for approval purposes.
+                view.remove("accountId");
+                view.remove("conversationId");
+                view.put("scope", "APPROVED_CROSS_FARM");
+            }
             int score = (crop.equalsIgnoreCase(text(row.get("cropCode"))) ? 3 : 0)
                     + (cause.equalsIgnoreCase(text(row.get("primaryCause"))) ? 4 : 0)
                     + (!stage.isBlank() && stage.equalsIgnoreCase(text(row.get("stageCode"))) ? 1 : 0)
@@ -375,6 +447,9 @@ class ControlledLearningService {
         String farmId = text(request.get("farmId"));
         String plotId = text(request.get("plotId"));
         if (farmId.isBlank() && !principal.isSystemAdmin()) farmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
+        if (!farmId.isBlank() && store.find("farm", farmId) == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在：" + farmId);
+        }
         if (!farmId.isBlank() && !principal.isSystemAdmin() && !principal.canAccessFarm(farmId)) throw forbidden("无权为该农场生成策略候选");
         boolean crossFarmScope = principal.isSystemAdmin() && farmId.isBlank()
                 && bool(request.get("allowFarmScope"))
@@ -382,19 +457,50 @@ class ControlledLearningService {
         if (farmId.isBlank() && !crossFarmScope) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "STRATEGY_SCOPE_REQUIRED", "生成策略候选必须指定农场；跨农场复用需要系统管理员明确批准");
         }
+        if (!plotId.isBlank()) {
+            Map<String, Object> requestedPlot = store.find("plot", plotId);
+            if (requestedPlot == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在：" + plotId);
+            String requestedFarm = text(requestedPlot.get("farmId"));
+            if (!farmId.isBlank() && !farmId.equals(requestedFarm)) throw forbidden("传入的农场与地块不一致");
+            if (!canAccessPlot(principal, requestedFarm, plotId)) throw forbidden("无权为该地块生成策略候选");
+            if (farmId.isBlank()) farmId = requestedFarm;
+        }
         if (plotId.isBlank() && !principal.isSystemAdmin() && !crossFarmScope) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "STRATEGY_PLOT_REQUIRED", "生成策略候选必须指定地块范围");
         }
         List<String> requestedIds = new ArrayList<>(strings(request.get("caseIds")));
         requestedIds.addAll(strings(request.get("evidenceCaseIds")));
+        requestedIds = requestedIds.stream().map(String::trim).filter(id -> !id.isBlank()).distinct().toList();
         String crop = text(request.get("cropCode"));
         String scenario = text(request.get("scenarioId"));
         List<Map<String, Object>> candidates = new ArrayList<>();
+        if (!requestedIds.isEmpty()) {
+            // Explicit evidence is a security boundary. Never silently drop
+            // an unknown, out-of-scope, or rejected id and continue with a
+            // different set of cases.
+            for (String requestedId : requestedIds) {
+                CaseRef requested = findCaseOrNull(requestedId);
+                if (requested == null) throw new ApiException(HttpStatus.NOT_FOUND, "LEARNING_CASE_NOT_FOUND", "学习案例不存在：" + requestedId);
+                Map<String, Object> row = normalize(requested.type, requested.record);
+                if (!validCaseScope(row)) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_EVIDENCE_SCOPE_INVALID", "学习案例缺少有效的农场或地块归属：" + requestedId);
+                if (!canRead(row, principal)) throw forbidden("无权引用学习案例：" + requestedId);
+                if (!caseMatchesStrategyScope(row, farmId, plotId, crop, scenario, crossFarmScope)) {
+                    throw forbidden("学习案例不在请求的农场或地块范围内：" + requestedId);
+                }
+                if (!QUALIFIED.equals(upper(row.get("qualityStatus")))
+                        || !strings(row.get("learningUses")).contains(STRATEGY_CANDIDATE)) {
+                    throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_EVIDENCE_NOT_QUALIFIED", "学习案例尚未通过质量门：" + requestedId);
+                }
+                candidates.add(row);
+            }
+        }
         for (Map<String, Object> raw : store.list("decision-case")) {
             Map<String, Object> row = normalize("decision-case", raw);
             if (!QUALIFIED.equals(upper(row.get("qualityStatus")))) continue;
             if (!strings(row.get("learningUses")).contains(STRATEGY_CANDIDATE)) continue;
-            if (!requestedIds.isEmpty() && !requestedIds.contains(text(row.get("caseId")))) continue;
+            if (!requestedIds.isEmpty()) continue;
+            if (!canRead(row, principal)) continue;
+            if (!validCaseScope(row)) continue;
             if (!farmId.isBlank() && !farmId.equals(text(row.get("farmId")))) continue;
             if (!plotId.isBlank() && !plotId.equals(text(row.get("plotId")))) continue;
             if (plotId.isBlank() && !crossFarmScope && !text(row.get("plotId")).isBlank()) continue;
@@ -408,7 +514,9 @@ class ControlledLearningService {
             Map<String, Object> row = normalize("alert-learning-case", raw);
             if (!QUALIFIED.equals(upper(row.get("qualityStatus")))) continue;
             if (!strings(row.get("learningUses")).contains(STRATEGY_CANDIDATE)) continue;
-            if (!requestedIds.isEmpty() && !requestedIds.contains(text(row.get("caseId")))) continue;
+            if (!requestedIds.isEmpty()) continue;
+            if (!canRead(row, principal)) continue;
+            if (!validCaseScope(row)) continue;
             if (!farmId.isBlank() && !farmId.equals(text(row.get("farmId")))) continue;
             if (!plotId.isBlank() && !plotId.equals(text(row.get("plotId")))) continue;
             if (plotId.isBlank() && !crossFarmScope && !text(row.get("plotId")).isBlank()) continue;
@@ -427,8 +535,10 @@ class ControlledLearningService {
         }
         String signature = firstNonBlank(text(request.get("signature")), signature(candidates));
         final String candidateFarmId = farmId;
+        final String candidatePlotId = plotId;
         Map<String, Object> existing = store.list("strategy-candidate").stream()
                 .filter(c -> signature.equals(text(c.get("signature"))) && candidateFarmId.equals(text(c.get("farmId"))))
+                .filter(c -> candidatePlotId.equals(text(c.get("plotId"))))
                 .filter(c -> !Set.of("REJECTED", "ROLLED_BACK").contains(upper(c.get("status"))))
                 .findFirst().orElse(null);
         if (existing != null) return existing;
@@ -460,21 +570,55 @@ class ControlledLearningService {
         requireCandidateEditor(principal);
         Map<String, Object> candidate = store.find("strategy-candidate", candidateId);
         if (candidate == null) throw new ApiException(HttpStatus.NOT_FOUND, "STRATEGY_NOT_FOUND", "策略候选不存在");
-        if (!principal.isSystemAdmin() && !principal.canAccessFarm(text(candidate.get("farmId")))) throw forbidden("无权验证该策略候选");
+        String candidateFarm = text(candidate.get("farmId"));
+        String candidatePlot = text(candidate.get("plotId"));
+        if (!principal.isSystemAdmin() && (candidateFarm.isBlank() || !principal.canAccessFarm(candidateFarm))) {
+            throw forbidden("无权验证该策略候选");
+        }
         if (!"DRAFT".equals(upper(candidate.get("status")))) throw new ApiException(HttpStatus.CONFLICT, "STRATEGY_TRANSITION_INVALID", "只有 DRAFT 候选可以进行离线验证");
         long seed = Jsons.whole(input == null ? Map.of() : input, "seed", 42);
         String scenario = firstNonBlank(text(input == null ? null : input.get("scenarioId")), "normal");
         boolean manualBaseline = isManualBaselineCandidate(candidate);
         List<String> evidenceIds = strings(candidate.get("evidenceCaseIds"));
-        List<Map<String, Object>> evidence = evidenceIds.stream().map(this::findCaseOrNull).filter(Objects::nonNull).map(ref -> normalize(ref.type, ref.record)).toList();
+        List<Map<String, Object>> evidence = new ArrayList<>();
         List<String> failures = new ArrayList<>();
+        boolean globalScope = "GLOBAL".equals(upper(candidate.get("scope")))
+                && principal.isSystemAdmin() && candidateFarm.isBlank() && candidatePlot.isBlank();
+        if (!candidateFarm.isBlank() && store.find("farm", candidateFarm) == null) failures.add("CANDIDATE_FARM_MISSING");
+        if (!candidatePlot.isBlank()) {
+            Map<String, Object> plot = store.find("plot", candidatePlot);
+            if (plot == null) {
+                failures.add("CANDIDATE_PLOT_MISSING");
+            } else {
+                String actualFarm = text(plot.get("farmId"));
+                if (!candidateFarm.isBlank() && !candidateFarm.equals(actualFarm)) failures.add("CANDIDATE_SCOPE_MISMATCH");
+                if (!principal.isSystemAdmin() && !canAccessPlot(principal, actualFarm, candidatePlot)) {
+                    throw forbidden("无权验证该策略候选的地块范围");
+                }
+            }
+        }
+        if (candidateFarm.isBlank() && candidatePlot.isBlank() && !manualBaseline && !globalScope) {
+            failures.add("CANDIDATE_SCOPE_MISSING");
+        }
+        for (String evidenceId : evidenceIds) {
+            CaseRef ref = findCaseOrNull(evidenceId);
+            if (ref == null) continue;
+            Map<String, Object> row = normalize(ref.type, ref.record);
+            evidence.add(row);
+            if (!validCaseScope(row)) failures.add("EVIDENCE_SCOPE_INVALID");
+            if (!canRead(row, principal)) failures.add("EVIDENCE_FORBIDDEN");
+            if (!globalScope && (!candidateFarm.equals(text(row.get("farmId"))))) failures.add("EVIDENCE_FARM_MISMATCH");
+            if (!globalScope && !candidatePlot.equals(text(row.get("plotId")))) failures.add("EVIDENCE_PLOT_MISMATCH");
+        }
         // Legacy/manual candidates are validated against a deterministic
         // baseline contract.  They are intentionally not learning evidence:
         // they remain tagged NONE and can never be exported to positive
         // retrieval or offline training.  Case-generated candidates continue
         // to require the full evidence gate below.
+        if (!manualBaseline && evidence.size() != evidenceIds.size()) failures.add("EVIDENCE_CASE_MISSING");
         if (!manualBaseline && evidence.size() < MIN_CANDIDATE_CASES) failures.add("EVIDENCE_INSUFFICIENT");
         if (!manualBaseline && evidence.stream().anyMatch(row -> !QUALIFIED.equals(upper(row.get("qualityStatus"))))) failures.add("EVIDENCE_NOT_QUALIFIED");
+        if (!manualBaseline && evidence.stream().anyMatch(row -> !strings(row.get("learningUses")).contains(STRATEGY_CANDIDATE))) failures.add("EVIDENCE_USE_NOT_ALLOWED");
         double successRate = evidence.isEmpty() ? 0 : evidence.stream().filter(this::successfulCase).count() / (double) evidence.size();
         if (!manualBaseline && successRate < MIN_CANDIDATE_SUCCESS_RATE) failures.add("SUCCESS_RATE_BELOW_THRESHOLD");
         if (!manualBaseline && evidence.stream().anyMatch(row -> !strings(row.get("excludedReason")).isEmpty())) failures.add("QUALITY_GATE_REGRESSION");
@@ -632,8 +776,14 @@ class ControlledLearningService {
 
         String sourceMode = upper(firstNonBlank(text(row.get("sourceMode")), Jsons.text(Jsons.map(mapper, plan == null ? null : plan.get("simulation")), "sourceMode", "")));
         boolean simulation = "SIMULATION".equals(sourceMode) || "SIMULATED".equals(sourceMode) || containsAnyIgnoreCase(text(row.get("provenance")), "SIMULATED", "SIMULATION");
-        boolean confirmedSimulation = bool(row.get("simulationConfirmed")) || bool(row.get("userConfirmed")) || bool(row.get("humanReviewed"))
-                || !text(row.get("reviewedBy")).isBlank() || (feedback != null && Set.of("ACCEPTED", "REQUEST_APPROVAL", "CONFIRMED").contains(upper(feedback.get("decision"))));
+        // A human quality review is not, by itself, confirmation that a
+        // simulated outcome reflects an observed field result.  Simulation
+        // evidence must carry an explicit confirmation marker (or an
+        // explicitly confirmed feedback decision) before it can pass this
+        // hard gate.
+        boolean confirmedSimulation = bool(row.get("simulationConfirmed"))
+                || bool(row.get("userConfirmed"))
+                || (feedback != null && Set.of("ACCEPTED", "CONFIRMED").contains(upper(feedback.get("decision"))));
         if (simulation && !confirmedSimulation) exclusions.add("模拟结果尚未得到明确确认");
         else if (simulation) positive.add("模拟来源已明确标记并确认");
 
@@ -654,8 +804,10 @@ class ControlledLearningService {
         String evaluationResult = upper(evaluation == null ? row.get("evaluationResult") : evaluation.get("result"));
         boolean effectComplete = Set.of("COMPLETED", "PARTIAL", "EVALUATED").contains(evaluationStatus)
                 && !evaluationResult.isBlank() && !Set.of("PENDING", "INCONCLUSIVE", "UNKNOWN", "BASELINE_UNAVAILABLE").contains(evaluationResult);
-        if (evaluation == null && text(row.get("evaluationId")).isBlank()) pending.add("效果评价尚未完成");
-        else if (!effectComplete) exclusions.add("效果评价未完成或不可解释");
+        // An absent or incomplete effect evaluation is a deterministic hard
+        // exclusion.  Keeping it as PENDING would allow a caller to treat an
+        // unmeasured outcome as a future positive example by accident.
+        if (!effectComplete) exclusions.add("效果评价未完成或不可解释");
         else if (POSITIVE_RESULTS.contains(evaluationResult) || PARTIAL_RESULTS.contains(evaluationResult)) positive.add("效果评价已完成");
 
         checkGates(row, snapshot, plan, command, diagnosis, exclusions, positive);
@@ -702,8 +854,12 @@ class ControlledLearningService {
         row.putIfAbsent("caseId", firstNonBlank(text(row.get("id")), Jsons.id("case")));
         Map<String, Object> plan = linkedRecord(row, "planId", "irrigation-plan");
         Map<String, Object> evaluation = linkedEvaluation(row);
-        Map<String, Object> plot = store.find("plot", text(row.get("plotId")));
+        // Resolve the linked plan before looking up the plot.  Legacy cases
+        // often carry only planId; looking up the blank plot first loses the
+        // farm/crop scope and can make an otherwise valid case appear
+        // incomplete.
         if (text(row.get("plotId")).isBlank() && plan != null) row.put("plotId", plan.get("plotId"));
+        Map<String, Object> plot = store.find("plot", text(row.get("plotId")));
         if (text(row.get("farmId")).isBlank()) row.put("farmId", firstNonBlank(text(plan == null ? null : plan.get("farmId")), text(plot == null ? null : plot.get("farmId"))));
         if (text(row.get("cropCode")).isBlank()) row.put("cropCode", firstNonBlank(text(plot == null ? null : plot.get("cropCode")), text(plan == null ? null : plan.get("cropCode"))));
         if (text(row.get("stageCode")).isBlank()) row.put("stageCode", firstNonBlank(text(plot == null ? null : plot.get("stageCode")), text(plan == null ? null : plan.get("stageCode"))));
@@ -718,9 +874,19 @@ class ControlledLearningService {
         row.putIfAbsent("conversationId", findConversationId(row));
         row.putIfAbsent("accountId", firstNonBlank(text(row.get("actorId")), text(row.get("userId")), text(row.get("submittedBy"))));
         row.putIfAbsent("sourceSnapshot", Map.of());
-        row.putIfAbsent("qualityStatus", defaultStatus(row));
+        String rawQualityStatus = upper(row.get("qualityStatus"));
+        String normalizedQualityStatus = defaultStatus(row);
+        row.put("qualityStatus", normalizedQualityStatus);
         row.putIfAbsent("qualityScore", null);
-        row.putIfAbsent("selectionReason", defaultSelectionReason(row));
+        // If a legacy QUALIFIED record has no matching evaluator fingerprint,
+        // expose the reason for returning it to PENDING instead of retaining a
+        // stale "passed" explanation in the governance view.
+        if (QUALIFIED.equals(rawQualityStatus) && !QUALIFIED.equals(normalizedQualityStatus)) {
+            row.put("selectionReason", List.of("旧质量判断已失效，等待当前质量评估器重新判断"));
+            row.put("pendingReason", List.of("质量评估器版本或输入快照已变化，需要重新评估"));
+        } else {
+            row.putIfAbsent("selectionReason", defaultSelectionReason(row));
+        }
         row.putIfAbsent("excludedReason", defaultExcludedReason(row));
         row.put("learningUses", learningUses(upper(row.get("qualityStatus")),
                 "QUALIFIED".equalsIgnoreCase(text(row.get("reviewDecision"))), !text(row.get("reviewedBy")).isBlank()));
@@ -729,7 +895,20 @@ class ControlledLearningService {
 
     private String defaultStatus(Map<String, Object> row) {
         String value = upper(row.get("qualityStatus"));
-        if (QUALITY_STATUSES.contains(value)) return value;
+        // Rejected cases remain available as negative examples and audit
+        // records; they must never be silently promoted by normalization.
+        if (REJECTED.equals(value)) return REJECTED;
+        if (PENDING.equals(value)) return PENDING;
+        // A qualified status is only valid for the exact evaluator version
+        // and input fingerprint that produced it.  Older records, or records
+        // changed after evaluation, return to the deterministic quality gate.
+        if (QUALIFIED.equals(value)) {
+            String recordedFingerprint = text(row.get("qualityEvaluationFingerprint"));
+            boolean current = !recordedFingerprint.isBlank()
+                    && EVALUATOR_VERSION.equals(text(row.get("qualityEvaluatorVersion")))
+                    && recordedFingerprint.equals(evaluationFingerprint(row));
+            return current ? QUALIFIED : PENDING;
+        }
         // Legacy eligibility=QUALIFIED was produced before a deterministic
         // gate existed; keep it out of retrieval until it is re-evaluated.
         return PENDING;
@@ -822,17 +1001,34 @@ class ControlledLearningService {
     private boolean canRead(Map<String, Object> row, UserPrincipal principal) {
         if (principal == null) return false;
         if (principal.isSystemAdmin()) return true;
+        if (!validCaseScope(row)) return false;
         String farmId = text(row.get("farmId"));
         String plotId = text(row.get("plotId"));
         if (farmId.isBlank() || !principal.canAccessFarm(farmId)) return false;
         if (principal.isFarmer()) {
             if (plotId.isBlank() || !principal.canAccessPlot(plotId)) return false;
             String owner = firstNonBlank(text(row.get("accountId")), text(row.get("actorId")));
-            // A farmer can see cases for their assigned plot.  If an old row
-            // has an owner, do not expose another account's private feedback.
-            return owner.isBlank() || principal.userId.equals(owner);
+            // A farmer can see only cases explicitly owned by that account.
+            // Legacy rows without an owner are not safe to expose as private
+            // experience and therefore remain governance-only.
+            return !owner.isBlank() && principal.userId.equals(owner);
         }
         return true;
+    }
+
+    /**
+     * Scope is part of the learning-case identity, not merely a display
+     * filter.  A row whose plot was deleted or moved to another farm is kept
+     * for governance/audit, but it cannot be read by farm users or used as
+     * positive evidence.
+     */
+    private boolean validCaseScope(Map<String, Object> row) {
+        if (row == null) return false;
+        String farmId = text(row.get("farmId"));
+        String plotId = text(row.get("plotId"));
+        if (farmId.isBlank() || plotId.isBlank()) return false;
+        Map<String, Object> plot = store.find("plot", plotId);
+        return plot != null && farmId.equals(text(plot.get("farmId")));
     }
 
     private boolean canReview(Map<String, Object> row, UserPrincipal principal) {
@@ -841,9 +1037,24 @@ class ControlledLearningService {
     }
 
     private boolean canAccessPlot(UserPrincipal principal, String farmId, String plotId) {
-        if (principal.isSystemAdmin() || !principal.canAccessFarm(farmId)) return principal.isSystemAdmin();
+        if (principal == null || farmId == null || farmId.isBlank() || plotId == null || plotId.isBlank()) return false;
+        Map<String, Object> plot = store.find("plot", plotId);
+        if (plot == null || !farmId.equals(text(plot.get("farmId")))) return false;
+        if (principal.isSystemAdmin()) return true;
+        if (!principal.canAccessFarm(farmId)) return false;
         if (principal.isFarmAdmin()) return true;
         return principal.canAccessPlot(plotId);
+    }
+
+    private boolean caseMatchesStrategyScope(Map<String, Object> row, String farmId, String plotId,
+                                              String crop, String scenario, boolean crossFarmScope) {
+        String rowFarm = text(row.get("farmId"));
+        String rowPlot = text(row.get("plotId"));
+        if (!farmId.isBlank() && !farmId.equals(rowFarm)) return false;
+        if (!plotId.isBlank() && !plotId.equals(rowPlot)) return false;
+        if (plotId.isBlank() && !crossFarmScope && !rowPlot.isBlank()) return false;
+        if (!crop.isBlank() && !crop.equalsIgnoreCase(text(row.get("cropCode")))) return false;
+        return scenario.isBlank() || scenario.equalsIgnoreCase(text(row.get("scenarioId")));
     }
 
     private void requireCandidateEditor(UserPrincipal principal) {
@@ -873,20 +1084,150 @@ class ControlledLearningService {
         return result;
     }
 
-    private Map<String, Object> targetContext(String traceId, Map<String, Object> input) {
+    private Map<String, Object> targetContext(String traceId, Map<String, Object> input, UserPrincipal principal) {
+        String trace = text(traceId);
+        if (trace.isBlank()) throw new ApiException(HttpStatus.BAD_REQUEST, "TRACE_ID_REQUIRED", "缺少决策记录编号");
         Map<String, Object> target = input == null ? new LinkedHashMap<>() : new LinkedHashMap<>(input);
-        target.putIfAbsent("traceId", traceId);
-        if (text(target.get("farmId")).isBlank() || text(target.get("plotId")).isBlank()) {
-            Map<String, Object> run = store.find("agent-run", traceId);
-            Map<String, Object> plan = store.list("irrigation-plan").stream().filter(p -> traceId.equals(text(p.get("traceId")))).findFirst().orElse(null);
-            if (run != null) { target.putIfAbsent("farmId", run.get("farmId")); target.putIfAbsent("plotId", run.get("plotId")); target.putIfAbsent("conversationId", run.get("conversationId")); target.putIfAbsent("accountId", run.get("userId")); }
-            if (plan != null) { target.putIfAbsent("plotId", plan.get("plotId")); target.putIfAbsent("farmId", plan.get("farmId")); target.putIfAbsent("scenarioId", Jsons.text(Jsons.map(mapper, plan.get("simulation")), "scenario", "")); }
-            if (text(target.get("plotId")).isBlank()) {
-                Map<String, Object> caseRow = store.list("decision-case").stream().filter(c -> traceId.equals(text(c.get("traceId")))).findFirst().orElse(null);
-                if (caseRow != null) { target.putIfAbsent("plotId", caseRow.get("plotId")); target.putIfAbsent("farmId", caseRow.get("farmId")); target.putIfAbsent("conversationId", caseRow.get("conversationId")); target.putIfAbsent("accountId", caseRow.get("accountId")); }
+        target.put("traceId", trace);
+
+        // Build an immutable anchor from the trace itself.  Request parameters
+        // are hints only; they must not be able to move a lookup to another
+        // account, conversation, farm or plot.
+        Map<String, Object> anchor = new LinkedHashMap<>();
+        Map<String, Object> run = store.find("agent-run", trace);
+        if (run != null) anchor.putAll(run);
+        Map<String, Object> tracePlan = store.list("irrigation-plan").stream()
+                .filter(p -> trace.equals(text(p.get("traceId")))).findFirst().orElse(null);
+        Map<String, Object> traceDiagnosis = store.list("diagnosis").stream()
+                .filter(d -> trace.equals(text(d.get("traceId")))).findFirst().orElse(null);
+        Map<String, Object> traceCase = listAllNormalised().stream()
+                .filter(c -> trace.equals(text(c.get("traceId")))).findFirst().orElse(null);
+        if (tracePlan != null) {
+            putIfBlank(anchor, "farmId", tracePlan.get("farmId"));
+            putIfBlank(anchor, "plotId", tracePlan.get("plotId"));
+            putIfBlank(anchor, "conversationId", tracePlan.get("conversationId"));
+        }
+        if (traceDiagnosis != null) {
+            putIfBlank(anchor, "farmId", traceDiagnosis.get("farmId"));
+            putIfBlank(anchor, "plotId", traceDiagnosis.get("plotId"));
+        }
+        if (traceCase != null) {
+            putIfBlank(anchor, "farmId", traceCase.get("farmId"));
+            putIfBlank(anchor, "plotId", traceCase.get("plotId"));
+            putIfBlank(anchor, "conversationId", traceCase.get("conversationId"));
+            putIfBlank(anchor, "accountId", traceCase.get("accountId"));
+        }
+        String anchorOwner = firstNonBlank(text(anchor.get("userId")), text(anchor.get("accountId")), text(anchor.get("ownerId")));
+        String requestedFarm = text(target.get("farmId"));
+        String requestedPlot = text(target.get("plotId"));
+        String requestedConversation = text(target.get("conversationId"));
+        String requestedAccount = text(target.get("accountId"));
+        String anchorFarm = text(anchor.get("farmId"));
+        String anchorPlot = text(anchor.get("plotId"));
+        String anchorConversation = firstNonBlank(text(anchor.get("conversationId")), text(anchor.get("sessionId")));
+        String anchorAccount = firstNonBlank(text(anchor.get("accountId")), text(anchor.get("userId")));
+
+        if (principal != null && !principal.isSystemAdmin()) {
+            if (!anchorOwner.isBlank() && !principal.userId.equals(anchorOwner)) {
+                throw forbidden("无权检索该决策记录的学习案例");
+            }
+            if (!requestedAccount.isBlank() && !principal.userId.equals(requestedAccount)) {
+                throw forbidden("不能使用其他账号的学习上下文");
+            }
+            if (!anchorAccount.isBlank() && !principal.userId.equals(anchorAccount)) {
+                throw forbidden("不能使用其他账号的学习上下文");
+            }
+            if (!anchorFarm.isBlank() && !requestedFarm.isBlank() && !anchorFarm.equals(requestedFarm)) {
+                throw forbidden("传入的农场与决策记录不一致");
+            }
+            if (!anchorPlot.isBlank() && !requestedPlot.isBlank() && !anchorPlot.equals(requestedPlot)) {
+                throw forbidden("传入的地块与决策记录不一致");
+            }
+            if (!anchorConversation.isBlank() && !requestedConversation.isBlank() && !anchorConversation.equals(requestedConversation)) {
+                throw forbidden("传入的会话与决策记录不一致");
+            }
+            target.put("accountId", principal.userId);
+            if (!anchorFarm.isBlank()) target.put("farmId", anchorFarm);
+            if (!anchorPlot.isBlank()) target.put("plotId", anchorPlot);
+            if (!anchorConversation.isBlank()) target.put("conversationId", anchorConversation);
+        } else {
+            // Governance lookups may name an explicit farm/plot, but an
+            // existing trace remains the source of truth when it is scoped.
+            if (!anchorFarm.isBlank() && !requestedFarm.isBlank() && !anchorFarm.equals(requestedFarm)
+                    && !approvedCrossFarmRequest(target)) {
+                throw forbidden("传入的农场与决策记录不一致");
+            }
+            if (!anchorPlot.isBlank() && !requestedPlot.isBlank() && !anchorPlot.equals(requestedPlot)
+                    && !approvedCrossFarmRequest(target)) {
+                throw forbidden("传入的地块与决策记录不一致");
+            }
+            if (requestedFarm.isBlank() && !anchorFarm.isBlank()) target.put("farmId", anchorFarm);
+            if (requestedPlot.isBlank() && !anchorPlot.isBlank()) target.put("plotId", anchorPlot);
+            if (requestedConversation.isBlank() && !anchorConversation.isBlank() && !approvedCrossFarmRequest(target)) {
+                target.put("conversationId", anchorConversation);
+            }
+            if (requestedAccount.isBlank() && !anchorAccount.isBlank() && !approvedCrossFarmRequest(target)) {
+                target.put("accountId", anchorAccount);
             }
         }
+
+        String finalFarm = text(target.get("farmId"));
+        String finalPlot = text(target.get("plotId"));
+        if (!finalFarm.isBlank() && store.find("farm", finalFarm) == null) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "FARM_NOT_FOUND", "农场不存在：" + finalFarm);
+        }
+        if (!finalPlot.isBlank()) {
+            Map<String, Object> plot = store.find("plot", finalPlot);
+            if (plot == null) throw new ApiException(HttpStatus.NOT_FOUND, "PLOT_NOT_FOUND", "地块不存在：" + finalPlot);
+            String actualFarm = text(plot.get("farmId"));
+            if (!finalFarm.isBlank() && !finalFarm.equals(actualFarm)) throw forbidden("农场与地块归属不一致");
+            if (finalFarm.isBlank()) target.put("farmId", actualFarm);
+            if (principal != null && !canAccessPlot(principal, actualFarm, finalPlot)) throw forbidden("无权检索该地块的学习案例");
+        }
+        if (principal != null && !principal.isSystemAdmin() && !finalFarm.isBlank() && !principal.canAccessFarm(finalFarm)) {
+            throw forbidden("无权检索该农场的学习案例");
+        }
+        validateConversationScope(target, principal, finalPlot);
         return target;
+    }
+
+    /** Compatibility hook for older package-level callers. */
+    private Map<String, Object> targetContext(String traceId, Map<String, Object> input) {
+        return targetContext(traceId, input, systemCompatibilityPrincipal());
+    }
+
+    private boolean approvedCrossFarmRequest(Map<String, Object> target) {
+        return bool(target.get("allowFarmScope"))
+                && "APPROVED".equalsIgnoreCase(text(target.get("reuseApproval")));
+    }
+
+    private void putIfBlank(Map<String, Object> target, String key, Object value) {
+        if (text(target.get(key)).isBlank() && !text(value).isBlank()) target.put(key, value);
+    }
+
+    private void validateConversationScope(Map<String, Object> target, UserPrincipal principal, String plotId) {
+        String conversationId = text(target.get("conversationId"));
+        if (conversationId.isBlank()) return;
+        Map<String, Object> conversation = store.find("agent-conversation", conversationId);
+        if (conversation == null) {
+            // A caller may be asking about a legacy trace that predates the
+            // conversation table.  Do not broaden the lookup, but keep the
+            // supplied id as an exact filter (which will normally return no
+            // private cases).
+            return;
+        }
+        String owner = firstNonBlank(text(conversation.get("userId")), text(conversation.get("accountId")));
+        if (principal != null && !principal.isSystemAdmin() && !owner.isBlank() && !principal.userId.equals(owner)) {
+            throw forbidden("无权使用该会话的学习上下文");
+        }
+        String conversationPlot = text(conversation.get("plotId"));
+        if (!conversationPlot.isBlank() && !plotId.isBlank() && !conversationPlot.equals(plotId)) {
+            throw forbidden("会话与地块范围不一致");
+        }
+        String conversationRole = RolePolicy.canonical(text(conversation.get("agentRole")));
+        if (principal != null && !conversationRole.isBlank() && !conversationRole.equals(RolePolicy.canonical(principal.role))) {
+            throw forbidden("会话身份与当前账号不一致");
+        }
     }
 
     private Map<String, Object> trainingProjection(Map<String, Object> row) {
@@ -990,17 +1331,38 @@ class ControlledLearningService {
     }
 
     private Instant snapshotTimestamp(Map<String, Object> snapshot, Map<String, Object> row) {
-        for (String key : List.of("telemetryAt", "observedAt", "timestamp", "ts", "capturedAt", "createdAt")) {
+        // Prefer the observation time embedded in the telemetry payload. The
+        // snapshot wrapper is written after the fact and its capturedAt value
+        // must never make an old reading look fresh.
+        List<Instant> observations = new ArrayList<>();
+        Set<Object> visited = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (String key : List.of("telemetry", "observations", "metrics", "input", "inputSnapshot")) {
+            collectTelemetryTimestamps(snapshot.get(key), observations, visited);
+        }
+        if (!observations.isEmpty()) return observations.stream().max(Comparator.naturalOrder()).orElse(null);
+        for (String key : List.of("telemetryAt", "observedAt", "timestamp", "ts", "eventTs")) {
             Instant value = Jsons.instant(snapshot.get(key), null);
             if (value != null) return value;
         }
-        Object telemetry = snapshot.get("telemetry");
-        if (telemetry instanceof Collection<?> values) {
-            return values.stream().map(value -> Jsons.map(mapper, value))
-                    .map(item -> Jsons.instant(firstNonBlank(text(item.get("ts")), text(item.get("eventTs")), text(item.get("observedAt"))), null))
-                    .filter(Objects::nonNull).max(Comparator.naturalOrder()).orElse(null);
-        }
         return Jsons.instant(row.get("snapshotAt"), null);
+    }
+
+    /** Collect timestamps only from identifiable metric readings. */
+    private void collectTelemetryTimestamps(Object value, List<Instant> output, Set<Object> visited) {
+        if (value == null || !visited.add(value)) return;
+        if (value instanceof Map<?, ?> raw) {
+            Map<String, Object> item = Jsons.map(mapper, raw);
+            String metric = firstNonBlank(text(item.get("metric")), text(item.get("metricCode")));
+            if (!metric.isBlank() && item.get("value") != null) {
+                String timestamp = firstNonBlank(text(item.get("ts")), text(item.get("eventTs")),
+                        text(item.get("timestamp")), text(item.get("observedAt")));
+                Instant parsed = Jsons.instant(timestamp, null);
+                if (parsed != null) output.add(parsed);
+            }
+            item.values().forEach(child -> collectTelemetryTimestamps(child, output, visited));
+        } else if (value instanceof Collection<?> collection) {
+            collection.forEach(child -> collectTelemetryTimestamps(child, output, visited));
+        }
     }
 
     private String snapshotQuality(Map<String, Object> snapshot) {
