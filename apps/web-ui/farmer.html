@@ -1116,19 +1116,6 @@
             </div>
           </section>
 
-          <section v-else-if="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant-shared">
-            <keep-alive include="AdminAiChatView">
-              <admin-ai-chat-view
-                :state="assistant_view_state"
-                :route-params="assistant_route_params"
-                route-view="assistant"
-                @navigate="navigate"
-                @open-plot-detail="open_agent_plot_detail"
-                @data-invalidated="refresh_assistant_impacts">
-              </admin-ai-chat-view>
-            </keep-alive>
-          </section>
-
           <section v-else-if="false" class="farmer-workspace farmer-agent-workspace" key="assistant-legacy">
             <div class="farmer-agent-page-header">
               <div>
@@ -1699,6 +1686,21 @@
 
         </transition>
 
+        <!-- Keep the cache host mounted while routes change; otherwise an unsent assistant draft is destroyed with the route section. -->
+        <section v-show="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant-shared">
+          <keep-alive include="AdminAiChatView">
+            <admin-ai-chat-view
+              v-if="current_view === 'assistant'"
+              :state="assistant_view_state"
+              :route-params="assistant_route_params"
+              route-view="assistant"
+              @navigate="navigate"
+              @open-plot-detail="open_agent_plot_detail"
+              @data-invalidated="refresh_assistant_impacts">
+            </admin-ai-chat-view>
+          </keep-alive>
+        </section>
+
         <div v-if="show_account_modal" class="farmer-form-overlay" @click.self="close_account_modal">
           <form class="farmer-form-card farmer-account-form" @submit.prevent="change_password">
             <div class="farmer-detail-header">
@@ -1961,6 +1963,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260903-chart-fix-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-assistant-draft-fix-v1"></script>
 </body>
 </html>
