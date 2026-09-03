@@ -3762,31 +3762,6 @@ const app = createApp({
       begin_plot_pointer_tracking(event, plot, index);
       activate_plot_drag();
     };
-    const handle_plot_order_keydown = async (event, plot) => {
-      const sourceIndex = plots.value.findIndex((item) => String(item?.plotId || '') === String(plot?.plotId || ''));
-      if (sourceIndex < 0 || plot_order_busy.value || !plot_order_loaded.value) return;
-      const targetIndexByKey = {
-        ArrowLeft: Math.max(0, sourceIndex - 1),
-        ArrowUp: Math.max(0, sourceIndex - 1),
-        ArrowRight: Math.min(plots.value.length - 1, sourceIndex + 1),
-        ArrowDown: Math.min(plots.value.length - 1, sourceIndex + 1),
-        Home: 0,
-        End: plots.value.length - 1
-      };
-      if (!(event.key in targetIndexByKey)) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const targetIndex = targetIndexByKey[event.key];
-      if (targetIndex === sourceIndex) return;
-      const trigger = event.currentTarget;
-      const previousOrder = plot_order_of(plots.value);
-      const nextPlots = move_plot_to_index(plots.value, sourceIndex, targetIndex);
-      const nextOrder = plot_order_of(nextPlots);
-      plot_order_ids.value = nextOrder;
-      replace_ref_array(plots, nextPlots);
-      await save_plot_order(nextOrder, previousOrder);
-      nextTick(() => trigger?.focus());
-    };
     const handle_plot_card_click = (plot) => {
       if (plot_drag_state.value.suppressClick) {
         plot_drag_state.value.suppressClick = false;
@@ -6513,7 +6488,6 @@ const app = createApp({
       handle_plot_card_click,
       handle_plot_pointer_down,
       start_plot_handle_drag,
-      handle_plot_order_keydown,
       cancel_plot_drag,
       selected_plot,
       chart_range,

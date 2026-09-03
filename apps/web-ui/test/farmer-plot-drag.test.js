@@ -9,15 +9,16 @@ const [htmlSource, scriptSource, styleSource, iconSource] = await Promise.all([
   readFile(new URL('../js/modules/icon-map.js', import.meta.url), 'utf8')
 ]);
 
-test('farmer plot cards expose a direct drag handle and keyboard ordering', () => {
+test('farmer plot cards expose a pointer-only direct drag handle', () => {
   assert.match(htmlSource, /<article\s+v-for="\(plot, plot_index\) in plots"[\s\S]*?class="farmer-plot-overview-card"/);
   assert.match(htmlSource, /class="farmer-plot-drag-handle"/);
   assert.match(iconSource, /drag_indicator:\s*'ph-dots-six-vertical'/);
   assert.match(htmlSource, /@pointerdown\.stop="start_plot_handle_drag\(\$event, plot, plot_index\)"/);
-  assert.match(htmlSource, /@keydown\.stop="handle_plot_order_keydown\(\$event, plot\)"/);
-  assert.match(htmlSource, /方向键、Home 和 End 键移动/);
+  assert.match(htmlSource, /class="farmer-plot-drag-handle"[\s\S]*?tabindex="-1"/);
+  assert.doesNotMatch(htmlSource, /handle_plot_order_keydown|方向键、Home 和 End 键移动/);
+  assert.doesNotMatch(scriptSource, /handle_plot_order_keydown|targetIndexByKey/);
   assert.match(scriptSource, /const start_plot_handle_drag = \(event, plot, index\) => \{[\s\S]*?begin_plot_pointer_tracking\(event, plot, index\);\s*activate_plot_drag\(\);/);
-  assert.match(scriptSource, /const targetIndexByKey = \{[\s\S]*?ArrowLeft:[\s\S]*?ArrowDown:[\s\S]*?Home: 0,[\s\S]*?End:/);
+  assert.match(htmlSource, /js\/farmer\.js\?v=20260903-v5921-farmer-plot-drag-only-v1/);
 });
 
 test('farmer pointer sorting keeps long press while the handle activates immediately', () => {

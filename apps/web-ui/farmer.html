@@ -414,7 +414,7 @@
               </button>
             </div>
 
-            <p v-if="plots.length" id="farmer-plot-order-help" class="sr-only">拖动每张地块卡片右上角的排序按钮，或长按卡片，可以调整顺序；聚焦排序按钮后也可使用方向键、Home 和 End 键移动。</p>
+            <p v-if="plots.length" id="farmer-plot-order-help" class="sr-only">拖动每张地块卡片右上角的排序按钮，或长按卡片，可以调整顺序。</p>
             <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块" aria-describedby="farmer-plot-order-help">
               <article
                 v-for="(plot, plot_index) in plots"
@@ -460,12 +460,11 @@
                       type="button"
                       class="farmer-plot-drag-handle"
                       :aria-label="`调整${plot.name}的显示顺序`"
-                      title="拖动调整顺序；也可使用方向键移动"
+                      title="拖动调整顺序"
+                      tabindex="-1"
                       :disabled="plot_order_busy || !plot_order_loaded"
                       @click.stop.prevent
                       @pointerdown.stop="start_plot_handle_drag($event, plot, plot_index)"
-                      @keydown.stop="handle_plot_order_keydown($event, plot)"
-                      @keydown.esc.stop="cancel_plot_drag"
                     ><app-icon name="drag_indicator"></app-icon></button>
                   </div>
                 </div>
@@ -1934,6 +1933,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260903-v5920-farmer-plot-drag-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5921-farmer-plot-drag-only-v1"></script>
 </body>
 </html>
