@@ -1,5 +1,5 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260902-manager-plot-order-v1';
-import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
+import { ICON_CLASS } from './modules/icon-map.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { buildAccountProfile } from './account-profile.js';
@@ -216,10 +216,27 @@ function parse_tools_tab(hash = window.location.hash) {
   return ['risk', 'manual'].includes(tab) ? tab : 'manual';
 }
 
-function farmer_hash_for(view_id, tab = 'manual') {
+function parse_farmer_params(hash = window.location.hash) {
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  const query = raw.split('?')[1] || '';
+  const params = {};
+  if (!query) return params;
+  const allowed = new Set(['farmId', 'plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId', 'metric', 'section']);
+  new URLSearchParams(query).forEach((value, key) => {
+    if (allowed.has(key) && String(value).trim()) params[key] = String(value).trim();
+  });
+  return params;
+}
+
+function farmer_hash_for(view_id, tab = 'manual', route_params = {}) {
   const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
-  if (view === 'tools') return `#tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}`;
-  return `#${view}`;
+  const path = view === 'tools' ? `tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}` : view;
+  const allowed = new Set(['farmId', 'plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId', 'metric', 'section']);
+  const query = Object.entries(route_params || {})
+    .filter(([key, value]) => allowed.has(key) && value !== undefined && value !== null && String(value).trim())
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value).trim())}`)
+    .join('&');
+  return `#${path}${query ? `?${query}` : ''}`;
 }
 
 function crop_manual_metrics(pack, stage) {
@@ -1387,6 +1404,7 @@ const app = createApp({
 
     const current_view = ref(parse_farmer_hash());
     const tools_tab = ref(parse_tools_tab());
+    const assistant_route_params = ref(parse_farmer_params());
     const selected_plot = ref(plots.value[0] || null);
     const chart_range = ref('1d');
     const plot_stage_preview = ref(selected_plot.value?.stageCode || '');
@@ -2721,6 +2739,11 @@ const app = createApp({
     });
 
     const unread_count = computed(() => messages.value.filter((m) => !m.read).length);
+    const read_message_count = computed(() => messages.value.filter((m) => m.read).length);
+    const completed_task_count = computed(() =>
+      farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t))).length
+    );
+    const cleanup_busy = ref(false);
 
     const task_columns = computed(() => [
       { status: 'PENDING', label: '未开始', items: farmer_visible_tasks.value.filter((t) => farmer_task_status(t) === 'PENDING') },
@@ -3256,14 +3279,18 @@ const app = createApp({
       if (main) main.scrollTop = 0;
     };
 
-    const navigate = (view_id, { sync_hash = true, tab } = {}) => {
+    const navigate = (view_id, options = {}) => {
+      const { sync_hash = true, tab, ...route_params } = options || {};
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
       const view_changed = current_view.value !== next_view;
+      const target_plot = route_params.plotId ? find_plot_by_id(plots.value, route_params.plotId) : null;
+      const target_task_id = route_params.taskId || route_params.workOrderId || '';
+      const target_task = target_task_id ? tasks.value.find((task) => String(task.workOrderId || task.taskId || task.id || '') === String(target_task_id)) : null;
       current_view.value = next_view;
       close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
-        const target = farmer_hash_for(next_view, tools_tab.value);
+        const target = farmer_hash_for(next_view, tools_tab.value, route_params);
         if (window.location.hash !== target) {
           window.location.hash = target.slice(1);
         }
@@ -3275,11 +3302,20 @@ const app = createApp({
       }
       if (next_view !== 'tasks') {
         selected_task.value = null;
+      } else if (target_task) {
+        selected_task.value = target_task;
       }
       if (next_view !== 'plots') {
         selected_plot.value = null;
+      } else if (target_plot) {
+        selected_plot.value = target_plot;
       } else if (!selected_plot.value) {
         selected_plot.value = plots.value[0] || null;
+      }
+      if (target_plot) {
+        advice_selected_plot.value = target_plot;
+        advice_plot.value = target_plot;
+        assistant_plot_id.value = target_plot.plotId;
       }
       if (next_view !== 'inspections') {
         show_inspection_form.value = false;
@@ -3294,8 +3330,11 @@ const app = createApp({
     const apply_farmer_hash = () => {
       const view = parse_farmer_hash();
       const tab = parse_tools_tab();
-      if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value)) return;
-      navigate(view, { sync_hash: false, tab });
+      const route_params = parse_farmer_params();
+      assistant_route_params.value = route_params;
+      const has_context = Object.keys(route_params).some((key) => ['plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId'].includes(key));
+      if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value) && !has_context) return;
+      navigate(view, { sync_hash: false, tab, ...route_params });
     };
 
     const toggle_sidebar = () => { is_sidebar_open.value = !is_sidebar_open.value; };
@@ -3477,7 +3516,66 @@ const app = createApp({
 
     let plot_order_request_version = 0;
     let plot_drag_element = null;
+    let plot_drag_preview = null;
+    let plot_drag_preview_layer = null;
+    let plot_drag_target_badge = null;
     let plot_click_suppress_timer = null;
+    const remove_plot_drag_preview = () => {
+      plot_drag_preview_layer?.remove();
+      plot_drag_preview = null;
+      plot_drag_preview_layer = null;
+      plot_drag_target_badge = null;
+    };
+    const create_plot_drag_preview = (source_card) => {
+      remove_plot_drag_preview();
+      if (!source_card?.cloneNode) return;
+      const rect = source_card.getBoundingClientRect();
+      const layer = document.createElement('div');
+      layer.className = 'farmer-plot-drag-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      const preview = source_card.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'selected');
+      preview.classList.add('farmer-plot-drag-preview');
+      preview.removeAttribute('data-farmer-plot-id');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--farmer-plot-preview-x', '0px');
+      preview.style.setProperty('--farmer-plot-preview-y', '0px');
+      const target_badge = document.createElement('div');
+      target_badge.className = 'farmer-plot-drag-target-badge';
+      target_badge.textContent = '拖到另一块地上';
+      target_badge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      target_badge.style.top = `${Math.round(rect.top)}px`;
+      target_badge.style.setProperty('--farmer-plot-preview-x', '0px');
+      target_badge.style.setProperty('--farmer-plot-preview-y', '0px');
+      layer.appendChild(preview);
+      layer.appendChild(target_badge);
+      (document.querySelector('#farmer_app') || document.body).appendChild(layer);
+      plot_drag_preview = preview;
+      plot_drag_preview_layer = layer;
+      plot_drag_target_badge = target_badge;
+    };
+    const move_plot_drag_preview = (offset_x, offset_y, target_name = '') => {
+      if (!plot_drag_preview) return;
+      plot_drag_preview.style.setProperty('--farmer-plot-preview-x', `${Math.round(offset_x)}px`);
+      plot_drag_preview.style.setProperty('--farmer-plot-preview-y', `${Math.round(offset_y)}px`);
+      if (!plot_drag_target_badge) return;
+      plot_drag_target_badge.style.setProperty('--farmer-plot-preview-x', `${Math.round(offset_x)}px`);
+      plot_drag_target_badge.style.setProperty('--farmer-plot-preview-y', `${Math.round(offset_y)}px`);
+      plot_drag_target_badge.textContent = target_name ? `放到「${target_name}」的位置` : '拖到另一块地上';
+      plot_drag_target_badge.classList.toggle('has-target', Boolean(target_name));
+    };
     const schedule_plot_click_suppression_reset = () => {
       if (plot_click_suppress_timer !== null) window.clearTimeout(plot_click_suppress_timer);
       plot_click_suppress_timer = window.setTimeout(() => {
@@ -3581,13 +3679,14 @@ const app = createApp({
     };
     const activate_plot_drag = () => {
       const state = plot_drag_state.value;
-      if (state.pointerId === null || state.movedBeforeActivation || state.active) return;
+      if (state.pointerId === null || state.movedBeforeActivation || state.active || !plot_order_loaded.value) return;
       state.active = true;
       state.targetIndex = state.sourceIndex;
       state.dragPlotId = String(plots.value[state.sourceIndex]?.plotId || '');
       state.dropTargetId = '';
       document.body.classList.add('farmer-plot-dragging');
       plot_drag_element?.setPointerCapture?.(state.pointerId);
+      create_plot_drag_preview(plot_drag_element?.closest?.('[data-farmer-plot-id]') || plot_drag_element);
     };
     const remove_plot_drag_listeners = () => {
       window.removeEventListener('pointermove', handle_plot_pointer_move);
@@ -3602,6 +3701,7 @@ const app = createApp({
       }
       document.body.classList.remove('farmer-plot-dragging');
       plot_drag_element = null;
+      remove_plot_drag_preview();
       reset_plot_drag_state({ suppressClick });
     };
     const handle_plot_pointer_move = (event) => {
@@ -3617,6 +3717,14 @@ const app = createApp({
       }
       event.preventDefault();
       const targetIndex = plot_index_at_point(event.clientX, event.clientY);
+      const targetPlot = targetIndex >= 0 && targetIndex !== state.sourceIndex
+        ? plots.value[targetIndex]
+        : null;
+      move_plot_drag_preview(
+        event.clientX - state.startX,
+        event.clientY - state.startY,
+        targetPlot?.name || ''
+      );
       if (targetIndex < 0 || targetIndex === state.sourceIndex) {
         state.targetIndex = state.sourceIndex;
         state.dropTargetId = '';
@@ -3641,7 +3749,10 @@ const app = createApp({
       const nextPlots = wasActive ? move_plot_to_index(plots.value, state.sourceIndex, state.targetIndex) : plots.value;
       const nextOrder = plot_order_of(nextPlots);
       const changed = nextOrder.join('\u0001') !== previousOrder.join('\u0001');
-      if (wasActive && changed) replace_ref_array(plots, nextPlots);
+      if (wasActive && changed) {
+        plot_order_ids.value = nextOrder;
+        replace_ref_array(plots, nextPlots);
+      }
       finish_plot_drag({ suppressClick: wasActive });
       if (wasActive) schedule_plot_click_suppression_reset();
       if (!wasActive || !changed) return;
@@ -3656,9 +3767,7 @@ const app = createApp({
       if (wasActive) schedule_plot_click_suppression_reset();
       if (wasActive && previousOrder.length) restore_plot_order(previousOrder);
     };
-    const handle_plot_pointer_down = (event, plot, index) => {
-      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null) return;
-      if (event.pointerType === 'mouse' && event.button !== 0) return;
+    const begin_plot_pointer_tracking = (event, plot, index) => {
       plot_drag_element = event.currentTarget;
       plot_drag_state.value = {
         active: false,
@@ -3677,7 +3786,20 @@ const app = createApp({
       window.addEventListener('pointermove', handle_plot_pointer_move, { passive: false });
       window.addEventListener('pointerup', handle_plot_pointer_up);
       window.addEventListener('pointercancel', cancel_plot_drag);
+    };
+    const handle_plot_pointer_down = (event, plot, index) => {
+      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null || !plot_order_loaded.value) return;
+      if (event.target?.closest?.('.farmer-plot-drag-handle')) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      begin_plot_pointer_tracking(event, plot, index);
       plot_drag_state.value.longPressTimer = window.setTimeout(activate_plot_drag, 400);
+    };
+    const start_plot_handle_drag = (event, plot, index) => {
+      if (plot_order_busy.value || plot_drag_state.value.pointerId !== null || !plot_order_loaded.value) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      begin_plot_pointer_tracking(event, plot, index);
+      activate_plot_drag();
     };
     const handle_plot_card_click = (plot) => {
       if (plot_drag_state.value.suppressClick) {
@@ -4281,22 +4403,29 @@ const app = createApp({
     };
 
     const clear_read_messages = () => {
+      if (cleanup_busy.value) return;
       const readMessages = messages.value.filter((m) => m.read);
       if (!readMessages.length) {
         show_toast('没有已读消息可清除');
         return;
       }
-      readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
-      localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
-      const nextReadIds = new Set(read_message_ids.value);
-      readMessages.forEach((message) => nextReadIds.delete(String(message.id || '').trim()));
-      read_message_ids.value = nextReadIds;
-      saveReadMessageIds(message_read_storage_key, nextReadIds);
-      messages.value = messages.value.filter((m) => !m.read);
-      if (selected_message.value && selected_message.value.read) {
-        selected_message.value = null;
+      if (!window.confirm(`确定清除 ${readMessages.length} 条已读消息？清除后列表中不再显示。`)) return;
+      cleanup_busy.value = true;
+      try {
+        readMessages.forEach((m) => deleted_message_ids.value.add(m.id));
+        localStorage.setItem('agriloop_deleted_messages', JSON.stringify([...deleted_message_ids.value]));
+        const nextReadIds = new Set(read_message_ids.value);
+        readMessages.forEach((message) => nextReadIds.delete(String(message.id || '').trim()));
+        read_message_ids.value = nextReadIds;
+        saveReadMessageIds(message_read_storage_key, nextReadIds);
+        messages.value = messages.value.filter((m) => !m.read);
+        if (selected_message.value && selected_message.value.read) {
+          selected_message.value = null;
+        }
+        show_toast(`已清除 ${readMessages.length} 条已读消息`);
+      } finally {
+        cleanup_busy.value = false;
       }
-      show_toast(`已清除 ${readMessages.length} 条已读消息`);
     };
 
     const generate_analysis = async (msg) => {
@@ -4361,6 +4490,15 @@ const app = createApp({
     const open_plot = (plot) => {
       navigate('plots');
       selected_plot.value = plot;
+    };
+
+    // Shared Agent chat can emit a plot-detail destination.  Farmer routes
+    // keep the same card contract, but land on the farmer's own plot view so
+    // the card cannot open an admin-only page.
+    const open_agent_plot_detail = ({ plotId } = {}) => {
+      const plot = find_plot_by_id(plots.value, plotId);
+      if (plot) open_plot(plot);
+      else navigate('plots');
     };
 
     const open_tools = () => {
@@ -4907,6 +5045,7 @@ const app = createApp({
               suggestion_result.value = await wait_for_irrigation_completion(suggestion_result.value);
               await refresh_plot_telemetry();
               await load_live_workspace({ announce: false });
+              await load_water_resource_profile();
               if (suggestion_result.value?.commandId) {
                 const evaluation = await api.getCommandEvaluation(suggestion_result.value.commandId).catch(() => null);
                 if (evaluation) suggestion_result.value = { ...suggestion_result.value, evaluation };
@@ -4914,6 +5053,7 @@ const app = createApp({
             } else {
               await load_live_workspace({ announce: false });
               await load_irrigation_plan(active.plotId, { silent: true });
+              await load_water_resource_profile();
             }
           }
           suggestion_recovery_status.value = '灌溉命令已提交，等待设备执行回执和效果评价。';
@@ -6107,7 +6247,11 @@ const app = createApp({
     };
 
     const delete_task = async (task) => {
+      if (cleanup_busy.value || !task) return;
       const workOrderId = task.workOrderId || task.id;
+      const title = String(task.title || '该任务').trim() || '该任务';
+      if (!window.confirm(`确定删除已完成任务「${title}」？`)) return;
+      cleanup_busy.value = true;
       try {
         await api.deleteWorkOrder(workOrderId);
         tasks.value = tasks.value.filter((t) => (t.workOrderId || t.id) !== workOrderId);
@@ -6117,15 +6261,20 @@ const app = createApp({
         show_toast('已删除完成任务');
       } catch (error) {
         show_toast(error.message || '删除失败', 'error');
+      } finally {
+        cleanup_busy.value = false;
       }
     };
 
     const delete_all_completed_tasks = async () => {
+      if (cleanup_busy.value) return;
       const completed = farmer_visible_tasks.value.filter((t) => ['DONE', 'CANCELLED'].includes(farmer_task_status(t)));
       if (!completed.length) {
         show_toast('没有可删除的已完成任务');
         return;
       }
+      if (!window.confirm(`确定清空 ${completed.length} 个已完成任务？此操作不可撤销。`)) return;
+      cleanup_busy.value = true;
       try {
         await Promise.all(completed.map((task) => api.deleteWorkOrder(task.workOrderId || task.id)));
         const ids = new Set(completed.map((task) => task.workOrderId || task.id));
@@ -6136,6 +6285,8 @@ const app = createApp({
         show_toast(`已删除 ${completed.length} 个已完成任务`);
       } catch (error) {
         show_toast(error.message || '删除失败', 'error');
+      } finally {
+        cleanup_busy.value = false;
       }
     };
 
@@ -6398,11 +6549,13 @@ const app = createApp({
       tasks,
       plots,
       plot_drag_state,
+      plot_order_loaded,
       plot_order_busy,
       plot_metrics,
       metric_value,
       handle_plot_card_click,
       handle_plot_pointer_down,
+      start_plot_handle_drag,
       cancel_plot_drag,
       selected_plot,
       chart_range,
@@ -6644,6 +6797,7 @@ const app = createApp({
       assistant_action_hint,
       assistant_tool_label,
       assistant_source_label_for,
+      assistant_route_params,
       assistant_action_arguments,
       assistant_action_expiry_label,
       assistant_action_result,
@@ -6686,6 +6840,9 @@ const app = createApp({
       message_filter_options: MESSAGE_FILTER_OPTIONS,
       message_filter_counts,
       unread_count,
+      read_message_count,
+      completed_task_count,
+      cleanup_busy,
       task_columns,
       farmer_task_status,
       task_has_active_issue_report,
@@ -6746,6 +6903,7 @@ const app = createApp({
       delete_task,
       delete_all_completed_tasks,
       open_plot,
+      open_agent_plot_detail,
       open_tools,
       load_irrigation_plan,
       toggle_automatic_watering,

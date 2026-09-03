@@ -80,6 +80,7 @@ export const ICON_CLASS = Object.freeze({
   bolt: 'ph-lightning',
   arrow_upward: 'ph-arrow-up',
   more_vert: 'ph-dots-three-vertical',
+  drag_indicator: 'ph-dots-six-vertical',
   push_pin: 'ph-push-pin',
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',

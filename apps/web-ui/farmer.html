@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260902-shell-fixes-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260902-message-read-v3">
+  <link rel="stylesheet" href="css/farmer.css?v=20260903-v5921-farmer-plot-drag-chart-fix-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
@@ -406,7 +406,7 @@
             <div class="farmer-page-header">
               <div>
                 <h2>我的地块</h2>
-                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化；长按地块可调整排列顺序。</p>
+                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化；拖动右上角排序按钮可调整顺序，移动端也可长按卡片。</p>
               </div>
               <button type="button" class="g-btn primary farmer-btn-analyze" @click="navigate('tasks')">
                 <app-icon name="event_available"></app-icon>
@@ -414,9 +414,9 @@
               </button>
             </div>
 
-            <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块，可长按拖动排序">
-              <button
-                type="button"
+            <p v-if="plots.length" id="farmer-plot-order-help" class="sr-only">拖动每张地块卡片右上角的排序按钮，或长按卡片，可以调整顺序。</p>
+            <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块" aria-describedby="farmer-plot-order-help">
+              <article
                 v-for="(plot, plot_index) in plots"
                 :key="plot.plotId"
                 :data-farmer-plot-id="plot.plotId"
@@ -428,9 +428,14 @@
                   'is-dragging': plot_drag_state.active && plot_drag_state.dragPlotId === plot.plotId,
                   'is-drop-target': plot_drag_state.active && plot_drag_state.dropTargetId === plot.plotId
                 }"
+                role="button"
+                tabindex="0"
+                :aria-label="`查看${plot.name}地块详情`"
                 @click="handle_plot_card_click(plot)"
                 @pointerdown="handle_plot_pointer_down($event, plot, plot_index)"
                 @keydown.esc="cancel_plot_drag"
+                @keydown.enter.prevent="open_plot(plot)"
+                @keydown.space.prevent="open_plot(plot)"
               >
                 <div class="farmer-plot-overview-head">
                   <div class="farmer-plot-overview-head-left">
@@ -451,7 +456,16 @@
                         risk: plot_band_status(plot) === 'ALERT'
                       }"
                     >{{ plot_band_label(plot) }}</span>
-                    <span class="farmer-plot-drag-hint" title="长按拖动排序"><span aria-hidden="true">⠿</span><small>长按排序</small></span>
+                    <button
+                      type="button"
+                      class="farmer-plot-drag-handle"
+                      :aria-label="`调整${plot.name}的显示顺序`"
+                      title="拖动调整顺序"
+                      tabindex="-1"
+                      :disabled="plot_order_busy || !plot_order_loaded"
+                      @click.stop.prevent
+                      @pointerdown.stop="start_plot_handle_drag($event, plot, plot_index)"
+                    ><app-icon name="drag_indicator"></app-icon></button>
                   </div>
                 </div>
                 <dl class="farmer-plot-overview-metrics">
@@ -460,7 +474,7 @@
                     <dd :class="'metric-' + metric_status_of(plot, metric.code, metric)">{{ metric_value(metric) }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
-              </button>
+              </article>
             </div>
 
             <div v-if="selected_plot && batch_timeline.length" class="g-card farmer-batch-panel">
@@ -522,7 +536,7 @@
                     <strong :class="{'is-risk-value': chart.is_risk}">{{ chart.current_label }}</strong>
                   </div>
                   <div v-if="!chart.unavailable" class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="chart.label + chart.range_title + '曲线图'"
                          @mousemove="show_chart_tooltip($event, chart, chart.code)" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in chart.grid" :key="line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <text v-for="line in chart.grid" :key="'label-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
@@ -658,7 +672,7 @@
                     <strong>{{ advice_soil_chart.current_label }}</strong>
                   </div>
                   <div class="farmer-chart-interactive">
-                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
+                    <svg class="farmer-chart-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="advice_plot.name + '土壤湿度趋势曲线图'"
                          @mousemove="show_chart_tooltip($event, advice_soil_chart, 'advice-compact')" @mouseleave="hide_chart_tooltip">
                       <line v-for="line in advice_soil_chart.grid" :key="'advice-line-' + line.y" class="farmer-chart-grid-line" x1="28" :y1="line.y" x2="352" :y2="line.y"></line>
                       <polyline v-for="series in advice_soil_chart.series" :key="'advice-series-' + series.label" class="farmer-chart-line" :points="series.points" :stroke="series.color"></polyline>
@@ -913,7 +927,7 @@
                   </div>
                   <div v-if="advice_light_chart" class="farmer-moisture-chart-wrap">
                     <div class="farmer-chart-interactive">
-                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
+                      <svg class="farmer-chart-svg farmer-moisture-svg" viewBox="0 0 360 132" preserveAspectRatio="none" role="img" :aria-label="advice_light_chart.plotName + '光照强度-时间曲线图'" @mousemove="show_chart_tooltip($event, advice_light_chart, 'advice-light')" @mouseleave="hide_chart_tooltip">
                         <line v-for="line in advice_light_chart.grid" :key="'lg-' + line.y" class="farmer-chart-grid-line" x1="32" :y1="line.y" x2="350" :y2="line.y"></line>
                         <text v-for="line in advice_light_chart.grid" :key="'lt-' + line.y" class="farmer-chart-axis-label" x="2" :y="line.y + 3">{{ line.label }}</text>
                         <g v-if="advice_light_chart.targetSegments && advice_light_chart.targetSegments.length">
@@ -980,7 +994,16 @@
               </div>
               <div class="farmer-page-actions">
                 <span class="g-badge success">共 {{ messages.length }} 条 · 未读 {{ unread_count }} 条</span>
-                <button type="button" class="g-btn secondary farmer-btn-light" @click="clear_read_messages" :disabled="!messages.some(m => m.read)"><app-icon name="delete_sweep"></app-icon>一键清除已读</button>
+                <button
+                  type="button"
+                  class="g-btn farmer-btn-clear"
+                  @click="clear_read_messages"
+                  :disabled="cleanup_busy || !read_message_count"
+                  :title="read_message_count ? `清除 ${read_message_count} 条已读消息` : '暂无已读消息'"
+                >
+                  <app-icon name="delete_sweep"></app-icon>
+                  {{ cleanup_busy ? '清除中…' : (read_message_count ? `清除已读 · ${read_message_count}` : '清除已读') }}
+                </button>
               </div>
             </div>
 
@@ -1111,8 +1134,10 @@
             <keep-alive include="AdminAiChatView">
               <admin-ai-chat-view
                 :state="assistant_view_state"
+                :route-params="assistant_route_params"
                 route-view="assistant"
                 @navigate="navigate"
+                @open-plot-detail="open_agent_plot_detail"
                 @data-invalidated="refresh_assistant_impacts">
               </admin-ai-chat-view>
             </keep-alive>
@@ -1244,6 +1269,16 @@
                 <p class="role-summary">查看待办与执行进度；任务由农场管理员下达。巡田与补证请前往「巡田记录」。</p>
               </div>
               <div class="farmer-page-actions">
+                <button
+                  type="button"
+                  class="g-btn farmer-btn-clear"
+                  @click="delete_all_completed_tasks"
+                  :disabled="cleanup_busy || !completed_task_count"
+                  :title="completed_task_count ? `清空 ${completed_task_count} 个已完成任务` : '暂无已完成任务'"
+                >
+                  <app-icon name="delete_sweep"></app-icon>
+                  {{ cleanup_busy ? '清理中…' : (completed_task_count ? `清空已完成 · ${completed_task_count}` : '清空已完成') }}
+                </button>
                 <button type="button" class="g-btn secondary farmer-btn-light" @click="navigate('inspections')"><app-icon name="fact_check"></app-icon>巡田记录</button>
               </div>
             </div>
@@ -1251,14 +1286,15 @@
             <div class="farmer-task-board">
               <div v-for="column in task_columns" :key="column.status" class="farmer-task-column">
                 <div class="farmer-task-column-header">
-                  <span class="farmer-task-status-chip" :class="'status-' + column.status">{{ column.label }}</span>
-                  <span class="farmer-task-count">{{ column.items.length }}</span>
-                  <button v-if="column.status === 'DONE' && column.items.length" type="button" class="g-btn secondary farmer-btn-light farmer-task-delete-all" @click.stop="delete_all_completed_tasks"><app-icon name="delete_sweep"></app-icon>一键删除</button>
+                  <div class="farmer-task-column-title">
+                    <span class="farmer-task-status-chip" :class="'status-' + column.status">{{ column.label }}</span>
+                    <span class="farmer-task-count">{{ column.items.length }}</span>
+                  </div>
                 </div>
                 <div class="farmer-task-column-body">
                   <div v-for="task in column.items" :key="task.id"
                        class="farmer-task-card"
-                       :class="{active: selected_task && selected_task.id === task.id}"
+                       :class="{active: selected_task && selected_task.id === task.id, 'is-done': column.status === 'DONE'}"
                        @click="open_task(task)">
                     <div class="farmer-task-card-head">
                       <span class="farmer-task-priority" :class="'priority-' + task.priority">{{ priority_label(task.priority) }}</span>
@@ -1270,7 +1306,15 @@
                       <app-icon name="grass"></app-icon>
                       {{ task.plot_name }}
                     </div>
-                    <button v-if="column.status === 'DONE'" type="button" class="g-btn icon-only farmer-task-delete-btn" @click.stop="delete_task(task)" title="删除"><app-icon name="delete"></app-icon></button>
+                    <button
+                      v-if="column.status === 'DONE'"
+                      type="button"
+                      class="g-btn icon-only farmer-task-delete-btn"
+                      @click.stop="delete_task(task)"
+                      :disabled="cleanup_busy"
+                      title="删除此任务"
+                      aria-label="删除此已完成任务"
+                    ><app-icon name="delete"></app-icon></button>
                   </div>
                   <div v-if="!column.items.length" class="farmer-empty">暂无{{ column.label }}任务</div>
                 </div>
@@ -1289,9 +1333,21 @@
                         下达者：{{ selected_task.issuer }} · 创建于 {{ selected_task.created_label }} · 截止 {{ selected_task.due_label }}
                       </p>
                     </div>
-                    <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_task" title="关闭">
-                      <app-icon name="close"></app-icon>
-                    </button>
+                    <div class="farmer-task-detail-header-actions">
+                      <button
+                        v-if="['DONE', 'CANCELLED', 'COMPLETED'].includes(String(selected_task.status || '').toUpperCase())"
+                        type="button"
+                        class="g-btn farmer-btn-clear"
+                        @click="delete_task(selected_task)"
+                        :disabled="cleanup_busy"
+                        title="删除此已完成任务"
+                      >
+                        <app-icon name="delete"></app-icon>{{ cleanup_busy ? '删除中…' : '删除任务' }}
+                      </button>
+                      <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_task" title="关闭">
+                        <app-icon name="close"></app-icon>
+                      </button>
+                    </div>
                   </div>
                   <div class="farmer-task-detail-body">
                     <div class="farmer-detail-section">
@@ -1919,6 +1975,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-performance-message-read-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1"></script>
 </body>
 </html>

@@ -4,7 +4,7 @@ import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, role
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5916-inspection-detail-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-agent-main-merge-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
@@ -15,7 +15,7 @@ import { AdminMemberManagementView } from './modules/admin-member-management.js?
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
-import { reconcilePlotOrder } from './plot-display.js?v=20260902-manager-plot-order-v1';
+import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -659,9 +659,7 @@ const DashboardView = {
       if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return source;
       return managerPlotOrderIds.value.length ? reconcilePlotOrder(source, managerPlotOrderIds.value) : source;
     });
-    const managerPlotOrderOf = (items) => (Array.isArray(items) ? items : [])
-      .map((plot) => String(plot?.plotId || '').trim())
-      .filter(Boolean);
+    const managerPlotOrderOf = (items) => plotOrderIds(items);
     const applyManagerPlotOrderPreference = () => {
       const source = managerPlotSource.value;
       const preferred = managerPlotPreferenceOrder.value;
@@ -690,8 +688,73 @@ const DashboardView = {
       managerPlotDragState.value.longPressTimer = null;
     };
     let managerPlotDragElement = null;
+    let managerPlotDragPreview = null;
+    let managerPlotDragPreviewLayer = null;
+    let managerPlotDragTargetBadge = null;
     let managerPlotClickSuppressTimer = null;
     let managerPlotOrderRequestVersion = 0;
+    const removeManagerPlotDragPreview = () => {
+      managerPlotDragPreviewLayer?.remove();
+      managerPlotDragPreview = null;
+      managerPlotDragPreviewLayer = null;
+      managerPlotDragTargetBadge = null;
+    };
+    const createManagerPlotDragPreview = (sourceCard) => {
+      removeManagerPlotDragPreview();
+      if (!sourceCard?.cloneNode) return;
+      const rect = sourceCard.getBoundingClientRect();
+      const appRoot = document.querySelector('#app');
+      const layer = document.createElement('div');
+      layer.className = 'manager-plot-drag-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      const previewContext = document.createElement('div');
+      previewContext.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-context`;
+      const preview = sourceCard.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'has-open-menu');
+      preview.classList.add('manager-plot-drag-preview');
+      preview.removeAttribute('data-plot-card');
+      preview.removeAttribute('data-manager-plot-id');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('.manager-plot-menu').forEach((element) => element.remove());
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--manager-plot-preview-x', '0px');
+      preview.style.setProperty('--manager-plot-preview-y', '0px');
+      const targetBadge = document.createElement('div');
+      targetBadge.className = 'manager-plot-drag-target-badge';
+      targetBadge.textContent = '拖到另一块地上';
+      targetBadge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      targetBadge.style.top = `${Math.round(rect.top)}px`;
+      targetBadge.style.setProperty('--manager-plot-preview-x', '0px');
+      targetBadge.style.setProperty('--manager-plot-preview-y', '0px');
+      previewContext.appendChild(preview);
+      layer.appendChild(previewContext);
+      layer.appendChild(targetBadge);
+      document.body.appendChild(layer);
+      managerPlotDragPreview = preview;
+      managerPlotDragPreviewLayer = layer;
+      managerPlotDragTargetBadge = targetBadge;
+    };
+    const moveManagerPlotDragPreview = (offsetX, offsetY, targetName = '') => {
+      if (!managerPlotDragPreview) return;
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      if (!managerPlotDragTargetBadge) return;
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      managerPlotDragTargetBadge.textContent = targetName ? `放到「${targetName}」的位置` : '拖到另一块地上';
+      managerPlotDragTargetBadge.classList.toggle('has-target', Boolean(targetName));
+    };
     const scheduleManagerPlotClickSuppressionReset = () => {
       if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
       managerPlotClickSuppressTimer = window.setTimeout(() => {
@@ -768,6 +831,7 @@ const DashboardView = {
       }
       document.body.classList.remove('manager-plot-dragging');
       managerPlotDragElement = null;
+      removeManagerPlotDragPreview();
       resetManagerPlotDragState({ suppressClick });
     };
     const managerPlotIndexAtPoint = (clientX, clientY) => {
@@ -788,6 +852,7 @@ const DashboardView = {
       state.dropTargetId = '';
       document.body.classList.add('manager-plot-dragging');
       managerPlotDragElement?.setPointerCapture?.(state.pointerId);
+      createManagerPlotDragPreview(managerPlotDragElement?.closest?.('[data-manager-plot-id]') || managerPlotDragElement);
     };
     const handleManagerPlotPointerMove = (event) => {
       const state = managerPlotDragState.value;
@@ -802,6 +867,14 @@ const DashboardView = {
       }
       event.preventDefault();
       const targetIndex = managerPlotIndexAtPoint(event.clientX, event.clientY);
+      const targetPlot = targetIndex >= 0 && targetIndex !== state.sourceIndex
+        ? visiblePlots.value[targetIndex]
+        : null;
+      moveManagerPlotDragPreview(
+        event.clientX - state.startX,
+        event.clientY - state.startY,
+        targetPlot?.name || ''
+      );
       if (targetIndex < 0 || targetIndex === state.sourceIndex) {
         state.targetIndex = state.sourceIndex;
         state.dropTargetId = '';
@@ -900,6 +973,56 @@ const DashboardView = {
       window.addEventListener('pointerup', handleManagerPlotPointerUp);
       window.addEventListener('pointercancel', cancelManagerPlotDrag);
       managerPlotDragState.value.longPressTimer = window.setTimeout(activateManagerPlotDrag, 400);
+    };
+    const startManagerPlotHandleDrag = (event, plot, index) => {
+      if (!isFarmAdmin.value || managerPlotOrderBusy.value || managerPlotDragState.value.pointerId !== null || !managerPlotOrderLoaded.value) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      closePlotMenu();
+      managerPlotDragElement = event.currentTarget;
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: managerPlotOrderOf(visiblePlots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handleManagerPlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handleManagerPlotPointerUp);
+      window.addEventListener('pointercancel', cancelManagerPlotDrag);
+      activateManagerPlotDrag();
+    };
+    const handleManagerPlotOrderKeydown = async (event, plot) => {
+      const sourceIndex = visiblePlots.value.findIndex((item) => String(item?.plotId || '') === String(plot?.plotId || ''));
+      if (sourceIndex < 0 || managerPlotOrderBusy.value || !managerPlotOrderLoaded.value) return;
+      const targetIndexByKey = {
+        ArrowLeft: Math.max(0, sourceIndex - 1),
+        ArrowUp: Math.max(0, sourceIndex - 1),
+        ArrowRight: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        ArrowDown: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        Home: 0,
+        End: visiblePlots.value.length - 1
+      };
+      if (!(event.key in targetIndexByKey)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const targetIndex = targetIndexByKey[event.key];
+      if (targetIndex === sourceIndex) return;
+      const farmId = selectedFarmId.value;
+      if (!farmId) return;
+      const trigger = event.currentTarget;
+      const previousOrder = managerPlotOrderOf(visiblePlots.value);
+      const nextOrder = managerPlotOrderOf(moveManagerPlotToIndex(visiblePlots.value, sourceIndex, targetIndex));
+      managerPlotOrderIds.value = nextOrder;
+      await saveManagerPlotOrder(farmId, nextOrder, previousOrder);
+      nextTick(() => trigger?.focus());
     };
     const handleManagerPlotCardClick = (plot, event) => {
       if (managerPlotDragState.value.suppressClick) {
@@ -1137,6 +1260,7 @@ const DashboardView = {
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     onBeforeUnmount(() => {
       cancelManagerPlotDrag();
+      removeManagerPlotDragPreview();
       if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
       managerPlotClickSuppressTimer = null;
       managerPlotOrderRequestVersion += 1;
@@ -1169,6 +1293,8 @@ const DashboardView = {
       managerPlotOrderBusy,
       handleManagerPlotCardClick,
       handleManagerPlotPointerDown,
+      startManagerPlotHandleDrag,
+      handleManagerPlotOrderKeydown,
       cancelManagerPlotDrag,
       devices,
       deviceOptions,

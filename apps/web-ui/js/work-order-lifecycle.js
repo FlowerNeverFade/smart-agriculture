@@ -508,10 +508,10 @@ export const WorkOrderLifecycleView = {
       selectedOverdueIds.value = next;
     };
 
-    const processOverdueTasks = async (mode = 'DISPOSE') => {
+    const reassignOverdueTasks = async () => {
       const targets = selectedOverdueOrders.value.slice();
       if (!targets.length) {
-        toast('请先选择需要处置的逾期任务', 'error');
+        toast('请先选择需要重新分配的逾期任务', 'error');
         return;
       }
       if (isBusy.value) return;
@@ -537,11 +537,10 @@ export const WorkOrderLifecycleView = {
           }
           try {
             const renewedDueAt = overdueRecoveryDueAt(order, lifecycleNow.value);
-            const actionLabel = mode === 'REASSIGN' ? '逾期任务重新分配' : '逾期任务处置并转交其他农户';
             const response = await api.assignWorkOrder(order.workOrderId, {
               assigneeId: choice.member.userId,
               dueAt: renewedDueAt,
-              note: `${actionLabel}：新处理时限 ${formatTime(renewedDueAt)}，当前进行中任务 ${choice.activeLoad} 项`
+              note: `逾期任务重新分配：新处理时限 ${formatTime(renewedDueAt)}，当前进行中任务 ${choice.activeLoad} 项`
             });
             publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member, renewedDueAt));
             reassigned += 1;
@@ -550,16 +549,14 @@ export const WorkOrderLifecycleView = {
           }
         }
         selectedOverdueIds.value = new Set();
-        const successLabel = mode === 'REASSIGN' ? '重新分配' : '处置';
-        if (reassigned) toast(`已${successLabel} ${reassigned} 项逾期任务并转入进行中${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
+        if (reassigned) toast(`已重新分配 ${reassigned} 项逾期任务并转入进行中${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
         else toast(failures[0] || '没有可重新分配的逾期任务', 'error');
       } finally {
         isBusy.value = false;
       }
     };
 
-    const autoReassignOverdue = () => processOverdueTasks('REASSIGN');
-    const autoDisposeOverdue = () => processOverdueTasks('DISPOSE');
+    const autoReassignOverdue = () => reassignOverdueTasks();
 
     const autoAssignUnassigned = async () => {
       if (!canManage.value || isBusy.value) return;
@@ -955,7 +952,7 @@ export const WorkOrderLifecycleView = {
       isOverdue, orderLane, isReworkOrder, isAlertVerificationOrder, isFarmerIssueReport, formatTime, workStatus, TERMINAL_STATUSES,
       showDetailModal, showTaskModal, showAssignModal, showSubmitModal, showReviewModal, showCancelModal, showInspectionModal, showInspectionDetailModal,
       activeOrder, activeInspection, assignment, submission, review, cancellation, taskForm, inspectionForm, WORK_ACTION_OPTIONS,
-      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoDisposeOverdue, autoAssignUnassigned,
+      openCreate, applyTaskTypePreset, createTask, openAssign, refreshFarmMembers, assignTask, toggleOverdueSelection, toggleAllOverdue, autoReassignOverdue, autoAssignUnassigned,
       startTask, openSubmit, submitResult, openReview, reviewTask, openCancel, cancelTask,
       openDetail, closeDetail, openDetailAction, openDetailFromKeyboard,
       clearSummaryScope, applyStatusFilter, applySummaryScope, onStatusSelect, onAssigneeSelect,
@@ -1027,12 +1024,11 @@ export const WorkOrderLifecycleView = {
         </section>
 
         <section v-if="canManage && isOverdueView" class="work-overdue-disposition" aria-label="逾期任务处置">
-          <div><strong>逾期任务处置</strong><span>一键处置和一键重新分配都会转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
+          <div><strong>逾期任务处置</strong><span>将逾期任务转交给其他合适农户；新负责人接手后任务进入进行中。</span></div>
           <div class="work-overdue-disposition-actions">
             <label><input type="checkbox" :checked="allVisibleOverdueSelected" :disabled="!filteredOrders.length || isBusy" @change="toggleAllOverdue"><span>全选当前任务</span></label>
             <span>已选 {{ selectedOverdueOrders.length }} 项</span>
-            <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="group_add"></app-icon>一键重新分配</button>
-            <button type="button" class="g-btn primary compact work-overdue-dispose" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoDisposeOverdue"><app-icon name="task_alt"></app-icon>{{ isBusy ? '正在处置' : '一键处置' }}</button>
+            <button type="button" class="g-btn secondary compact work-overdue-reassign" :disabled="!selectedOverdueOrders.length || isBusy" @click="autoReassignOverdue"><app-icon name="task_alt"></app-icon>一键重新分配</button>
           </div>
         </section>
 

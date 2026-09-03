@@ -26,6 +26,7 @@
 - [BearPi E53_IA1 接入](hardware/bearpi-e53-ia1.md)
 - [农务执行前端说明](../apps/web-ui/FARM_OPERATIONS.md)
 - [基于合格经验的受控学习](controlled-learning.md)
+- [角色化农业 Agent 工具合同](agent-tools.md)
 
 ## 当前验收证据
 
