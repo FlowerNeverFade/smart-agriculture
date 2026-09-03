@@ -101,6 +101,49 @@ test('populated metrics never keep the first-data waiting message', () => {
   assert.equal(plots[0].lastSeen, '环境数据已载入');
 });
 
+test('farm plot merge prefers composite health over device health', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-health', healthScore: 0.58 }],
+    [{
+      plotId: 'p-health',
+      health: { score: 0.61, deviceScore: 0.98 },
+      healthScore: 0.61,
+      device: { deviceId: 'sensor-health', plotId: 'p-health', healthScore: 0.98 }
+    }],
+    [{ deviceId: 'sensor-health', plotId: 'p-health', healthScore: 0.97 }],
+    [{ plotId: 'p-health', health: { score: 0.74 }, healthScore: 0.74 }]
+  );
+  assert.equal(plots[0].healthScore, 0.61);
+  assert.equal(formatHealthScore(plots[0].healthScore), '61');
+});
+
+test('farm plot merge never substitutes device health for missing composite health', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-device-only' }],
+    [{
+      plotId: 'p-device-only',
+      device: { deviceId: 'sensor-only', plotId: 'p-device-only', healthScore: 0.98 }
+    }],
+    [{ deviceId: 'sensor-only', plotId: 'p-device-only', healthScore: 0.97 }]
+  );
+  assert.equal(plots[0].healthScore, null);
+  assert.equal(formatHealthScore(plots[0].healthScore), '—');
+  assert.equal(adminHealthTone(plots[0].healthScore), 'unavailable');
+});
+
+test('farm plot merge retains a prior composite during a partial refresh', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-partial' }],
+    [{
+      plotId: 'p-partial',
+      device: { deviceId: 'sensor-partial', plotId: 'p-partial', healthScore: 0.98 }
+    }],
+    [],
+    [{ plotId: 'p-partial', health: { score: 0.73 }, healthScore: 0.73 }]
+  );
+  assert.equal(plots[0].healthScore, 0.73);
+});
+
 test('farm summary and merged plot facts use current records', () => {
   const plots = mergeFarmPlots([{ plotId: 'p1', status: 'ACTIVE', areaM2: 80 }], [{ plotId: 'p1', riskLevel: 'HIGH', latest: { SOIL_MOISTURE: { value: 12, unit: '%', quality: { status: 'GOOD' } } } }]);
   const summary = adminSummary({ plots, workOrders: [{ status: 'OPEN', dueAt: '2026-01-01T00:00:00Z' }] }, Date.parse('2026-08-26T00:00:00Z'));

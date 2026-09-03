@@ -1033,7 +1033,7 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     hardware,
     hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
-    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.health?.score ?? plot.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
     lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
