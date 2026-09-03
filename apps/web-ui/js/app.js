@@ -4,18 +4,18 @@ import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, role
 import { buildAccountProfile } from './account-profile.js';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, PRESET_OPTIONS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-overdue-reassign-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-agent-main-merge-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminMarketInsightsView } from './modules/admin-market-insights.js?v=20260902-v5911-zhcn-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
-import { reconcilePlotOrder } from './plot-display.js?v=20260902-manager-plot-order-v1';
+import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -659,9 +659,7 @@ const DashboardView = {
       if (!isFarmAdmin.value || !managerPlotOrderFarmId.value || managerPlotOrderFarmId.value !== selectedFarmId.value) return source;
       return managerPlotOrderIds.value.length ? reconcilePlotOrder(source, managerPlotOrderIds.value) : source;
     });
-    const managerPlotOrderOf = (items) => (Array.isArray(items) ? items : [])
-      .map((plot) => String(plot?.plotId || '').trim())
-      .filter(Boolean);
+    const managerPlotOrderOf = (items) => plotOrderIds(items);
     const applyManagerPlotOrderPreference = () => {
       const source = managerPlotSource.value;
       const preferred = managerPlotPreferenceOrder.value;
@@ -690,8 +688,73 @@ const DashboardView = {
       managerPlotDragState.value.longPressTimer = null;
     };
     let managerPlotDragElement = null;
+    let managerPlotDragPreview = null;
+    let managerPlotDragPreviewLayer = null;
+    let managerPlotDragTargetBadge = null;
     let managerPlotClickSuppressTimer = null;
     let managerPlotOrderRequestVersion = 0;
+    const removeManagerPlotDragPreview = () => {
+      managerPlotDragPreviewLayer?.remove();
+      managerPlotDragPreview = null;
+      managerPlotDragPreviewLayer = null;
+      managerPlotDragTargetBadge = null;
+    };
+    const createManagerPlotDragPreview = (sourceCard) => {
+      removeManagerPlotDragPreview();
+      if (!sourceCard?.cloneNode) return;
+      const rect = sourceCard.getBoundingClientRect();
+      const appRoot = document.querySelector('#app');
+      const layer = document.createElement('div');
+      layer.className = 'manager-plot-drag-layer';
+      layer.setAttribute('aria-hidden', 'true');
+      const previewContext = document.createElement('div');
+      previewContext.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-context`;
+      const preview = sourceCard.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'has-open-menu');
+      preview.classList.add('manager-plot-drag-preview');
+      preview.removeAttribute('data-plot-card');
+      preview.removeAttribute('data-manager-plot-id');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('.manager-plot-menu').forEach((element) => element.remove());
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--manager-plot-preview-x', '0px');
+      preview.style.setProperty('--manager-plot-preview-y', '0px');
+      const targetBadge = document.createElement('div');
+      targetBadge.className = 'manager-plot-drag-target-badge';
+      targetBadge.textContent = '拖到另一块地上';
+      targetBadge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      targetBadge.style.top = `${Math.round(rect.top)}px`;
+      targetBadge.style.setProperty('--manager-plot-preview-x', '0px');
+      targetBadge.style.setProperty('--manager-plot-preview-y', '0px');
+      previewContext.appendChild(preview);
+      layer.appendChild(previewContext);
+      layer.appendChild(targetBadge);
+      document.body.appendChild(layer);
+      managerPlotDragPreview = preview;
+      managerPlotDragPreviewLayer = layer;
+      managerPlotDragTargetBadge = targetBadge;
+    };
+    const moveManagerPlotDragPreview = (offsetX, offsetY, targetName = '') => {
+      if (!managerPlotDragPreview) return;
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragPreview.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      if (!managerPlotDragTargetBadge) return;
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      managerPlotDragTargetBadge.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      managerPlotDragTargetBadge.textContent = targetName ? `放到「${targetName}」的位置` : '拖到另一块地上';
+      managerPlotDragTargetBadge.classList.toggle('has-target', Boolean(targetName));
+    };
     const scheduleManagerPlotClickSuppressionReset = () => {
       if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
       managerPlotClickSuppressTimer = window.setTimeout(() => {
@@ -768,6 +831,7 @@ const DashboardView = {
       }
       document.body.classList.remove('manager-plot-dragging');
       managerPlotDragElement = null;
+      removeManagerPlotDragPreview();
       resetManagerPlotDragState({ suppressClick });
     };
     const managerPlotIndexAtPoint = (clientX, clientY) => {
@@ -788,6 +852,7 @@ const DashboardView = {
       state.dropTargetId = '';
       document.body.classList.add('manager-plot-dragging');
       managerPlotDragElement?.setPointerCapture?.(state.pointerId);
+      createManagerPlotDragPreview(managerPlotDragElement?.closest?.('[data-manager-plot-id]') || managerPlotDragElement);
     };
     const handleManagerPlotPointerMove = (event) => {
       const state = managerPlotDragState.value;
@@ -802,6 +867,14 @@ const DashboardView = {
       }
       event.preventDefault();
       const targetIndex = managerPlotIndexAtPoint(event.clientX, event.clientY);
+      const targetPlot = targetIndex >= 0 && targetIndex !== state.sourceIndex
+        ? visiblePlots.value[targetIndex]
+        : null;
+      moveManagerPlotDragPreview(
+        event.clientX - state.startX,
+        event.clientY - state.startY,
+        targetPlot?.name || ''
+      );
       if (targetIndex < 0 || targetIndex === state.sourceIndex) {
         state.targetIndex = state.sourceIndex;
         state.dropTargetId = '';
@@ -900,6 +973,56 @@ const DashboardView = {
       window.addEventListener('pointerup', handleManagerPlotPointerUp);
       window.addEventListener('pointercancel', cancelManagerPlotDrag);
       managerPlotDragState.value.longPressTimer = window.setTimeout(activateManagerPlotDrag, 400);
+    };
+    const startManagerPlotHandleDrag = (event, plot, index) => {
+      if (!isFarmAdmin.value || managerPlotOrderBusy.value || managerPlotDragState.value.pointerId !== null || !managerPlotOrderLoaded.value) return;
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      event.preventDefault();
+      closePlotMenu();
+      managerPlotDragElement = event.currentTarget;
+      managerPlotDragState.value = {
+        active: false,
+        pointerId: event.pointerId,
+        sourceIndex: index,
+        targetIndex: index,
+        startX: event.clientX,
+        startY: event.clientY,
+        longPressTimer: null,
+        movedBeforeActivation: false,
+        suppressClick: false,
+        snapshot: managerPlotOrderOf(visiblePlots.value),
+        dragPlotId: String(plot?.plotId || ''),
+        dropTargetId: ''
+      };
+      window.addEventListener('pointermove', handleManagerPlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handleManagerPlotPointerUp);
+      window.addEventListener('pointercancel', cancelManagerPlotDrag);
+      activateManagerPlotDrag();
+    };
+    const handleManagerPlotOrderKeydown = async (event, plot) => {
+      const sourceIndex = visiblePlots.value.findIndex((item) => String(item?.plotId || '') === String(plot?.plotId || ''));
+      if (sourceIndex < 0 || managerPlotOrderBusy.value || !managerPlotOrderLoaded.value) return;
+      const targetIndexByKey = {
+        ArrowLeft: Math.max(0, sourceIndex - 1),
+        ArrowUp: Math.max(0, sourceIndex - 1),
+        ArrowRight: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        ArrowDown: Math.min(visiblePlots.value.length - 1, sourceIndex + 1),
+        Home: 0,
+        End: visiblePlots.value.length - 1
+      };
+      if (!(event.key in targetIndexByKey)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const targetIndex = targetIndexByKey[event.key];
+      if (targetIndex === sourceIndex) return;
+      const farmId = selectedFarmId.value;
+      if (!farmId) return;
+      const trigger = event.currentTarget;
+      const previousOrder = managerPlotOrderOf(visiblePlots.value);
+      const nextOrder = managerPlotOrderOf(moveManagerPlotToIndex(visiblePlots.value, sourceIndex, targetIndex));
+      managerPlotOrderIds.value = nextOrder;
+      await saveManagerPlotOrder(farmId, nextOrder, previousOrder);
+      nextTick(() => trigger?.focus());
     };
     const handleManagerPlotCardClick = (plot, event) => {
       if (managerPlotDragState.value.suppressClick) {
@@ -1137,6 +1260,7 @@ const DashboardView = {
     onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
     onBeforeUnmount(() => {
       cancelManagerPlotDrag();
+      removeManagerPlotDragPreview();
       if (managerPlotClickSuppressTimer !== null) window.clearTimeout(managerPlotClickSuppressTimer);
       managerPlotClickSuppressTimer = null;
       managerPlotOrderRequestVersion += 1;
@@ -1169,6 +1293,8 @@ const DashboardView = {
       managerPlotOrderBusy,
       handleManagerPlotCardClick,
       handleManagerPlotPointerDown,
+      startManagerPlotHandleDrag,
+      handleManagerPlotOrderKeydown,
       cancelManagerPlotDrag,
       devices,
       deviceOptions,
@@ -1257,8 +1383,8 @@ const PlotDetailModal = {
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '暴雨时的平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .01, help: '每模拟小时的自然失水/增湿；正数增湿，负数失水' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .01, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '比例', min: 0, max: 1, step: .01, help: '设备周期内断连比例（0.55 表示 55%）' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
       waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '暴雨时高于此值触发积水风险' },
@@ -3169,6 +3295,8 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
+    const createUserDialog = ref(null);
+    let createUserTrigger = null;
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo' });
     const surfaceStyleOptions = SURFACE_STYLE_OPTIONS;
     const appearanceStyleOptions = surfaceStyleOptions.filter((item) => item.value !== DEFAULT_USER_SETTINGS.surfaceStyle);
@@ -3246,6 +3374,47 @@ const AdminSettingsView = {
       user.enabled = !user.enabled;
     };
 
+    const createUserFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const openCreateUser = async (event) => {
+      createUserTrigger = event?.currentTarget || document.activeElement;
+      showCreateUser.value = true;
+      await nextTick();
+      createUserDialog.value?.querySelector(createUserFocusableSelector)?.focus();
+    };
+    const closeCreateUser = async () => {
+      const trigger = createUserTrigger;
+      showCreateUser.value = false;
+      createUserTrigger = null;
+      await nextTick();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    const handleCreateUserDialogKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCreateUser();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = createUserDialog.value;
+      const focusable = Array.from(dialog?.querySelectorAll(createUserFocusableSelector) || [])
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+
     const createUser = async () => {
       const roleLabels = { FARMER: '种植农户', FARM_ADMIN: '农场管理员', SYSTEM_ADMIN: '系统管理员' };
       if (isLiveSession.value) {
@@ -3308,8 +3477,8 @@ const AdminSettingsView = {
           .replace('➖', '<span class="material-symbols-outlined" style="font-size: 16px; vertical-align: text-bottom; color: var(--g-text-tertiary)">horizontal_rule</span>');
       };
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, filteredUsers, filteredLogs,
-      permissionMatrix, formatPerm, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
+      activeTab, roleFilter, logFilter, showCreateUser, createUserDialog, newUser, filteredUsers, filteredLogs,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, handleCreateUserDialogKeydown, createUser, deleteUser, toggleUser, localizedStatusLabel, displayText,
       surfaceStyleOptions, appearanceStyleOptions, appearanceSettings, appearanceStyleLabel,
       selectAppearanceStyle, resetAppearanceStyle
     };

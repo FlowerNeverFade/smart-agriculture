@@ -91,6 +91,16 @@ test('bound device without heartbeat is reflected on its plot immediately', () =
   assert.equal(plots[0].lastSeen, '设备已绑定，等待首次数据');
 });
 
+test('populated metrics never keep the first-data waiting message', () => {
+  const plots = mergeFarmPlots(
+    [{ plotId: 'p-live', name: '温室', lastSeen: '等待设备接入' }],
+    [{ plotId: 'p-live', latest: { SOIL_MOISTURE: { value: 31.2, unit: '%', quality: { status: 'GOOD' } } } }],
+    [{ deviceId: 'sensor-live', plotId: 'p-live', status: 'OFFLINE', lastSeen: null }]
+  );
+  assert.equal(plots[0].metrics.SOIL_MOISTURE.value, 31.2);
+  assert.equal(plots[0].lastSeen, '环境数据已载入');
+});
+
 test('farm summary and merged plot facts use current records', () => {
   const plots = mergeFarmPlots([{ plotId: 'p1', status: 'ACTIVE', areaM2: 80 }], [{ plotId: 'p1', riskLevel: 'HIGH', latest: { SOIL_MOISTURE: { value: 12, unit: '%', quality: { status: 'GOOD' } } } }]);
   const summary = adminSummary({ plots, workOrders: [{ status: 'OPEN', dueAt: '2026-01-01T00:00:00Z' }] }, Date.parse('2026-08-26T00:00:00Z'));

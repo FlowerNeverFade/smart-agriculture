@@ -6,12 +6,12 @@ import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-overdue-reassign-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-agent-main-merge-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
@@ -1509,6 +1509,8 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
+    const createUserDialog = ref(null);
+    let createUserTrigger = null;
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo', plotIds: [], authorizationCode: '' });
     const createdRecovery = ref(null);
     const userActionBusy = ref(false);
@@ -1526,14 +1528,48 @@ const AdminSettingsView = {
         farmId: accountFarms.value[0]?.farmId || 'farm-demo', plotIds: [], authorizationCode: ''
       };
     };
-    const openCreateUser = () => {
+    const createUserFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const openCreateUser = async (event) => {
+      createUserTrigger = event?.currentTarget || document.activeElement;
       resetUserDraft();
       showCreateUser.value = true;
+      await nextTick();
+      createUserDialog.value?.querySelector(createUserFocusableSelector)?.focus();
     };
-    const closeCreateUser = () => {
+    const closeCreateUser = async () => {
       if (userActionBusy.value) return;
+      const trigger = createUserTrigger;
       showCreateUser.value = false;
       resetUserDraft();
+      createUserTrigger = null;
+      await nextTick();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    const handleCreateUserDialogKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCreateUser();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = createUserDialog.value;
+      const focusable = Array.from(dialog?.querySelectorAll(createUserFocusableSelector) || [])
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     watch(() => newUser.value.role, (role) => {
       newUser.value.plotIds = [];
@@ -1783,10 +1819,10 @@ const AdminSettingsView = {
     const userPage = usePagination(filteredUsers);
     const logPage = usePagination(filteredLogs);
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, createdRecovery, userActionBusy,
+      activeTab, roleFilter, logFilter, showCreateUser, createUserDialog, newUser, createdRecovery, userActionBusy,
       accountFarms, availableAccountPlots, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       logFilterOptions, auditActionLabel,
-      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, createUser, copyCreatedRecovery,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, handleCreateUserDialogKeydown, createUser, copyCreatedRecovery,
       deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,

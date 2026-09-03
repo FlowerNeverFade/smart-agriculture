@@ -4,6 +4,7 @@ import {
   PLOT_METRIC_CODES,
   orderedPlotMetrics,
   plotMetricValue,
+  plotOrderIds,
   reconcilePlotOrder,
   stablePlotSort
 } from '../js/plot-display.js';
@@ -19,6 +20,13 @@ test('plot cards use a deterministic fallback order and preserve saved order', (
     plots[0], plots[2], plots[1]
   ]);
   assert.deepEqual(reconcilePlotOrder(plots, ['plot-b02']).map((plot) => plot.plotId), ['plot-b02', 'plot-a02', 'plot-a10']);
+});
+
+test('plot order normalization accepts both plot objects and persisted IDs', () => {
+  assert.deepEqual(
+    plotOrderIds([{ plotId: 'plot-b02' }, 'plot-a02', { id: 'plot-a10' }, 'plot-b02', '']),
+    ['plot-b02', 'plot-a02', 'plot-a10']
+  );
 });
 
 test('all standard metric slots stay fixed and unavailable values render as a dash', () => {
