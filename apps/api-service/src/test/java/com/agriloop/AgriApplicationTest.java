@@ -12,7 +12,10 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.TimeZone;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -723,6 +726,10 @@ class AgriApplicationTest {
                 "commandId", "historical-water-" + suffix, "plotId", plotId, "type", "IRRIGATION_START",
                 "status", "SUCCEEDED", "waterLitre", 115.0,
                 "ack", Map.of("status", "SUCCEEDED", "actualWaterLitre", 115.0, "receivedAt", Instant.now().toString()))));
+        store.save("command", "completed-water-" + suffix, new java.util.LinkedHashMap<>(Map.of(
+                "commandId", "completed-water-" + suffix, "plotId", plotId, "type", "IRRIGATION_START",
+                "status", "COMPLETED", "waterLitre", 115.0,
+                "ack", Map.of("status", "SUCCEEDED", "actualWaterLitre", 115.0, "receivedAt", Instant.now().toString()))));
         Instant observedAt = Instant.now();
         engine.ingest(Map.ofEntries(
                 Map.entry("eventId", "water-balance-soil-" + suffix), Map.entry("farmId", farmId),
@@ -741,6 +748,59 @@ class AgriApplicationTest {
                 "planId", plan.get("planId"), "plotId", plotId,
                 "idempotencyKey", "water-balance-direct-" + suffix, "confirmed", true)), authentication));
         assertThat(command).containsEntry("confirmationMode", "OPERATOR_CONFIRMED");
+    }
+
+    @Test
+    void farmerAdviceIrrigationUsesConfiguredWaterBusinessDateForBalance() {
+        TimeZone originalTimeZone = TimeZone.getDefault();
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Pacific/Honolulu"));
+            String suffix = String.valueOf(System.nanoTime());
+            String farmId = "farm-advice-balance-" + suffix;
+            String plotId = "plot-advice-balance-" + suffix;
+            String deviceId = "mock-" + plotId;
+            String commandId = "advice-balance-command-" + suffix;
+            store.save("plot", plotId, new java.util.LinkedHashMap<>(Map.of(
+                    "plotId", plotId, "farmId", farmId, "name", "建议灌溉余额测试田",
+                    "cropCode", "tomato", "stageCode", "vegetative", "areaM2", 80, "status", "ACTIVE")));
+            store.save("device", deviceId, new java.util.LinkedHashMap<>(Map.of(
+                    "deviceId", deviceId, "farmId", farmId, "plotId", plotId,
+                    "status", "ONLINE", "bindingState", "BOUND", "sourceMode", "SIMULATION")));
+            store.save("resource-profile", "water-" + farmId, new java.util.LinkedHashMap<>(Map.of(
+                    "resourceProfileId", "water-" + farmId, "farmId", farmId, "resourceType", "WATER",
+                    "capacityLitres", 120.0, "dailyQuotaLitres", 120.0, "flowRateLitresPerMinute", 18.0,
+                    "timezone", "Asia/Shanghai")));
+            Instant observedAt = Instant.now().minusSeconds(1);
+            engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "advice-balance-soil-" + suffix), Map.entry("farmId", farmId),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "SOIL_MOISTURE"),
+                    Map.entry("value", 20.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.toString()),
+                    Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "normal"),
+                    Map.entry("quality", Map.of("status", "GOOD", "confidence", .98))));
+            engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "advice-balance-water-" + suffix), Map.entry("farmId", farmId),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "WATER_LEVEL"),
+                    Map.entry("value", 82.0), Map.entry("unit", "%"), Map.entry("ts", observedAt.plusMillis(1).toString()),
+                    Map.entry("sourceMode", "SIMULATION"), Map.entry("scenarioId", "normal"),
+                    Map.entry("quality", Map.of("status", "GOOD", "confidence", .98))));
+            Map<String, Object> command = new java.util.LinkedHashMap<>(Map.of(
+                    "commandId", commandId, "planId", "plan-advice-balance-" + suffix, "plotId", plotId,
+                    "farmId", farmId, "source", "farmer-advice-direct", "waterLitre", 12.0));
+            store.save("command", commandId, command);
+
+            Map<String, Object> evaluation = engine.evaluateCommand(command, Map.of(
+                    "commandId", commandId, "status", "SUCCEEDED", "actualWaterLitre", 12.0));
+            LocalDate businessDate = LocalDate.now(ZoneId.of("Asia/Shanghai"));
+            Map<String, Object> balance = store.find("water-daily-balance", "water:" + farmId + ":" + businessDate);
+
+            assertThat(evaluation).containsEntry("status", "COMPLETED");
+            assertThat(balance).isNotNull();
+            assertThat(Jsons.number(balance, "actualUsedLitres", 0)).isEqualTo(12.0);
+            assertThat(Jsons.number(balance, "remainingLitres", 0)).isEqualTo(108.0);
+            assertThat(store.find("water-daily-balance", "water:" + farmId + ":" + LocalDate.now().toString())).isNull();
+        } finally {
+            TimeZone.setDefault(originalTimeZone);
+        }
     }
 
     @Test

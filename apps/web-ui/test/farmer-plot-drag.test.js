@@ -18,7 +18,7 @@ test('farmer plot cards expose a pointer-only direct drag handle', () => {
   assert.doesNotMatch(htmlSource, /handle_plot_order_keydown|方向键、Home 和 End 键移动/);
   assert.doesNotMatch(scriptSource, /handle_plot_order_keydown|targetIndexByKey/);
   assert.match(scriptSource, /const start_plot_handle_drag = \(event, plot, index\) => \{[\s\S]*?begin_plot_pointer_tracking\(event, plot, index\);\s*activate_plot_drag\(\);/);
-  assert.match(htmlSource, /js\/farmer\.js\?v=20260903-v5923-work-order-zhcn-v1/);
+  assert.match(htmlSource, /js\/farmer\.js\?v=20260903-v5923-main-merge-v1/);
 });
 
 test('farmer pointer sorting keeps long press while the handle activates immediately', () => {

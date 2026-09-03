@@ -276,6 +276,16 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /window\.echarts/);
   assert.match(source, /getDom\?\.\(\)/);
   assert.match(source, /silent: true/);
+  // 双轨图例使用与曲线相同的颜色/线型定义，避免 ECharts 默认调色板造成错配。
+  assert.match(source, /PLOT_SIMULATION_LINE_STYLES/);
+  assert.match(source, /build_plot_simulation_legend_items/);
+  assert.match(source, /legend: \{ show: false \}/);
+  assert.match(source, /if \(plot_simulation_loading\.value \|\| plot_simulation_metric_loading\.value \|\| plot_simulation_evaluating\.value\) return false/);
+  assert.match(source, /plot_simulation_dual_track\.value = null/);
+  assert.match(html, /风险预测曲线图例/);
+  assert.match(html, /item\.lineType/);
+  assert.match(html, /v-else-if="!plot_simulation_loading && !plot_simulation_metric_loading && !plot_simulation_evaluating"/);
+  assert.match(css, /farmer-legend-swatch\.is-dotted/);
   assert.match(html, /farmer-plot-simulation-chart-stage/);
   assert.match(html, /is-overlay/);
   assert.match(source, /getIrrigationGuard/);
@@ -508,5 +518,5 @@ test('role shells constrain overflow and desktop farmer collapse releases the si
   assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
   assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
   assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
-  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-fullbleed-ai-merge/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-dual-legend-v1/);
 });

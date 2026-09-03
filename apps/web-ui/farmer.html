@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260902-shell-fixes-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260903-fullbleed-ai-merge">
+  <link rel="stylesheet" href="css/farmer.css?v=20260903-dual-legend-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
@@ -1589,9 +1589,15 @@
                     </div>
                     <div class="farmer-plot-simulation-chart-stage">
                       <div v-if="plot_simulation_chart_available" class="farmer-plot-simulation-chart-canvas">
+                        <div class="farmer-chart-legend farmer-plot-simulation-legend" aria-label="风险预测曲线图例">
+                          <span v-for="item in plot_simulation_legend_items" :key="'plot-legend-' + item.label" class="farmer-chart-legend-item">
+                            <i class="farmer-legend-swatch" :class="'is-' + item.lineType" :style="{'--legend-color': item.color}" aria-hidden="true"></i>
+                            <span>{{ item.label }}</span>
+                          </span>
+                        </div>
                         <div ref="plot_simulation_chart_el" class="farmer-plot-simulation-echarts" role="img" :aria-label="`${plot_simulation_metric_label}历史与策略预测曲线`"></div>
                       </div>
-                      <p v-else class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的未来预测曲线' }}</p>
+                      <p v-else-if="!plot_simulation_loading && !plot_simulation_metric_loading && !plot_simulation_evaluating" class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的未来预测曲线' }}</p>
                       <div v-if="(plot_simulation_loading || plot_simulation_metric_loading) && !plot_simulation_chart_available" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取未来预测曲线…</span></div>
                       <div v-else-if="plot_simulation_evaluating" class="farmer-chart-loading is-overlay is-soft" aria-live="polite" aria-busy="true"><span>正在刷新预测…</span></div>
                     </div>
@@ -1984,6 +1990,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260903-v5923-work-order-zhcn-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5923-main-merge-v1"></script>
 </body>
 </html>

@@ -826,7 +826,7 @@ const AdminResourcesView = {
     const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || '待处理');
     const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || '未知');
     const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
-    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, persistenceReady, collaborationLabel, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel, localizedSourceLabel };
   }
 };
 
@@ -2442,7 +2442,12 @@ const app = createApp({
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
-        const devices = fulfilled('devices') ? (results.devices.value || []) : (cardDevices.length ? cardDevices : (state.value.devices || []));
+        // 全量 devices job 未完成时保持上一次全量（统计不回落 cardDevices，
+        // 避免总览设备在线数闪过 overview 卡片的中间设备子集如 24/24）
+        const devicesFulfilled = fulfilled('devices');
+        const devices = devicesFulfilled ? (results.devices.value || []) : (state.value.devices || []);
+        // 设备页列表可用卡片设备即时占位，但统计口径始终用全量 devices
+        const listDevices = devices.length ? devices : cardDevices;
         state.value.farms = fulfilled('farms') ? farms : state.value.farms;
         state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
@@ -2451,7 +2456,7 @@ const app = createApp({
         state.value.alerts = fulfilled('alerts') ? alerts : state.value.alerts;
         state.value.devices = devices;
         state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
-        state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
+        state.value.adminDevices = listDevices.map((device) => mapAdminDevice(device, plotMap));
         state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
         state.value.resourcePlans = fulfilled('resourcePlans') ? (results.resourcePlans.value || []) : state.value.resourcePlans;
