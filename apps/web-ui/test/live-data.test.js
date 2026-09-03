@@ -5,6 +5,8 @@ import {
   agentResponseSource,
   agentResponseText,
   buildFarmerMessages,
+  decisionEvidenceLabel,
+  decisionReadinessLabel,
   displayText,
   mapAdminPlot,
   mapStrategyCandidate,
@@ -32,6 +34,20 @@ test('presentation helpers localize shared technical labels without changing ide
   assert.equal(displayText('WATER_DEFICIT · READY · 153L / 8m30s'), '缺水风险 · 就绪 · 153 升 / 8 分 30 秒');
   assert.equal(displayText('Crop Pack rules-only Time-to-Risk'), '作物模型包 规则兜底 风险到达时间');
   assert.equal(displayText('plot-a01'), 'plot-a01');
+});
+
+test('decision work-order copy localizes readiness and evidence codes', () => {
+  assert.equal(decisionEvidenceLabel('MORE_DIAGNOSIS_EVIDENCE'), '补充诊断证据');
+  assert.equal(decisionEvidenceLabel('HUMAN_EVIDENCE_REVIEW'), '复核人工现场证据');
+  assert.equal(decisionReadinessLabel('HUMAN_REVIEW'), '等待人工复核');
+  assert.equal(
+    displayText('任务异常：决策补充检查：MORE_DIAGNOSIS_EVIDENCE'),
+    '任务异常：决策补充检查：补充诊断证据'
+  );
+  assert.equal(
+    displayText('农户上报：当前就绪状态为 HUMAN_REVIEW'),
+    '农户上报：当前就绪状态为等待人工复核'
+  );
 });
 
 test('shared plot normalization exposes composite health without a device fallback', () => {

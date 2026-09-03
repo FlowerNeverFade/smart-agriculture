@@ -33,7 +33,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260903-v5922-plot-health-v1';
+} from './live-data.js?v=20260903-v5923-work-order-zhcn-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -532,6 +532,35 @@ const SIMULATION_METRIC_OPTIONS = Object.freeze([
 const SIMULATION_METRIC_BY_CODE = Object.freeze(Object.fromEntries(
   SIMULATION_METRIC_OPTIONS.map((item) => [item.code, item])
 ));
+
+// Keep the visible dual-track legend and ECharts lines on the same source of truth.
+// ECharts' auto-generated legend may fall back to its palette instead of the
+// series lineStyle, which makes branch colors look swapped or ambiguous.
+const PLOT_SIMULATION_LINE_STYLES = Object.freeze({
+  historical: Object.freeze({ color: '#1e8e3e', width: 2, type: 'solid' }),
+  strategy: Object.freeze({ color: '#2563eb', width: 2, type: 'dashed' }),
+  execute: Object.freeze({ color: '#16a34a', width: 2, type: 'solid' }),
+  noAction: Object.freeze({ color: '#dc2626', width: 2, type: 'dashed' }),
+  lower: Object.freeze({ color: '#93c5fd', width: 1, type: 'dotted' }),
+  upper: Object.freeze({ color: '#93c5fd', width: 1, type: 'dotted' })
+});
+
+const build_plot_simulation_legend_items = (dualTrack = false) => {
+  const items = dualTrack
+    ? [
+        { label: '历史实测', style: PLOT_SIMULATION_LINE_STYLES.historical },
+        { label: '策略预测', style: PLOT_SIMULATION_LINE_STYLES.strategy },
+        { label: '措施后预测', style: PLOT_SIMULATION_LINE_STYLES.execute },
+        { label: '不干预预测', style: PLOT_SIMULATION_LINE_STYLES.noAction }
+      ]
+    : [
+        { label: '历史实测', style: PLOT_SIMULATION_LINE_STYLES.historical },
+        { label: '策略预测', style: PLOT_SIMULATION_LINE_STYLES.strategy },
+        { label: '预测下界', style: PLOT_SIMULATION_LINE_STYLES.lower },
+        { label: '预测上界', style: PLOT_SIMULATION_LINE_STYLES.upper }
+      ];
+  return items.map((item) => ({ label: item.label, color: item.style.color, lineType: item.style.type }));
+};
 
 function simulation_metric_definition(code = 'SOIL_MOISTURE') {
   return SIMULATION_METRIC_BY_CODE[String(code || '').toUpperCase()] || SIMULATION_METRIC_BY_CODE.SOIL_MOISTURE;
@@ -1590,6 +1619,7 @@ const app = createApp({
     const plot_simulation_selected_metric = computed(() => simulation_metric_definition(plot_simulation_metric.value));
     const plot_simulation_metric_label = computed(() => plot_simulation_selected_metric.value.label);
     const plot_simulation_chart_available = computed(() => {
+      if (plot_simulation_loading.value || plot_simulation_metric_loading.value || plot_simulation_evaluating.value) return false;
       const forecast = plot_simulation_forecast.value;
       const hasHistory = Array.isArray(plot_simulation_history.value) && plot_simulation_history.value.length > 0;
       const hasForecast = forecast && String(forecast.status || '').toUpperCase() === 'AVAILABLE'
@@ -1616,6 +1646,10 @@ const app = createApp({
         && Array.isArray(noAction) && noAction.length > 0
         && String(track.status || '').toUpperCase() === 'AVAILABLE';
     });
+    const plot_simulation_dual_chart_active = computed(() => plot_simulation_metric.value === 'SOIL_MOISTURE'
+      && show_dual_track.value
+      && plot_simulation_dual_available.value);
+    const plot_simulation_legend_items = computed(() => build_plot_simulation_legend_items(plot_simulation_dual_chart_active.value));
     const plot_simulation_dual_summary = computed(() => {
       if (!plot_simulation_dual_available.value) return null;
       const track = plot_simulation_dual_track.value;
@@ -1781,12 +1815,10 @@ const app = createApp({
           const time = Number.isFinite(axisValue) ? `模拟 ${new Date(axisValue).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false })}` : '—';
           return `<strong>${time}</strong><br>${list.filter((item) => item.value?.[1] != null).map((item) => `${item.marker}${item.seriesName}：${simulation_format_curve_value(item.value[1], definition)} ${definition.unit}`).join('<br>')}`;
         }},
-        legend: {
-          data: dualTrack
-            ? ['历史实测', '策略预测', '措施后预测', '不干预预测']
-            : ['历史实测', '策略预测', '预测下界', '预测上界'],
-          textStyle: { color: textColor, fontSize: 11 }
-        },
+        // The chart card renders a semantic HTML legend using the same style
+        // constants as the series below. Do not let ECharts assign palette
+        // colors to branch labels independently.
+        legend: { show: false },
         grid: { left: 42, right: 18, top: 32, bottom: 30 },
         xAxis: { type: 'time', axisLabel: { color: textColor, fontSize: 10 }, axisPointer: { snap: true } },
         yAxis: {
@@ -1794,14 +1826,14 @@ const app = createApp({
           nameTextStyle: { color: textColor }, axisLabel: { color: textColor, fontSize: 10, formatter: (value) => simulation_format_curve_value(value, definition) }
         },
         series: [
-          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { color: '#1e8e3e', width: 2 } },
-          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#2563eb', width: 2, type: 'dashed', opacity: plot_simulation_evaluating.value ? .42 : 1 } },
+          { name: '历史实测', type: 'line', data: historical, showSymbol: false, connectNulls: false, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.historical } },
+          { name: '策略预测', type: 'line', data: predicted, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.strategy, opacity: plot_simulation_evaluating.value ? .42 : 1 } },
           ...(dualTrack ? [
-            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#3fb950', width: 2, opacity: plot_simulation_dual_loading.value ? .45 : 1 }, ...(dualMarkLine ? { markLine: dualMarkLine } : {}) },
-            { name: '不干预预测', type: 'line', data: noActionSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#f85149', width: 2, type: 'dashed', opacity: plot_simulation_dual_loading.value ? .45 : 1 } }
+            { name: '措施后预测', type: 'line', data: executeSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.execute, opacity: plot_simulation_dual_loading.value ? .45 : 1 }, ...(dualMarkLine ? { markLine: dualMarkLine } : {}) },
+            { name: '不干预预测', type: 'line', data: noActionSeries, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.noAction, opacity: plot_simulation_dual_loading.value ? .45 : 1 } }
           ] : [
-            { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } },
-            { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { color: '#93c5fd', width: 1, type: 'dotted', opacity: plot_simulation_evaluating.value ? .32 : 1 } }
+            { name: '预测下界', type: 'line', data: lower, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.lower, opacity: plot_simulation_evaluating.value ? .32 : 1 } },
+            { name: '预测上界', type: 'line', data: upper, showSymbol: false, connectNulls: true, smooth: true, lineStyle: { ...PLOT_SIMULATION_LINE_STYLES.upper, opacity: plot_simulation_evaluating.value ? .32 : 1 } }
           ])
         ]
       }, true);
@@ -1828,6 +1860,12 @@ const app = createApp({
       }
       plot_simulation_loading.value = true;
       plot_simulation_error.value = '';
+      // Do not expose the previous plot's/static demo curve while this plot is
+      // still loading. The chart becomes available only after the request
+      // settles and the new history/forecast have been assigned below.
+      plot_simulation_history.value = [];
+      plot_simulation_forecast.value = null;
+      plot_simulation_dual_track.value = null;
       try {
         const metric = plot_simulation_metric.value;
         const [configResult, historyResult, forecastResult] = await Promise.allSettled([
@@ -1890,8 +1928,8 @@ const app = createApp({
       const requestId = ++plot_simulation_preview_request_version;
       plot_simulation_preview_dirty.value = true;
       plot_simulation_evaluating.value = true;
-      // Keep the current curve visible while the next preview is in flight.
-      void render_plot_simulation_chart();
+      // Hide the previous curve while the next preview is in flight. The
+      // chart is rendered again only after the evaluated response settles.
       plot_simulation_preview_timer = window.setTimeout(() => {
         plot_simulation_preview_timer = null;
         void evaluate_plot_simulation_preview(requestId);
@@ -1929,7 +1967,14 @@ const app = createApp({
     } = {}) => {
       const normalized = simulation_metric_definition(metric).code;
       const requestId = ++plot_simulation_metric_request_version;
-      if (!silent) plot_simulation_metric_loading.value = true;
+      if (!silent) {
+        plot_simulation_metric_loading.value = true;
+        // Prevent the previously selected metric from being mistaken for the
+        // newly selected metric while its telemetry/forecast is in flight.
+        plot_simulation_history.value = [];
+        plot_simulation_forecast.value = null;
+        plot_simulation_dual_track.value = null;
+      }
       try {
         if (historyOnly) {
           const historyResult = await Promise.allSettled([api.getTelemetry(selected_plot.value?.plotId, normalized, 120)]);
@@ -2830,7 +2875,7 @@ const app = createApp({
     });
 
     const device_attention = computed(() => {
-      const deviceTasks = tasks.value.filter((task) => /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(`${task.title || ''}${task.reason || ''}`));
+      const deviceTasks = tasks.value.filter((task) => /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(displayText(`${task.title || ''}${task.reason || ''}`, '')));
       const task = deviceTasks.find((item) => item.status !== 'DONE') || deviceTasks[0] || null;
       const offlinePlot = plots.value.find((plot) => String(plot.deviceStatus).toUpperCase() !== 'ONLINE');
       const needsAction = Boolean(offlinePlot || (task && task.status !== 'DONE'));
@@ -2914,7 +2959,7 @@ const app = createApp({
         const due = Date.parse(task.due_iso || '');
         const overdue = Number.isFinite(due) && due < now;
         const dueSoon = Number.isFinite(due) && due >= now && due - now <= 6 * 60 * 60 * 1000;
-        const deviceTask = /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(`${task.title || ''}${task.reason || ''}`);
+        const deviceTask = /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(displayText(`${task.title || ''}${task.reason || ''}`, ''));
         const plot = find_plot_by_id(plots.value, task.plot_id);
         const score = (deviceTask ? 108 : (taskPriorityScore[String(task.priority || 'MEDIUM').toUpperCase()] || 40))
           + (overdue ? 34 : (dueSoon ? 16 : 0));
@@ -5074,7 +5119,7 @@ const app = createApp({
           }
           suggestion_flow_stage.value = 'RESULT';
           suggestion_recovery_status.value = '任务已开始，完成后填写结果。';
-          show_toast(`已确认任务：${task.title}`);
+          show_toast(`已确认任务：${displayText(task.title, '未命名任务')}`);
         } else {
           suggestion_flow_stage.value = 'RESULT';
           suggestion_recovery_status.value = active.kind === 'DEVICE' ? '已确认设备处理，完成检查后填写结果。' : '已确认风险处理，完成巡田或复测后填写结果。';
@@ -6207,12 +6252,12 @@ const app = createApp({
           patch_task_state(task, { ...(saved || {}), status: saved?.status || 'IN_PROGRESS' });
           close_task();
           await load_live_workspace({ announce: false });
-          show_toast(`已开始执行：${task.title}`);
+          show_toast(`已开始执行：${displayText(task.title, '未命名任务')}`);
         } catch (error) { show_toast(error.message || '开始任务失败', 'error'); }
         return;
       }
       patch_task_state(task, { status: 'IN_PROGRESS' });
-      show_toast(`已开始执行：${task.title}`);
+      show_toast(`已开始执行：${displayText(task.title, '未命名任务')}`);
       close_task();
     };
 
@@ -6223,12 +6268,12 @@ const app = createApp({
           patch_task_state(task, { ...(saved || {}), status: saved?.status || 'SUBMITTED' });
           close_task();
           await load_live_workspace({ announce: false });
-          show_toast(`已提交完成：${task.title}，等待管理员验收`);
+          show_toast(`已提交完成：${displayText(task.title, '未命名任务')}，等待管理员验收`);
         } catch (error) { show_toast(error.message || '提交任务失败', 'error'); }
         return;
       }
       patch_task_state(task, { status: 'DONE' });
-      show_toast(`已提交完成：${task.title}`);
+      show_toast(`已提交完成：${displayText(task.title, '未命名任务')}`);
       close_task();
     };
 
@@ -6282,7 +6327,7 @@ const app = createApp({
     const delete_task = async (task) => {
       if (cleanup_busy.value || !task) return;
       const workOrderId = task.workOrderId || task.id;
-      const title = String(task.title || '该任务').trim() || '该任务';
+      const title = displayText(task.title, '该任务');
       if (!window.confirm(`确定删除已完成任务「${title}」？`)) return;
       cleanup_busy.value = true;
       try {
@@ -6623,6 +6668,7 @@ const app = createApp({
       plot_simulation_dual_track,
       plot_simulation_dual_loading,
       plot_simulation_dual_available,
+      plot_simulation_legend_items,
       plot_simulation_dual_summary,
       show_dual_track,
       toggle_dual_track,

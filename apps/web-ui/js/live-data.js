@@ -158,6 +158,34 @@ const METRIC_LABELS = Object.freeze({
   DEVICE_FAULT: '设备异常', SENSOR_DRIFT: '传感器漂移'
 });
 
+const DECISION_READINESS_LABELS = Object.freeze({
+  READY: '可以执行',
+  NEEDS_EVIDENCE: '需要补充检查',
+  HUMAN_REVIEW: '等待人工复核',
+  UNAVAILABLE: '当前不可执行'
+});
+
+const DECISION_EVIDENCE_LABELS = Object.freeze({
+  FLOW_RATE_CALIBRATION: '检查流量计',
+  PORTABLE_METER_COMPARISON: '使用便携仪复测',
+  FRESH_TELEMETRY: '获取最新传感器数据',
+  DEVICE_HEALTH: '检查设备在线状态',
+  MORE_TELEMETRY_HISTORY: '延长数据观察时间',
+  CONTROL_PERMISSION: '当前账号无执行权限',
+  GOOD_DATA_QUALITY: '补充质量合格数据',
+  QUALITY_REVIEW: '复核数据质量',
+  HUMAN_EVIDENCE_REVIEW: '复核人工现场证据',
+  DIAGNOSIS_CONFIRMATION: '人工确认诊断',
+  MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据',
+  HEAVY_RAIN_REVIEW: '确认暴雨与排水状态',
+  SOIL_MOISTURE: '补充土壤湿度数据',
+  RESOURCE_CAPACITY: '核对水源容量',
+  CHECK_RESOURCE: '核对水源容量',
+  LIGHT: '补充光照数据',
+  LIGHTING_DURATION_LIMIT: '核对补光时长上限',
+  DEVICE_OFFLINE_VIRTUAL_ONLY: '设备离线，仅可虚拟演示'
+});
+
 function code(value) {
   return String(value ?? '').trim().toUpperCase().replace(/[\s-]+/g, '_');
 }
@@ -325,6 +353,20 @@ export function metricLabel(value, fallback = '未知指标') {
   return METRIC_LABELS[code(raw)] || fallback;
 }
 
+export function decisionReadinessLabel(value, fallback = '待评估') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return DECISION_READINESS_LABELS[code(raw)] || fallback;
+}
+
+export function decisionEvidenceLabel(value, fallback = '补充检查') {
+  const raw = String(value ?? '').trim();
+  if (!raw) return fallback;
+  if (preserveChinese(raw)) return raw;
+  return DECISION_EVIDENCE_LABELS[code(raw)] || fallback;
+}
+
 export function deviceTypeLabel(value, fallback = '类型未知') {
   const raw = String(value ?? '').trim();
   if (!raw) return fallback;
@@ -382,6 +424,7 @@ const DISPLAY_TOKEN_LABELS = Object.freeze({
   HARDWARE: '硬件', REAL: '真实设备', USER_PROVIDED: '人工提供', DERIVED: '推导',
   ESTIMATED: '估算', OBSERVED: '现场观测', RULES_ONLY: '规则兜底', FULL: '完整模式',
   READY: '就绪', PENDING: '待处理', OPEN: '待处理', ASSIGNED: '已分配',
+  HUMAN_REVIEW: '等待人工复核', NEEDS_EVIDENCE: '需要补充检查', UNAVAILABLE: '当前不可执行',
   IN_PROGRESS: '进行中', SUBMITTED: '待验收', COMPLETED: '已完成', DONE: '已完成',
   FAILED: '失败', ERROR: '异常', OFFLINE: '离线', ONLINE: '在线', ACTIVE: '运行中',
   INACTIVE: '已停用', HEALTHY: '健康', WARNING: '警告', CRITICAL: '严重',
@@ -391,7 +434,15 @@ const DISPLAY_TOKEN_LABELS = Object.freeze({
   SECURITY: '安全', SYSTEM: '系统', LOGIN: '登录', CONFIG: '配置',
   AGENT: '智能助手', AI: '智能模型', LLM: '大语言模型', RAG: '知识检索',
   SCHEMA: '数据规范', REGISTRY: '注册表', CONSOLE: '控制台', FORECASTING: '预测',
-  DEMONSTRATION: '示范品种', GREENHOUSE: '设施栽培', SUPERVISOR: '控制服务'
+  DEMONSTRATION: '示范品种', GREENHOUSE: '设施栽培', SUPERVISOR: '控制服务',
+  FLOW_RATE_CALIBRATION: '检查流量计', PORTABLE_METER_COMPARISON: '使用便携仪复测',
+  FRESH_TELEMETRY: '获取最新传感器数据', DEVICE_HEALTH: '检查设备在线状态',
+  MORE_TELEMETRY_HISTORY: '延长数据观察时间', CONTROL_PERMISSION: '当前账号无执行权限',
+  GOOD_DATA_QUALITY: '补充质量合格数据', QUALITY_REVIEW: '复核数据质量',
+  HUMAN_EVIDENCE_REVIEW: '复核人工现场证据', DIAGNOSIS_CONFIRMATION: '人工确认诊断',
+  MORE_DIAGNOSIS_EVIDENCE: '补充诊断证据', HEAVY_RAIN_REVIEW: '确认暴雨与排水状态',
+  RESOURCE_CAPACITY: '核对水源容量', CHECK_RESOURCE: '核对水源容量', LIGHT: '光照数据',
+  LIGHTING_DURATION_LIMIT: '核对补光时长上限', DEVICE_OFFLINE_VIRTUAL_ONLY: '设备离线，仅可虚拟演示'
 });
 
 export function displayText(value, fallback = '—') {
@@ -421,7 +472,7 @@ export function displayText(value, fallback = '—') {
     .forEach(([token, label]) => {
       result = result.replace(new RegExp(`\\b${token}\\b`, 'gi'), label);
     });
-  return result;
+  return result.replace(/([：为])\s+(?=[\u3400-\u9fff])/g, '$1');
 }
 
 /**

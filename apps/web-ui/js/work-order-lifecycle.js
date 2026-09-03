@@ -1,6 +1,7 @@
 import { api } from './api.js?v=20260902-manager-plot-order-v1';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-performance-v1';
 import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
+import { displayText } from './live-data.js?v=20260903-v5923-work-order-zhcn-v1';
 
 const { ref, computed, watch, inject, nextTick, onUnmounted } = Vue;
 
@@ -64,6 +65,10 @@ function workActionMeta(value) {
 export function workStatus(value) {
   const status = String(value || 'OPEN').trim().toUpperCase();
   return STATUS_ALIASES[status] || status;
+}
+
+export function workOrderDisplayText(value, fallback = '—') {
+  return displayText(value, fallback);
 }
 
 export function isWorkOrderOverdue(order, now = Date.now()) {
@@ -248,7 +253,10 @@ export const WorkOrderLifecycleView = {
     const assignmentMemberLabel = (member) => `${member.displayName || member.username} · ${memberActiveTaskCount(member.userId)} 项待办`;
     const inspectionOperatorName = (record) => record.operatorName || props.state.farmMembers.find((member) => member.userId === record.operatorId)?.displayName || record.operatorId || '未记录';
     const inspectionObservationLabel = (group, value) => INSPECTION_LABELS[group]?.[String(value || '').toUpperCase()] || value || '—';
-    const inspectionTaskName = (record) => props.state.workOrders.find((order) => order.workOrderId === record.workOrderId)?.title || (record.workOrderId ? `任务 ${record.workOrderId}` : '未关联任务');
+    const inspectionTaskName = (record) => {
+      const title = props.state.workOrders.find((order) => order.workOrderId === record.workOrderId)?.title;
+      return title ? workOrderDisplayText(title) : (record.workOrderId ? `任务 ${record.workOrderId}` : '未关联任务');
+    };
     const inspectionQualityLabel = (record) => ({ GOOD: '资料完整', INCOMPLETE: '资料待补充' }[String(record?.quality?.status || '').toUpperCase()] || '未评估');
     const inspectionCompletenessLabel = (record) => {
       const completeness = Number(record?.quality?.completeness);
@@ -296,7 +304,7 @@ export const WorkOrderLifecycleView = {
       .filter((order) => !assigneeFilter.value || order.assigneeId === assigneeFilter.value)
       .filter((order) => {
         const query = keyword.value.trim().toLowerCase();
-        return !query || [order.title, order.reason, order.workOrderId, plotName(order.plotId), farmerName(order)]
+        return !query || [order.title, order.reason, workOrderDisplayText(order.title, ''), workOrderDisplayText(order.reason, ''), order.workOrderId, plotName(order.plotId), farmerName(order)]
           .some((value) => String(value || '').toLowerCase().includes(query));
       })
       .sort((a, b) => {
@@ -532,7 +540,7 @@ export const WorkOrderLifecycleView = {
             true
           );
           if (!choice) {
-            failures.push(`${order.title || order.workOrderId}：没有其他具备该地块权限的在岗农户可接手`);
+            failures.push(`${workOrderDisplayText(order.title, order.workOrderId)}：没有其他具备该地块权限的在岗农户可接手`);
             continue;
           }
           try {
@@ -545,7 +553,7 @@ export const WorkOrderLifecycleView = {
             publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member, renewedDueAt));
             reassigned += 1;
           } catch (error) {
-            failures.push(`${order.title || order.workOrderId}：${error?.message || '重新分配失败'}`);
+            failures.push(`${workOrderDisplayText(order.title, order.workOrderId)}：${error?.message || '重新分配失败'}`);
           }
         }
         selectedOverdueIds.value = new Set();
@@ -573,7 +581,7 @@ export const WorkOrderLifecycleView = {
         for (const order of targets) {
           const choice = chooseWorkOrderAssignee(props.state.farmMembers, props.state.workOrders, order, currentFarmId.value);
           if (!choice?.member?.userId) {
-            failures.push(`${order.title || order.workOrderId}：没有具备地块权限的在岗农户`);
+            failures.push(`${workOrderDisplayText(order.title, order.workOrderId)}：没有具备地块权限的在岗农户`);
             continue;
           }
           try {
@@ -584,7 +592,7 @@ export const WorkOrderLifecycleView = {
             publishUpdate(finalizedWorkOrderAssignment(order, response, choice.member));
             assignedCount += 1;
           } catch (error) {
-            failures.push(`${order.title || order.workOrderId}：${error?.message || '分配失败'}`);
+            failures.push(`${workOrderDisplayText(order.title, order.workOrderId)}：${error?.message || '分配失败'}`);
           }
         }
         if (assignedCount) toast(`农智助手已分配 ${assignedCount} 项任务${failures.length ? `，${failures.length} 项需人工处理` : ''}`, failures.length ? 'warning' : 'success');
@@ -661,8 +669,8 @@ export const WorkOrderLifecycleView = {
         actionType: verificationOrder.followUpActionType || 'FIELD_OPERATION',
         taskPurpose: 'ALERT_FOLLOW_UP',
         parentVerificationWorkOrderId: verificationOrder.workOrderId,
-        title: String(verificationOrder.title || '告警核查').replace(/^核查[：:]\s*/, '处置：'),
-        reason: `现场核查已确认异常。核查结果：${verificationOrder.resultSummary || '已通过管理员确认'}。请按核查证据完成处置。`,
+        title: workOrderDisplayText(verificationOrder.title, '告警核查').replace(/^核查[：:]\s*/, '处置：'),
+        reason: `现场核查已确认异常。核查结果：${workOrderDisplayText(verificationOrder.resultSummary, '已通过管理员确认')}。请按核查证据完成处置。`,
         priority: verificationOrder.priority || 'MEDIUM',
         status: 'OPEN',
         dueAt,
@@ -945,7 +953,7 @@ export const WorkOrderLifecycleView = {
       activeManagerSection, setManagerSection, onManagerSectionKeydown,
       statusFilter, scopeFilter, scopeLabel, plotFilter, assigneeFilter, keyword, scopedOrders, filteredOrders, summary,
       selectedOverdueIds, selectedOverdueOrders, allVisibleOverdueSelected, isOverdueView,
-      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel,
+      pageTitle, pageHint, statusMeta, priorityLabel, sourceLabel, actionLabel, taskTypeLabel, plotName, farmerName, eligibleFarmers, assignmentMemberLabel, workOrderDisplayText,
       inspections, recentInspections, visibleInspections, showAllInspections, relatedInspections, eligibleInspectionOrders, inspectionOperatorName, inspectionObservationLabel, inspectionTaskName,
       inspectionQualityLabel, inspectionCompletenessLabel, inspectionPhotoPreview, inspectionPhotoSize,
       evidenceRequests, evidenceTypeLabel, requesterName,
@@ -1037,13 +1045,13 @@ export const WorkOrderLifecycleView = {
         <article v-for="order in filteredOrders" :key="order.workOrderId" class="work-order-card"
           :class="['status-' + workStatus(order.status).toLowerCase(), { 'is-overdue': isOverdue(order), 'is-manager-summary': canManage }]"
           :data-work-order-id="order.workOrderId" :role="canManage ? 'button' : null" :tabindex="canManage ? 0 : null"
-          :aria-label="canManage ? '查看任务详情：' + (order.title || '未命名任务') : null"
+          :aria-label="canManage ? '查看任务详情：' + workOrderDisplayText(order.title, '未命名任务') : null"
           @click="canManage && openDetail(order)" @keydown="openDetailFromKeyboard($event, order)">
           <header>
             <div class="work-order-heading">
               <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(order).tone">{{ statusMeta(order).label }}</span><span class="work-source">{{ taskTypeLabel(order.actionType) }}</span><span v-if="isReworkOrder(order)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(order)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(order.sourceType) }}</span><span v-if="isFarmerIssueReport(order)" class="work-source work-issue-report">农户问题</span><span v-if="relatedInspections(order).length" class="work-source">巡田证据 {{ relatedInspections(order).length }}</span><span v-if="isOverdue(order)" class="work-overdue">已逾期</span></div>
-              <h2>{{ order.title || '未命名任务' }}</h2>
-              <p>{{ order.reason || '暂无执行说明' }}</p>
+              <h2>{{ workOrderDisplayText(order.title, '未命名任务') }}</h2>
+              <p>{{ workOrderDisplayText(order.reason, '暂无执行说明') }}</p>
             </div>
             <span class="work-priority" :class="'priority-' + String(order.priority || 'LOW').toLowerCase()">{{ priorityLabel(order.priority) }}</span>
           </header>
@@ -1057,16 +1065,16 @@ export const WorkOrderLifecycleView = {
 
           <div v-if="!canManage && (order.resultSummary || order.rejectionReason)" class="work-result" :class="{ rejected: workStatus(order.status) === 'REJECTED' }">
             <strong>{{ order.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
-            <p>{{ order.rejectionReason || order.resultSummary }}</p>
+            <p>{{ workOrderDisplayText(order.rejectionReason || order.resultSummary) }}</p>
           </div>
-          <div v-if="order.plotEffect?.summary" class="work-result"><strong>地块已同步</strong><p>{{ order.plotEffect.summary }}</p></div>
+          <div v-if="order.plotEffect?.summary" class="work-result"><strong>地块已同步</strong><p>{{ workOrderDisplayText(order.plotEffect.summary) }}</p></div>
 
           <footer v-if="!canManage" class="work-order-footer">
             <details class="work-history">
               <summary>操作记录 {{ order.history?.length || 0 }} 条</summary>
               <ol v-if="order.history?.length">
                 <li v-for="(entry, index) in [...order.history].reverse()" :key="entry.at + '-' + index">
-                  <span></span><div><strong>{{ actionLabel(entry.action) }}</strong><small>{{ entry.actorName || entry.actorId || '系统' }} · {{ formatTime(entry.at) }}</small><p v-if="entry.note">{{ entry.note }}</p></div>
+                  <span></span><div><strong>{{ actionLabel(entry.action) }}</strong><small>{{ entry.actorName || entry.actorId || '系统' }} · {{ formatTime(entry.at) }}</small><p v-if="entry.note">{{ workOrderDisplayText(entry.note) }}</p></div>
                 </li>
               </ol>
               <p v-else class="work-history-empty">旧任务暂无操作记录，下一次操作起将自动保存。</p>
@@ -1108,8 +1116,8 @@ export const WorkOrderLifecycleView = {
                 <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(request).tone">{{ statusMeta(request).label }}</span><span class="work-source">{{ evidenceTypeLabel(request.evidenceType) }}</span></div>
                 <time>{{ formatTime(request.createdAt) }}</time>
               </header>
-              <h3>{{ request.title || evidenceTypeLabel(request.evidenceType) + '补证申请' }}</h3>
-              <p>{{ request.reason || '申请补充现场证据' }}</p>
+              <h3>{{ workOrderDisplayText(request.title, evidenceTypeLabel(request.evidenceType) + '补证申请') }}</h3>
+              <p>{{ workOrderDisplayText(request.reason, '申请补充现场证据') }}</p>
               <dl class="evidence-request-facts"><div><dt>提交人</dt><dd>{{ requesterName(request) }}</dd></div><div><dt>地块</dt><dd>{{ plotName(request.plotId) }}</dd></div></dl>
               <footer>
                 <button type="button" class="g-btn secondary compact" @click.stop="openDetail(request)">查看详情</button>
@@ -1197,7 +1205,7 @@ export const WorkOrderLifecycleView = {
       <div v-if="showDetailModal && activeOrder" class="g-modal-overlay" @click.self="closeDetail" @keydown.esc="closeDetail">
         <section class="g-modal work-dialog work-detail-dialog" role="dialog" aria-modal="true" aria-labelledby="work-detail-title">
           <div class="g-modal-header">
-            <div><small>任务详情 · {{ activeOrder.workOrderId }}</small><h3 id="work-detail-title">{{ activeOrder.title || '未命名任务' }}</h3></div>
+            <div><small>任务详情 · {{ activeOrder.workOrderId }}</small><h3 id="work-detail-title">{{ workOrderDisplayText(activeOrder.title, '未命名任务') }}</h3></div>
             <button type="button" class="g-btn icon-only" @click="closeDetail" aria-label="关闭任务详情"><app-icon name="close"></app-icon></button>
           </div>
           <div class="g-modal-body work-detail-body">
@@ -1205,8 +1213,8 @@ export const WorkOrderLifecycleView = {
               <div class="work-order-tags"><span class="work-status" :class="'tone-' + statusMeta(activeOrder).tone">{{ statusMeta(activeOrder).label }}</span><span class="work-source">{{ taskTypeLabel(activeOrder.actionType) }}</span><span v-if="isReworkOrder(activeOrder)" class="work-rework">返工任务</span><span v-if="isAlertVerificationOrder(activeOrder)" class="work-source">告警核查</span><span class="work-source">{{ sourceLabel(activeOrder.sourceType) }}</span><span v-if="relatedInspections(activeOrder).length" class="work-source">巡田证据 {{ relatedInspections(activeOrder).length }}</span><span v-if="isOverdue(activeOrder)" class="work-overdue">已逾期</span></div>
               <span class="work-priority" :class="'priority-' + String(activeOrder.priority || 'LOW').toLowerCase()">{{ priorityLabel(activeOrder.priority) }}</span>
             </div>
-            <p class="work-detail-reason">{{ activeOrder.reason || '暂无执行说明' }}</p>
-            <div v-if="isFarmerIssueReport(activeOrder)" class="work-result work-issue-report-detail"><strong>农户具体描述</strong><p>{{ activeOrder.issueDescription || activeOrder.description || activeOrder.reason }}</p><small>上报人：{{ activeOrder.reporterName || activeOrder.reporterId || '农户' }}</small></div>
+            <p class="work-detail-reason">{{ workOrderDisplayText(activeOrder.reason, '暂无执行说明') }}</p>
+            <div v-if="isFarmerIssueReport(activeOrder)" class="work-result work-issue-report-detail"><strong>农户具体描述</strong><p>{{ workOrderDisplayText(activeOrder.issueDescription || activeOrder.description || activeOrder.reason) }}</p><small>上报人：{{ activeOrder.reporterName || activeOrder.reporterId || '农户' }}</small></div>
             <dl class="work-order-facts work-detail-facts">
               <div><dt>地块</dt><dd>{{ plotName(activeOrder.plotId) }}</dd></div>
               <div><dt>负责人</dt><dd :class="{ 'needs-owner': !activeOrder.assigneeId }">{{ farmerName(activeOrder) }}</dd></div>
@@ -1215,14 +1223,14 @@ export const WorkOrderLifecycleView = {
             </dl>
             <div v-if="activeOrder.resultSummary || activeOrder.rejectionReason" class="work-result" :class="{ rejected: workStatus(activeOrder.status) === 'REJECTED' }">
               <strong>{{ activeOrder.rejectionReason ? '退回说明' : '农户提交结果' }}</strong>
-              <p>{{ activeOrder.rejectionReason || activeOrder.resultSummary }}</p>
+              <p>{{ workOrderDisplayText(activeOrder.rejectionReason || activeOrder.resultSummary) }}</p>
             </div>
-            <div v-if="activeOrder.plotEffect?.summary" class="work-result"><strong>完成后的地块影响</strong><p>{{ activeOrder.plotEffect.summary }}</p><small>生长状态：{{ activeOrder.plotEffect.after?.cultivationStatusLabel || '保持不变' }} · 阶段：{{ activeOrder.plotEffect.after?.stageLabel || '保持不变' }}</small></div>
+            <div v-if="activeOrder.plotEffect?.summary" class="work-result"><strong>完成后的地块影响</strong><p>{{ workOrderDisplayText(activeOrder.plotEffect.summary) }}</p><small>生长状态：{{ activeOrder.plotEffect.after?.cultivationStatusLabel || '保持不变' }} · 阶段：{{ activeOrder.plotEffect.after?.stageLabel || '保持不变' }}</small></div>
             <details class="work-history work-detail-history" open>
               <summary>操作记录 {{ activeOrder.history?.length || 0 }} 条</summary>
               <ol v-if="activeOrder.history?.length">
                 <li v-for="(entry, index) in [...activeOrder.history].reverse()" :key="entry.at + '-' + index">
-                  <span></span><div><strong>{{ actionLabel(entry.action) }}</strong><small>{{ entry.actorName || entry.actorId || '系统' }} · {{ formatTime(entry.at) }}</small><p v-if="entry.note">{{ entry.note }}</p></div>
+                  <span></span><div><strong>{{ actionLabel(entry.action) }}</strong><small>{{ entry.actorName || entry.actorId || '系统' }} · {{ formatTime(entry.at) }}</small><p v-if="entry.note">{{ workOrderDisplayText(entry.note) }}</p></div>
                 </li>
               </ol>
               <p v-else class="work-history-empty">旧任务暂无操作记录，下一次操作起将自动保存。</p>
@@ -1257,7 +1265,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showAssignModal" class="g-modal-overlay" @click.self="showAssignModal = false" @keydown.esc="showAssignModal = false">
         <form class="g-modal work-dialog work-dialog-small" @submit.prevent="assignTask">
-          <div class="g-modal-header"><div><small>{{ activeOrder?.assigneeId ? '调整负责人' : '分配任务' }}</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showAssignModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>{{ activeOrder?.assigneeId ? '调整负责人' : '分配任务' }}</small><h3>{{ workOrderDisplayText(activeOrder?.title, '未命名任务') }}</h3></div><button type="button" class="g-btn icon-only" @click="showAssignModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-stack">
             <div class="work-member-source">
               <p>{{ isLiveSession ? '人员来自当前农场正式账号，并已按这块地的权限筛选。' : '当前使用明确标记的演示成员。' }}</p>
@@ -1273,7 +1281,7 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showSubmitModal" class="g-modal-overlay" @click.self="showSubmitModal = false" @keydown.esc="showSubmitModal = false">
         <form class="g-modal work-dialog work-dialog-small" @submit.prevent="submitResult">
-          <div class="g-modal-header"><div><small>提交处理结果</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showSubmitModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>提交处理结果</small><h3>{{ workOrderDisplayText(activeOrder?.title, '未命名任务') }}</h3></div><button type="button" class="g-btn icon-only" @click="showSubmitModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-stack">
             <label><span>处理结果</span><textarea class="g-input" rows="4" v-model="submission.resultSummary" required placeholder="例如：已复测三处，湿度分别为 21%、22%、21.5%"></textarea></label>
             <div v-if="relatedInspections(activeOrder).length" class="inspection-evidence-picker"><strong>关联本次巡田记录</strong><label v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><input type="checkbox" :value="record.inspectionId" v-model="submission.inspectionRefs"><span><b>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</b><small>{{ record.inspectionId }}</small></span></label></div>
@@ -1285,15 +1293,15 @@ export const WorkOrderLifecycleView = {
 
       <div v-if="showReviewModal" class="g-modal-overlay" @click.self="showReviewModal = false" @keydown.esc="showReviewModal = false">
         <div class="g-modal work-dialog work-dialog-small">
-          <div class="g-modal-header"><div><small>任务验收</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showReviewModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
-          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ activeOrder?.resultSummary || '未填写结果说明' }}</p></div><div v-if="relatedInspections(activeOrder).length" class="review-evidence"><strong>巡田证据 {{ relatedInspections(activeOrder).length }} 条</strong><div v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><span>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</span><small>{{ inspectionOperatorName(record) }} · {{ record.inspectionId }}</small></div></div><label v-if="isAlertVerificationOrder(activeOrder)"><span>核查结论</span><select class="g-select" v-model="review.verificationResult"><option value="CONFIRMED_ABNORMAL">确认异常，自动下发处置任务</option><option value="CLEARED_NORMAL">现场正常，自动关闭原告警</option></select><small>核查结论是后续动作的唯一依据，不再进入人工告警审核。</small></label><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
+          <div class="g-modal-header"><div><small>任务验收</small><h3>{{ workOrderDisplayText(activeOrder?.title, '未命名任务') }}</h3></div><button type="button" class="g-btn icon-only" @click="showReviewModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-body work-form-stack"><div class="review-result-preview"><strong>农户提交结果</strong><p>{{ workOrderDisplayText(activeOrder?.resultSummary, '未填写结果说明') }}</p></div><div v-if="relatedInspections(activeOrder).length" class="review-evidence"><strong>巡田证据 {{ relatedInspections(activeOrder).length }} 条</strong><div v-for="record in relatedInspections(activeOrder)" :key="record.inspectionId"><span>{{ formatTime(record.observedAt) }} · {{ record.notes || record.evidenceSummary }}</span><small>{{ inspectionOperatorName(record) }} · {{ record.inspectionId }}</small></div></div><label v-if="isAlertVerificationOrder(activeOrder)"><span>核查结论</span><select class="g-select" v-model="review.verificationResult"><option value="CONFIRMED_ABNORMAL">确认异常，自动下发处置任务</option><option value="CLEARED_NORMAL">现场正常，自动关闭原告警</option></select><small>核查结论是后续动作的唯一依据，不再进入人工告警审核。</small></label><label><span>验收意见</span><textarea class="g-input" rows="4" v-model="review.note" placeholder="通过时可以选填；退回时请明确说明需要补做什么"></textarea></label></div>
           <div class="g-modal-footer split"><button type="button" class="g-btn secondary" @click="showReviewModal = false">稍后处理</button><div><button type="button" class="g-btn danger-text" :disabled="isBusy" @click="reviewTask('REJECT')">退回处理</button><button type="button" class="g-btn primary" :disabled="isBusy" @click="reviewTask('APPROVE')">{{ isAlertVerificationOrder(activeOrder) ? '确认结果并自动处理' : '验收通过' }}</button></div></div>
         </div>
       </div>
 
       <div v-if="showCancelModal" class="g-modal-overlay" @click.self="showCancelModal = false" @keydown.esc="showCancelModal = false">
         <form class="g-modal work-dialog work-dialog-small" @submit.prevent="cancelTask">
-          <div class="g-modal-header"><div><small>取消任务</small><h3>{{ activeOrder?.title }}</h3></div><button type="button" class="g-btn icon-only" @click="showCancelModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
+          <div class="g-modal-header"><div><small>取消任务</small><h3>{{ workOrderDisplayText(activeOrder?.title, '未命名任务') }}</h3></div><button type="button" class="g-btn icon-only" @click="showCancelModal = false" aria-label="关闭"><app-icon name="close"></app-icon></button></div>
           <div class="g-modal-body work-form-stack"><p class="cancel-warning">取消后任务将停止流转，但操作记录会继续保留。</p><label><span>取消原因（选填）</span><textarea class="g-input" rows="3" v-model="cancellation.note" placeholder="例如：现场情况已通过其他方式处理"></textarea></label></div>
           <div class="g-modal-footer"><button type="button" class="g-btn secondary" @click="showCancelModal = false">返回</button><button type="submit" class="g-btn danger-text" :disabled="isBusy">确认取消</button></div>
         </form>
@@ -1306,7 +1314,7 @@ export const WorkOrderLifecycleView = {
             <p class="inspection-guidance span-2">请只记录现场看到或实际测到的情况。保存后会生成唯一证据编号，不会修改传感器原始数据。</p>
             <label><span>地块</span><select class="g-select" v-model="inspectionForm.plotId" required><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name }}</option></select></label>
             <label><span>巡田时间</span><input type="datetime-local" class="g-input" v-model="inspectionForm.observedAt" required></label>
-            <label class="span-2"><span>关联任务（选填）</span><select class="g-select" v-model="inspectionForm.workOrderId"><option value="">不关联任务</option><option v-for="order in eligibleInspectionOrders" :key="order.workOrderId" :value="order.workOrderId">{{ order.title }} · {{ statusMeta(order).label }}</option></select><small v-if="isFarmer && !eligibleInspectionOrders.length">只有已开始、且分配给你的当前地块任务可以关联；也可以单独保存巡田记录。</small></label>
+            <label class="span-2"><span>关联任务（选填）</span><select class="g-select" v-model="inspectionForm.workOrderId"><option value="">不关联任务</option><option v-for="order in eligibleInspectionOrders" :key="order.workOrderId" :value="order.workOrderId">{{ workOrderDisplayText(order.title, '未命名任务') }} · {{ statusMeta(order).label }}</option></select><small v-if="isFarmer && !eligibleInspectionOrders.length">只有已开始、且分配给你的当前地块任务可以关联；也可以单独保存巡田记录。</small></label>
             <label><span>土壤表层状况</span><select class="g-select" v-model="inspectionForm.soilSurface" required><option value="NORMAL">正常</option><option value="DRY">干燥或开裂</option><option value="WET">过湿或积水</option></select></label>
             <label><span>作物状态</span><select class="g-select" v-model="inspectionForm.cropCondition" required><option value="NORMAL">长势正常</option><option value="LEAF_SLIGHT_WILT">叶片轻微萎蔫</option><option value="DISEASE_SUSPECTED">疑似病害</option></select></label>
             <label><span>设备外观</span><select class="g-select" v-model="inspectionForm.deviceStatus" required><option value="NORMAL">外观完好</option><option value="LOOSE">接头松动</option><option value="LEAKING">管线渗漏</option><option value="OFFLINE">离线或无显示</option></select></label>

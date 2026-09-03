@@ -1,7 +1,7 @@
 import { api } from '../api.js?v=20260902-manager-plot-order-v1';
 import { adminMetricLabel } from '../admin-state.js?v=20260902-performance-v1';
 import { canExecuteIrrigation } from '../roles.js?v=20260902-v5911-zhcn-v1';
-import { metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260902-performance-v1';
+import { decisionEvidenceLabel, decisionReadinessLabel, metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260903-v5923-work-order-zhcn-v1';
 
 const { ref, computed, watch, onMounted } = Vue;
 
@@ -23,11 +23,6 @@ const READINESS_META = Object.freeze({
 const GATE_LABELS = Object.freeze({
   requiredMetrics: '关键数据', freshness: '数据是否新鲜', dataQuality: '数据是否可靠', deviceHealth: '设备是否在线',
   diagnosisSafety: '诊断是否安全', resourceCapacity: '水源是否充足', permission: '账号权限', safetyLimit: '用水是否超限'
-});
-
-const EVIDENCE_LABELS = Object.freeze({
-  FLOW_RATE_CALIBRATION: '检查流量计', PORTABLE_METER_COMPARISON: '使用便携仪复测', FRESH_TELEMETRY: '获取最新传感器数据',
-  DEVICE_HEALTH: '检查设备在线状态', MORE_TELEMETRY_HISTORY: '延长数据观察时间', CONTROL_PERMISSION: '当前账号无执行权限'
 });
 
 const CODE_LABELS = Object.freeze({
@@ -98,7 +93,7 @@ export const AdminDecisionView = {
     const risk = computed(() => RISK_META[String(diagnosis.value?.primaryCause || '').toUpperCase()] || RISK_META.INSUFFICIENT_EVIDENCE);
     const readinessView = computed(() => READINESS_META[String(readiness.value?.status || 'UNAVAILABLE').toUpperCase()] || READINESS_META.UNAVAILABLE);
     const gates = computed(() => Object.entries(readiness.value?.hardGates || {}).map(([key, gateStatus]) => ({ key, label: GATE_LABELS[key] || readableCode(key, '检查项'), status: gateStatus })));
-    const missingEvidence = computed(() => (readiness.value?.missingEvidence || []).map((item) => EVIDENCE_LABELS[item] || readableCode(item, '补充证据')));
+    const missingEvidence = computed(() => (readiness.value?.missingEvidence || []).map((item) => decisionEvidenceLabel(item, readableCode(item, '补充检查'))));
     const canExecute = computed(() => canApprove.value && plan.value?.executable === true && readiness.value?.status === 'READY' && confirmed.value && !executing.value);
     const commandStatus = computed(() => terminalStatus(command.value));
     const isCommandSuccess = computed(() => commandStatus.value === 'SUCCEEDED');
@@ -255,7 +250,7 @@ export const AdminDecisionView = {
           farmId: farmId.value,
           plotId: selectedPlotId.value,
           title: `决策补充检查：${missingEvidence.value.slice(0, 2).join('、') || '现场复测'}`,
-          reason: `当前就绪状态为 ${readiness.value.status}`,
+          reason: `当前就绪状态：${decisionReadinessLabel(readiness.value.status)}`,
           actionType: 'INSPECTION',
           priority: 'HIGH',
           dueAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString()

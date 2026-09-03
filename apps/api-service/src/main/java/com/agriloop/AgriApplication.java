@@ -1676,6 +1676,9 @@ class AgriEngine {
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
     private static final Set<String> DEVICE_CONTROL_TERMINAL = Set.of("SUCCEEDED", "FAILED", "TIMEOUT");
+    /** Terminal irrigation commands are already reflected in the daily balance and must not reserve reservoir capacity again. */
+    private static final Set<String> WATER_COMMAND_TERMINAL_STATUSES = Set.of(
+            "SUCCEEDED", "COMPLETED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED", "INCONCLUSIVE", "REJECTED", "EXPIRED");
     private static final Duration AGENT_ACTION_TTL = Duration.ofMinutes(10);
     private static final Set<String> AGENT_MUTATION_TOOLS = Set.of("create_plot", "update_plot", "set_plot_devices",
             "create_and_assign_work_order", "publish_alert_verification", "close_alert",
@@ -4822,8 +4825,7 @@ class AgriEngine {
             dailyRemaining = Math.max(0, Jsons.number(balance, "remainingLitres", dailyRemaining));
             double allocated = store.list("command").stream()
                     .filter(c -> plotId.equals(Jsons.text(c, "plotId", "")))
-                    .filter(c -> !Set.of("SUCCEEDED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED")
-                            .contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
+                    .filter(c -> !WATER_COMMAND_TERMINAL_STATUSES.contains(Jsons.text(c, "status", "").toUpperCase(Locale.ROOT)))
                     .mapToDouble(c -> Jsons.number(c, "waterLitre", 0)).sum();
             capacityRemaining = Math.max(0, Jsons.number(resource, "capacityLitres", dailyRemaining) - allocated);
         } else {
@@ -5625,7 +5627,8 @@ class AgriEngine {
     }
 
     private void recordVirtualIrrigationEffect(String plotId, String commandId, String outcome,
-                                               double soilMoistureAfter, double actualWater) {
+                                               double soilMoistureAfter, double actualWater,
+                                               boolean suggestedIrrigation) {
         if (!Set.of("SUCCEEDED", "PARTIAL").contains(outcome)) return;
         Map<String, Object> plot = store.find("plot", plotId);
         Map<String, Object> latest = latestMetrics(plotId);
@@ -5677,7 +5680,9 @@ class AgriEngine {
         }
         if (Set.of("SUCCEEDED", "PARTIAL").contains(outcome) && actualWater > 0) {
             String balanceFarmId = Jsons.text(plot, "farmId", "farm-demo");
-            LocalDate balanceDate = LocalDate.now();
+            LocalDate balanceDate = suggestedIrrigation
+                    ? LocalDate.now(waterZone(ensureWaterProfile(balanceFarmId)))
+                    : LocalDate.now();
             Map<String, Object> balance = currentWaterBalance(balanceFarmId, balanceDate);
             balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + actualWater));
             balance.put("usedLitres", balance.get("actualUsedLitres"));
@@ -5804,7 +5809,9 @@ class AgriEngine {
             simulationEngine.syncPlotMetrics(plotId, before, waterBefore);
             simulationEngine.applyIrrigation(plotId, actualWater, areaM2);
         }
-        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, moistureBaselineAvailable ? after : Double.NaN, actualWater);
+        boolean suggestedIrrigation = !manualOverride
+                && "farmer-advice-direct".equals(Jsons.text(command, "source", ""));
+        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, moistureBaselineAvailable ? after : Double.NaN, actualWater, suggestedIrrigation);
         Map<String, Object> manualResourceUsage = settleManualIrrigationResource(command, ack, evaluation);
         if (!manualResourceUsage.isEmpty()) evaluation.put("resourceUsage", manualResourceUsage);
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);

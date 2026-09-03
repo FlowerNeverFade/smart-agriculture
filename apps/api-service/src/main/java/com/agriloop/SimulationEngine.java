@@ -49,6 +49,11 @@ class SimulationEngine {
     static final ZoneId ZONE = ZoneId.of("Asia/Shanghai");
     private static final Logger log = LoggerFactory.getLogger(SimulationEngine.class);
     private static final int RNG_SEED = 42;
+    /** Local solar day used by the simulator.  Keep this explicit so the
+     *  generated values follow the clock shown to operators instead of the
+     *  accelerated trend clock used for long-running demo changes. */
+    private static final double DAWN_HOUR = 5.5;
+    private static final double DUSK_HOUR = 19.5;
     private static final List<MetricSpec> METRICS = List.of(
             new MetricSpec("SOIL_MOISTURE", "%", 0, 100),
             new MetricSpec("AIR_TEMPERATURE", "°C", -40, 80),
@@ -355,10 +360,16 @@ class SimulationEngine {
         double volatility = params.get("volatility");
         double simulatedHours = Math.max(0.1, stepSeconds) * params.get("timeScale") / 3600.0;
         double daylight = daylightFraction(ts);
+        double thermalDay = thermalFraction(ts);
         double climateResponse = PlotFacility.climateResponse(facilityType);
         double heatOffset = ("heat-wave".equals(normalized) ? 7.0 : params.get("temperatureBias")) * climateResponse;
-        double temperatureTarget = 20.5 + 8.0 * daylight + heatOffset;
-        double humidityTarget = 82.0 - 30.0 * daylight + params.get("humidityBias") * climateResponse;
+        // Temperature peaks a little after solar noon while humidity follows
+        // the opposite curve.  This is intentionally driven by the displayed
+        // local day/night clock; timeScale still accelerates the physical
+        // trends and therefore does not make a sunny afternoon look like
+        // midnight just because the demo clock has advanced several days.
+        double temperatureTarget = 19.0 + 10.0 * thermalDay + heatOffset;
+        double humidityTarget = 80.0 - 29.0 * thermalDay + params.get("humidityBias") * climateResponse;
         double relax = Math.min(1.0, 1.0 - Math.exp(-simulatedHours / 2.4));
         state.temperature += (temperatureTarget - state.temperature) * relax + uniform(rng, -0.08, 0.08) * volatility * simulatedHours;
         state.temperature = clamp(state.temperature, -20, 55);
@@ -366,15 +377,25 @@ class SimulationEngine {
         state.humidity = clamp(state.humidity, 10, 99.5);
         double legacySoilRate = "gradual-drydown".equals(normalized) ? -0.35 : "limited-water".equals(normalized) ? -0.22 : 0.0;
         double soilResponse = PlotFacility.soilTrendResponse(facilityType, normalized);
-        double soilRate = (params.get("soilMoistureTrendPerHour") + legacySoilRate) * soilResponse * simulatedHours;
-        double rainAbsorption = Math.min(params.get("rainfallRate"), 20.0) * PlotFacility.rainExposure(facilityType) * simulatedHours * 0.025;
+        // Evaporation follows the warm/light part of the day.  Rainfall uses
+        // the same pulse as the RAINFALL channel below, keeping soil moisture
+        // and the visible rain gauge physically correlated.
+        double evaporation = 0.04 * thermalDay;
+        double soilRate = (params.get("soilMoistureTrendPerHour") + legacySoilRate - evaporation) * soilResponse * simulatedHours;
+        double rainPulse = rainfallPulse(normalized, ts, index);
+        double rainRate = params.get("rainfallRate") * rainPulse;
+        double rainAbsorption = Math.min(rainRate, 20.0) * PlotFacility.rainExposure(facilityType) * simulatedHours * 0.025;
         state.soil += soilRate + rainAbsorption + uniform(rng, -0.12, 0.12) * volatility * simulatedHours;
         state.soil = clamp(state.soil, 4, 92);
-        double co2Target = 430.0 + 180.0 * (1.0 - daylight);
+        // Photosynthesis consumes CO2 during the day; respiration/closed
+        // vents raise it overnight.  Keep the range useful for the existing
+        // crop-pack rules while allowing the curve to be seen clearly.
+        double co2Target = 460.0 + 230.0 * (1.0 - daylight);
         state.co2 += (co2Target - state.co2) * Math.min(1.0, 0.35 * simulatedHours) + uniform(rng, -2.0, 2.0) * volatility * simulatedHours;
         state.co2 = clamp(state.co2, 300, 1400);
         state.ph += (6.25 - state.ph) * Math.min(1.0, 0.08 * simulatedHours) + uniform(rng, -0.01, 0.01) * volatility * simulatedHours;
-        double waterRate = ("limited-water".equals(normalized) ? -0.3 : "heavy-rain".equals(normalized) ? 0.8 : -0.05) * simulatedHours;
+        double waterRate = ("limited-water".equals(normalized) ? -0.3
+                : "heavy-rain".equals(normalized) ? (0.12 + 0.88 * rainPulse) : -0.05) * simulatedHours;
         state.water = clamp(state.water + waterRate + uniform(rng, -0.04, 0.04) * volatility * simulatedHours, 8, 100);
         state.scenarioSteps += 1;
     }
@@ -401,8 +422,12 @@ class SimulationEngine {
             case "AIR_TEMPERATURE" -> value = state.temperature;
             case "AIR_HUMIDITY" -> value = state.humidity;
             case "LIGHT" -> {
-                double cloud = "heavy-rain".equals(normalized) ? 0.35 : "drought".equals(normalized) ? 1.12 : 1.0;
-                value = 45.0 + daylightFraction(ts) * 47_000.0 * cloud * PlotFacility.lightTransmission(facilityType);
+                double daylight = daylightFraction(ts);
+                double cloud = cloudFactor(normalized, ts, index);
+                // Daylight is deliberately the dominant term: daylight is
+                // strong from morning through the afternoon, peaks around
+                // solar noon, and falls to a near-zero night baseline.
+                value = 25.0 + daylight * 55_000.0 * cloud * PlotFacility.lightTransmission(facilityType);
                 if (state.lightBoostFloor > 0 && state.lightBoostUntil != null
                         && Instant.now().isBefore(state.lightBoostUntil)) {
                     // 补光语义：保证光照不低于补光目标并保持平稳，
@@ -422,17 +447,15 @@ class SimulationEngine {
             case "PHOSPHORUS" -> value = 45.0 + Math.sin(index / 7.0 + 1.2) * 5.0 + Math.cos(simulatedHours / 14.0) * 3.0;
             case "POTASSIUM" -> value = 180.0 + Math.sin(index / 6.0 + 2.4) * 12.0 + Math.cos(simulatedHours / 11.0) * 7.0;
             default -> {
-                double rainfall = params.get("rainfallRate");
-                if ("heavy-rain".equals(normalized)) {
-                    rainfall *= 0.78 + 0.28 * Math.sin(index / 2.4) + uniform(rng, -0.12, 0.18) * volatility;
-                } else if (rainfall > 0) {
-                    rainfall *= Math.max(0.0, 0.25 + Math.sin(index / 5.0) * 0.18 + uniform(rng, -0.2, 0.2));
-                }
-                value = Math.max(0.0, rainfall);
+                double rainfall = params.get("rainfallRate") * rainfallPulse(normalized, ts, index);
+                // A small bounded gust keeps the rain gauge from looking
+                // perfectly periodic without creating negative precipitation.
+                value = Math.max(0.0, rainfall + uniform(rng, -0.12, 0.18) * volatility * Math.max(0.15, rainfall));
             }
         }
+        double daylight = daylightFraction(ts);
         double noise = switch (metric) {
-            case "LIGHT" -> 680.0;
+            case "LIGHT" -> daylight > 0.01 ? 900.0 : 25.0;
             case "PH" -> 0.02;
             case "AIR_HUMIDITY" -> 0.35;
             case "AIR_TEMPERATURE" -> 0.16;
@@ -442,7 +465,11 @@ class SimulationEngine {
             case "NITROGEN" -> 2.4;
             case "PHOSPHORUS" -> 1.2;
             case "POTASSIUM" -> 3.0;
-            case "RAINFALL" -> 0.7;
+            // Rain is a rate, not a percentage.  Scaling noise with the
+            // signal keeps a normal plot mostly at 0~0.1 mm/h instead of
+            // producing a conspicuous 0.8 mm/h "drizzle" from sensor noise
+            // alone, while storm bursts still have visible variation.
+            case "RAINFALL" -> Math.max(0.025, Math.min(0.6, Math.abs(value) * 0.12 + 0.025));
             default -> 0.08;
         } * volatility;
         MetricSpec spec = METRICS.stream().filter(item -> item.code.equals(metric)).findFirst()
@@ -451,10 +478,56 @@ class SimulationEngine {
     }
 
     static double daylightFraction(ZonedDateTime ts) {
-        double hour = ts.getHour() + ts.getMinute() / 60.0;
-        if (hour <= 5.5 || hour >= 19.5) return 0.0;
-        double phase = (hour - 5.5) / 14.0;
-        return Math.max(0.0, Math.min(1.0, Math.sin(Math.PI * phase)));
+        if (ts == null) return 0.0;
+        double hour = localHour(ts);
+        if (hour <= DAWN_HOUR || hour >= DUSK_HOUR) return 0.0;
+        double phase = (hour - DAWN_HOUR) / (DUSK_HOUR - DAWN_HOUR);
+        double sine = Math.max(0.0, Math.min(1.0, Math.sin(Math.PI * phase)));
+        // A slightly flattened solar arc keeps late morning and afternoon
+        // visibly bright while retaining smooth dawn/dusk transitions.
+        return Math.pow(sine, 0.72);
+    }
+
+    /** Thermal response lags the light peak and reaches its maximum mid/late afternoon. */
+    static double thermalFraction(ZonedDateTime ts) {
+        double daylight = daylightFraction(ts);
+        if (daylight <= 0.0 || ts == null) return 0.0;
+        double hour = localHour(ts);
+        double afternoon = Math.exp(-Math.pow((hour - 15.0) / 4.5, 2));
+        return Math.max(0.0, Math.min(1.0, daylight * 0.72 + afternoon * 0.28));
+    }
+
+    /** Deterministic weather pulse shared by soil absorption and rain telemetry. */
+    static double rainfallPulse(String scenario, ZonedDateTime ts, int index) {
+        String normalized = normalizeScenario(scenario);
+        if (!"heavy-rain".equals(normalized) && !"normal".equals(normalized)
+                && !"sensor-drift".equals(normalized) && !"device-offline".equals(normalized)) return 0.0;
+        double hour = localHour(ts);
+        double phase = index * 0.47 + hour * 0.19 + (ts == null ? 0 : ts.getDayOfYear() * 0.07);
+        double broad = 0.5 + 0.5 * Math.sin(phase * 0.63 + 0.8);
+        double burst = Math.max(0.0, Math.sin(phase * 1.71 - 0.35));
+        if ("heavy-rain".equals(normalized)) {
+            // Storms come in waves: quiet gaps remain visible between heavy
+            // bursts instead of showing an unchanging rain value all day.
+            return Math.max(0.0, Math.min(1.0, 0.08 + 0.55 * broad + 0.42 * burst));
+        }
+        // Normal weather is mostly dry with an occasional light drizzle.
+        return Math.max(0.0, Math.min(1.0, 0.04 + 0.16 * broad + 0.18 * burst));
+    }
+
+    /** Slowly varying cloud cover; scenario modifiers remain deterministic. */
+    static double cloudFactor(String scenario, ZonedDateTime ts, int index) {
+        String normalized = normalizeScenario(scenario);
+        double phase = index * 0.31 + (ts == null ? 0 : ts.getDayOfYear() * 0.11);
+        double flicker = 0.5 + 0.5 * Math.sin(phase);
+        if ("heavy-rain".equals(normalized)) return 0.26 + 0.20 * flicker;
+        if ("drought".equals(normalized)) return 1.05 + 0.12 * flicker;
+        return 0.90 + 0.14 * flicker;
+    }
+
+    private static double localHour(ZonedDateTime ts) {
+        if (ts == null) return 0.0;
+        return ts.getHour() + ts.getMinute() / 60.0 + ts.getSecond() / 3600.0;
     }
 
     static double normalizeTimeScale(double value) {
@@ -524,12 +597,18 @@ class SimulationEngine {
             PlotState state = states.get(plotId);
             double elapsedWall = Math.max(0, Duration.between(origin, wallNow).toMillis()) / 1000.0;
             ZonedDateTime physicsTs = simBase.plusMillis(Math.round(elapsedWall * plotScale * 1000.0)).atZone(ZONE);
+            // Keep the solar/environmental phase tied to the operator's
+            // local clock.  The accelerated physics clock remains useful for
+            // soil loss, recovery and other long-horizon trends, but using it
+            // for daylight made a real 15:00 page occasionally show a night
+            // reading after the demo had crossed several simulated days.
+            ZonedDateTime environmentTs = wallNow.atZone(ZONE);
             double offlineRatio = "device-offline".equals(scenario) ? params.get("offlineRatio") : 0.0;
             int phase = (index + plotId.chars().sum()) % 20;
             boolean scenarioOffline = !manualOnlineOverride && offlineRatio > 0
                     && phase < Math.max(1, (int) Math.round(offlineRatio * 20));
             if (!scenarioOffline) {
-                evolveState(state, rng, scenario, physicsTs, index, params, interval, facilityType);
+                evolveState(state, rng, scenario, environmentTs, index, params, interval, facilityType);
             }
             String farmId = Jsons.text(plot, "farmId", "farm-demo");
             // A plot may be bound to a custom simulator device id (for
@@ -544,7 +623,10 @@ class SimulationEngine {
             }
             for (MetricSpec metric : METRICS) {
                 Map<String, Object> event = buildEvent(state, rng, scenario, plotId, farmId, deviceId, metric, index,
-                        physicsTs, wallNow, params, interval, revision, facilityType);
+                        environmentTs, wallNow, params, interval, revision, facilityType);
+                // Preserve the accelerated clock for diagnostics without
+                // changing the event timestamp used for freshness checks.
+                event.put("simulationTs", physicsTs.toString());
                 try {
                     engine.ingest(event);
                     emitted += 1;
@@ -656,10 +738,10 @@ class SimulationEngine {
     }
 
     private Map<String, Object> buildEvent(PlotState state, Random rng, String scenario, String plotId, String farmId,
-                                           String deviceId, MetricSpec metric, int index, ZonedDateTime physicsTs,
+                                           String deviceId, MetricSpec metric, int index, ZonedDateTime environmentTs,
                                            Instant wallNow, Map<String, Double> params, double stepSeconds, int revision,
                                            String facilityType) {
-        double value = metricValue(state, rng, scenario, metric.code, physicsTs, index, params, stepSeconds, facilityType);
+        double value = metricValue(state, rng, scenario, metric.code, environmentTs, index, params, stepSeconds, facilityType);
         String qualityStatus = "GOOD";
         double confidence = 0.98;
         if ("sensor-drift".equals(scenario) && Set.of("SOIL_MOISTURE", "PH").contains(metric.code)) {

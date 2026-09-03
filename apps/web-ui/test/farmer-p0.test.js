@@ -248,6 +248,16 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '常规处方需要人工复核', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
+  for (const binding of [
+    'displayText(item.title)',
+    'displayText(item.reason)',
+    'displayText(device_attention.title)',
+    'displayText(device_attention.detail)',
+    'displayText(active_suggestion && active_suggestion.title)',
+    'displayText(active_suggestion && active_suggestion.reason)'
+  ]) {
+    assert.ok(html.includes(binding), `farmer task surface should localize ${binding}`);
+  }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
@@ -266,6 +276,16 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /window\.echarts/);
   assert.match(source, /getDom\?\.\(\)/);
   assert.match(source, /silent: true/);
+  // 双轨图例使用与曲线相同的颜色/线型定义，避免 ECharts 默认调色板造成错配。
+  assert.match(source, /PLOT_SIMULATION_LINE_STYLES/);
+  assert.match(source, /build_plot_simulation_legend_items/);
+  assert.match(source, /legend: \{ show: false \}/);
+  assert.match(source, /if \(plot_simulation_loading\.value \|\| plot_simulation_metric_loading\.value \|\| plot_simulation_evaluating\.value\) return false/);
+  assert.match(source, /plot_simulation_dual_track\.value = null/);
+  assert.match(html, /风险预测曲线图例/);
+  assert.match(html, /item\.lineType/);
+  assert.match(html, /v-else-if="!plot_simulation_loading && !plot_simulation_metric_loading && !plot_simulation_evaluating"/);
+  assert.match(css, /farmer-legend-swatch\.is-dotted/);
   assert.match(html, /farmer-plot-simulation-chart-stage/);
   assert.match(html, /is-overlay/);
   assert.match(source, /getIrrigationGuard/);
@@ -498,5 +518,5 @@ test('role shells constrain overflow and desktop farmer collapse releases the si
   assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
   assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
   assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
-  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-fullbleed-ai-merge/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-dual-legend-v1/);
 });
