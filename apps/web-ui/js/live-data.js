@@ -846,7 +846,7 @@ const AGENT_NAVIGATION_VIEWS = Object.freeze({
   FARM_ADMIN: new Set(['dashboard', 'plot-detail', 'decision-console', 'work-orders', 'resource-coordination', 'farm-members', 'rules-strategies', 'ai-assistant', 'settings']),
   SYSTEM_ADMIN: new Set(['plot-detail', 'admin-overview', 'admin-ops', 'admin-resources', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings', 'admin-agent', 'settings'])
 });
-const AGENT_NAVIGATION_PARAM_KEYS = new Set(['farmId', 'plotId', 'deviceId', 'taskId', 'workOrderId', 'alertId', 'caseId', 'candidateId', 'tab', 'section', 'scope', 'metric', 'conversationId']);
+const AGENT_NAVIGATION_PARAM_KEYS = new Set(['farmId', 'plotId', 'deviceId', 'taskId', 'workOrderId', 'alertId', 'caseId', 'candidateId', 'userId', 'tab', 'section', 'scope', 'metric', 'conversationId']);
 
 /**
  * Normalize server navigation cards through a small client-side route
@@ -1033,7 +1033,7 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     hardware,
     hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
-    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.health?.score ?? plot.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
     lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',

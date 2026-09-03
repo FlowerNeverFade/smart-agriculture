@@ -14,7 +14,7 @@ import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
 import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
@@ -48,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-performance-v1';
+} from './live-data.js?v=20260903-v5922-plot-health-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -448,7 +448,7 @@ function mergeOverviewPlots(plots) {
       metrics,
       deviceId: plot.device?.deviceId || plot.deviceId || null,
       deviceStatus: plot.device?.status || plot.deviceStatus || 'UNKNOWN',
-      healthScore: plot.device?.healthScore ?? plot.healthScore ?? null,
+      healthScore: plot.health?.score ?? plot.healthScore ?? null,
       lastSeen: plot.device?.lastSeen || plot.lastSeen || null
     };
   });

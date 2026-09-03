@@ -23,6 +23,7 @@ import {
   metricLabel,
   metricStatusLabel,
   normalizeAgentTurn,
+  normalizeAgentNavigationCards,
   normalizeFarmerTask,
   normalizePlot,
   normalizeWorkStatus,
@@ -32,7 +33,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-performance-v1';
+} from './live-data.js?v=20260903-v5922-plot-health-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -5585,7 +5586,8 @@ const app = createApp({
         confidence: item.confidence,
         readiness: item.readiness,
         warnings: item.warnings,
-        scenarioLabel: item.scenarioLabel
+        scenarioLabel: item.scenarioLabel,
+        navigationCards: item.navigationCards
       };
       const turn = normalizeAgentTurn(response, question, { plot, role: user.value?.role || 'FARMER', sessionMode: is_formal_session ? 'live' : 'demo' });
       return { id: item.messageId || `assistant-${Date.now()}-${Math.random()}`, role: 'assistant', content: turn.answer, sourceLabel: turn.sourceLabel, degraded: turn.degraded, intentLabel: turn.intentLabel, facts: turn.facts || [], recommendations: turn.recommendations || [], turn, actionProposal: turn.actionProposal || item.actionProposal || null, detailsOpen: false };
@@ -5609,6 +5611,17 @@ const app = createApp({
           // cannot disagree after a conversation is re-opened.
           if (message?.turn?.actionProposal && message.turn.actionProposal !== proposal) {
             Object.assign(message.turn.actionProposal, latest);
+          }
+          const cards = latest?.navigationCards || latest?.actionProposal?.navigationCards;
+          if (Array.isArray(cards) && message?.turn) {
+            const normalizedCards = normalizeAgentNavigationCards({
+              ...message.turn,
+              ...latest,
+              actionProposal: latest,
+              navigationCards: cards
+            }, { role: user.value?.role || 'FARMER' });
+            message.turn.navigationCards = normalizedCards;
+            message.turn.actionProposal = proposal;
           }
         } catch {
           // A missing legacy action row should not erase the immutable
@@ -5739,9 +5752,22 @@ const app = createApp({
       if (!proposal?.actionId || proposal.status !== 'AWAITING_CONFIRMATION' || assistant_action_busy.value) return;
       assistant_action_busy.value = proposal.actionId;
       try {
-        const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `agent-confirm:${proposal.actionId}` });
+        let result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `agent-confirm:${proposal.actionId}` });
         Object.assign(proposal, result, { status: result?.status || 'SUCCEEDED' });
-        if (proposal.status === 'EXECUTING') await wait_for_assistant_action(proposal);
+        if (proposal.status === 'EXECUTING') result = await wait_for_assistant_action(proposal);
+        Object.assign(proposal, result, { status: result?.status || proposal.status });
+        const hostMessage = assistant_messages.value.find(message => message?.actionProposal?.actionId === proposal.actionId);
+        if (hostMessage) {
+          const updatedTurn = normalizeAgentTurn({ ...result, actionProposal: proposal }, hostMessage.content, {
+            plot: find_plot_by_id(plots.value, result?.result?.plotId || result?.plotId || proposal.plotId),
+            role: user.value?.role || 'FARMER',
+            sessionMode: is_formal_session ? 'live' : 'demo'
+          });
+          hostMessage.content = updatedTurn.answer;
+          hostMessage.turn = updatedTurn;
+          hostMessage.facts = updatedTurn.facts || [];
+          hostMessage.recommendations = updatedTurn.recommendations || [];
+        }
         await refresh_assistant_impacts();
         show_toast(proposal.status === 'SUCCEEDED' ? '操作已完成，相关数据已刷新' : '操作未完成，请查看结果', proposal.status === 'SUCCEEDED' ? 'success' : 'error');
       } catch (error) {
@@ -5768,6 +5794,13 @@ const app = createApp({
     };
 
     const toggle_assistant_details = (message) => { if (message) message.detailsOpen = !message.detailsOpen; };
+
+    const navigate_assistant_card = (card) => {
+      const view = card?.route?.view;
+      const params = card?.route?.params && typeof card.route.params === 'object' ? card.route.params : {};
+      if (!view) return show_toast('跳转信息不完整，请刷新后重试', 'error');
+      navigate(view, params);
+    };
 
     const send_assistant_message = async () => {
       const question = assistant_input.value.trim();
@@ -6811,6 +6844,7 @@ const app = createApp({
       toggle_assistant_details,
       confirm_assistant_action,
       cancel_assistant_action,
+      navigate_assistant_card,
       wait_for_assistant_action,
       refresh_assistant_impacts,
       qa_input,

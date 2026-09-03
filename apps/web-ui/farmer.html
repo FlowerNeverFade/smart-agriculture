@@ -1130,19 +1130,6 @@
             </div>
           </section>
 
-          <section v-else-if="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant-shared">
-            <keep-alive include="AdminAiChatView">
-              <admin-ai-chat-view
-                :state="assistant_view_state"
-                :route-params="assistant_route_params"
-                route-view="assistant"
-                @navigate="navigate"
-                @open-plot-detail="open_agent_plot_detail"
-                @data-invalidated="refresh_assistant_impacts">
-              </admin-ai-chat-view>
-            </keep-alive>
-          </section>
-
           <section v-else-if="false" class="farmer-workspace farmer-agent-workspace" key="assistant-legacy">
             <div class="farmer-agent-page-header">
               <div>
@@ -1205,6 +1192,13 @@
                       <div class="farmer-agent-answer ai-chat-answer">{{ message.content }}</div>
                       <div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="role_presentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div>
                       <div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ role_presentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div>
+                      <div v-if="message.actionProposal?.navigationCards?.length || message.turn?.navigationCards?.length" class="ai-chat-navigation-cards" aria-label="相关页面">
+                        <button v-for="card in (message.actionProposal?.navigationCards?.length ? message.actionProposal.navigationCards : message.turn.navigationCards)" :key="card.id" type="button" class="ai-chat-navigation-card" @click="navigate_assistant_card(card)">
+                          <span class="ai-chat-navigation-card-icon"><app-icon name="arrow_forward"></app-icon></span>
+                          <span class="ai-chat-navigation-card-copy"><strong>{{ card.title }}</strong><small>{{ card.description }}</small></span>
+                          <span class="ai-chat-navigation-card-label">{{ card.label }}</span>
+                        </button>
+                      </div>
                       <div v-if="message.actionProposal" class="farmer-agent-action-card ai-chat-action-card" :class="'status-' + assistant_action_tone(message.actionProposal)">
                         <div class="farmer-agent-action-header">
                           <div class="farmer-agent-action-heading"><span class="farmer-agent-action-icon"><app-icon name="verified_user"></app-icon></span><div><strong>{{ role_presentation.actionTitle }}</strong><small>{{ assistant_action_status_label(message.actionProposal.status) }}</small></div></div>
@@ -1713,6 +1707,21 @@
 
         </transition>
 
+        <!-- Keep the cache host mounted while routes change; otherwise an unsent assistant draft is destroyed with the route section. -->
+        <section v-show="current_view === 'assistant'" class="farmer-workspace farmer-agent-workspace" key="assistant-shared">
+          <keep-alive include="AdminAiChatView">
+            <admin-ai-chat-view
+              v-if="current_view === 'assistant'"
+              :state="assistant_view_state"
+              :route-params="assistant_route_params"
+              route-view="assistant"
+              @navigate="navigate"
+              @open-plot-detail="open_agent_plot_detail"
+              @data-invalidated="refresh_assistant_impacts">
+            </admin-ai-chat-view>
+          </keep-alive>
+        </section>
+
         <div v-if="show_account_modal" class="farmer-form-overlay" @click.self="close_account_modal">
           <form class="farmer-form-card farmer-account-form" @submit.prevent="change_password">
             <div class="farmer-detail-header">
@@ -1975,6 +1984,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5922-plot-health-v1"></script>
 </body>
 </html>

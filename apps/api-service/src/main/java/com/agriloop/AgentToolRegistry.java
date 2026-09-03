@@ -100,7 +100,8 @@ final class AgentToolRegistry {
                     : "FARM_ADMIN".equals(role) ? "work-orders" : "admin-audit";
             case "get_execution_records" -> "FARMER".equals(role) ? "tasks"
                     : "FARM_ADMIN".equals(role) ? "work-orders" : "admin-ops";
-            case "get_farm_members" -> "FARM_ADMIN".equals(role) ? "farm-members" : "admin-settings";
+            case "get_farm_members", "create_farm_member", "update_farm_member_scope", "update_farm_member_status", "delete_farm_member" -> "FARM_ADMIN".equals(role) ? "farm-members" : "admin-settings";
+            case "get_user_accounts", "create_user_account", "update_user_account_status", "delete_user_account" -> "admin-settings";
             case "get_crop_packs", "get_rule_sets" -> "FARM_ADMIN".equals(role) ? "rules-strategies" : "admin-rules";
             case "get_farms" -> "admin-overview";
             case "get_telemetry" -> "FARMER".equals(role) ? "plots" : "plot-detail";
@@ -108,7 +109,7 @@ final class AgentToolRegistry {
             case "get_platform_risk_overview", "get_farm_overview" -> "admin-overview";
             case "get_rule_strategy_status" -> "admin-rules";
             case "get_audit_records" -> "admin-audit";
-            case "create_plot" -> "FARM_ADMIN".equals(role) ? "dashboard" : "";
+            case "create_plot" -> "FARM_ADMIN".equals(role) ? "plot-detail" : "";
             case "update_plot" -> "plot-detail";
             case "set_plot_devices" -> "FARM_ADMIN".equals(role) ? "resource-coordination" : "admin-resources";
             case "create_and_assign_work_order", "assign_work_order", "transition_work_order", "review_work_order",
@@ -136,7 +137,7 @@ final class AgentToolRegistry {
             }
         }
         validateTypes(name, args);
-        for (String key : List.of("farmId", "plotId", "deviceId", "workOrderId", "alertId", "planId", "candidateId", "caseId", "assigneeId")) {
+        for (String key : List.of("farmId", "plotId", "deviceId", "workOrderId", "alertId", "planId", "candidateId", "caseId", "assigneeId", "userId")) {
             Object value = args.get(key);
             String text = value == null ? "" : String.valueOf(value).trim();
             if ("*".equals(text) && principal != null && principal.isSystemAdmin()) continue;
@@ -176,10 +177,23 @@ final class AgentToolRegistry {
                 if (!IDENTIFIER.matcher(id).matches()) throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "设备编号格式无效");
             }
         }
+        if (args.containsKey("plotIds") && !(args.get("plotIds") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "plotIds 必须是数组");
+        }
+        if (args.get("plotIds") instanceof Collection<?> plots) {
+            if (plots.size() > 500) throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "地块数量超过上限");
+            for (Object plotId : plots) {
+                String id = String.valueOf(plotId == null ? "" : plotId).trim();
+                if (!IDENTIFIER.matcher(id).matches()) throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "地块编号格式无效");
+            }
+        }
+        if (args.containsKey("enabled") && !(args.get("enabled") instanceof Boolean)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "enabled 必须是布尔值");
+        }
     }
 
     private static void validateTypes(String name, Map<String, Object> args) {
-        for (String key : List.of("farmId", "plotId", "deviceId", "workOrderId", "alertId", "planId", "candidateId", "caseId", "assigneeId", "title", "name", "notes", "reason", "evidenceType", "decision", "target", "scenario", "dueAt", "resultSummary")) {
+        for (String key : List.of("farmId", "plotId", "deviceId", "workOrderId", "alertId", "planId", "candidateId", "caseId", "assigneeId", "userId", "title", "name", "notes", "reason", "evidenceType", "decision", "target", "scenario", "dueAt", "resultSummary", "username", "password", "displayName", "role", "authorizationCode", "status", "scope")) {
             if (!args.containsKey(key) || args.get(key) == null) continue;
             if (!(args.get(key) instanceof CharSequence)) {
                 throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "参数必须是文本：" + key);
@@ -221,6 +235,15 @@ final class AgentToolRegistry {
                 && !Set.of("NORMAL", "DROUGHT", "HEAVY_RAIN", "SENSOR_DRIFT", "DEVICE_OFFLINE", "HEAVY-RAIN", "SENSOR-DRIFT", "DEVICE-OFFLINE").contains(scenario)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "模拟场景无效");
         }
+        String role = upper(args.get("role"));
+        if (!role.isBlank() && "create_user_account".equals(name)
+                && !Set.of("FARMER", "FARM_ADMIN", "SYSTEM_ADMIN").contains(role)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "账号角色无效");
+        }
+        if (Set.of("create_user_account", "update_user_account_status", "delete_user_account", "get_user_accounts").contains(name)
+                && !"PLATFORM".equals(upper(args.get("scope")))) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_ARGUMENT_INVALID", "平台账号工具必须使用 PLATFORM 范围");
+        }
     }
 
     private static String upper(Object value) {
@@ -251,6 +274,7 @@ final class AgentToolRegistry {
         add(definitions, read("get_feedback", "读取用户反馈", "读取当前角色和授权范围内的决策反馈", "FARM", ALL_ROLES, route("decision-console")));
         add(definitions, read("get_execution_records", "读取执行记录", "读取命令、确认、ACK 和效果评价的关联记录", "FARM", ALL_ROLES, route("work-orders")));
         add(definitions, read("get_farm_members", "读取农场成员", "读取授权农场的农户成员和地块范围", "FARM", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), route("farm-members")));
+        add(definitions, read("get_user_accounts", "读取账号列表", "读取系统管理员可治理的账号、角色和授权范围", "PLATFORM", SYSTEM_ROLES, route("admin-settings")));
         add(definitions, read("get_crop_packs", "读取作物包", "读取授权农场可用的作物包版本和状态", "FARM", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), route("admin-rules")));
         add(definitions, read("get_rule_sets", "读取规则集", "读取授权农场的全局、农场和地块规则", "FARM", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), route("admin-rules")));
         add(definitions, read("get_farms", "读取农场列表", "读取当前系统管理员可治理的农场范围", "PLATFORM", SYSTEM_ROLES, route("admin-overview")));
@@ -270,6 +294,13 @@ final class AgentToolRegistry {
         add(definitions, mutation("create_evidence_request", "申请补证任务", "申请巡田、复测或设备检查", "PLOT", Set.of("FARMER"), lowSchema(List.of("plotId", "evidenceType")), route("inspections")));
         add(definitions, mutation("execute_virtual_irrigation", "执行虚拟灌溉", "在安全门通过并确认后执行虚拟灌溉", "PLOT", FARM_ROLES, lowSchema(List.of("plotId", "waterLitre", "durationSeconds")), route("decision-console"), "HIGH"));
         add(definitions, mutation("update_simulation_settings", "更新模拟策略", "修改当前地块的模拟场景或参数", "PLOT", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), lowSchema(List.of("plotId")), route("resource-coordination")));
+        add(definitions, mutation("create_farm_member", "创建农户", "在授权农场创建种植农户账号并设置初始地块范围", "FARM", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), lowSchema(List.of("farmId", "username", "password")), route("farm-members")));
+        add(definitions, mutation("update_farm_member_scope", "调整农户地块权限", "更新农户在指定农场负责的地块范围", "FARM", FARM_ADMIN_ROLES, lowSchema(List.of("userId", "farmId", "plotIds")), route("farm-members")));
+        add(definitions, mutation("update_farm_member_status", "启停农户账号", "启用或停用指定农户账号", "FARM", Set.of("FARM_ADMIN", "SYSTEM_ADMIN"), lowSchema(List.of("userId", "farmId")), route("farm-members"), "MEDIUM"));
+        add(definitions, mutation("delete_farm_member", "移除农场成员", "从当前农场移除农户及其地块授权", "FARM", FARM_ADMIN_ROLES, lowSchema(List.of("userId", "farmId")), route("farm-members"), "HIGH"));
+        add(definitions, mutation("create_user_account", "创建系统账号", "由系统管理员创建农户、农场管理员或系统管理员账号", "PLATFORM", SYSTEM_ROLES, lowSchema(List.of("scope", "username", "password", "role")), route("admin-settings"), "MEDIUM"));
+        add(definitions, mutation("update_user_account_status", "启停系统账号", "启用或停用系统管理员范围内的账号", "PLATFORM", SYSTEM_ROLES, lowSchema(List.of("scope", "userId", "enabled")), route("admin-settings"), "MEDIUM"));
+        add(definitions, mutation("delete_user_account", "删除系统账号", "删除系统管理员范围内的非系统管理员账号", "PLATFORM", SYSTEM_ROLES, lowSchema(List.of("scope", "userId")), route("admin-settings"), "HIGH"));
         add(definitions, mutation("review_learning_case", "审核学习案例", "人工确认或驳回学习案例", "FARM", SYSTEM_ROLES, lowSchema(List.of("caseId", "decision")), route("admin-rules")));
         add(definitions, mutation("transition_strategy_candidate", "变更策略候选", "按状态机审核、启用或回滚策略候选", "FARM", SYSTEM_ROLES, lowSchema(List.of("candidateId", "target")), route("admin-rules"), "HIGH"));
         return Collections.unmodifiableMap(definitions);
@@ -307,7 +338,7 @@ final class AgentToolRegistry {
     private static Map<String, Object> property(String field) {
         return switch (field) {
             case "areaM2", "waterLitre", "durationSeconds", "expectedRevision" -> Map.of("type", "number");
-            case "deviceIds", "caseIds", "evidenceCaseIds" -> Map.of(
+            case "deviceIds", "plotIds", "caseIds", "evidenceCaseIds" -> Map.of(
                     "type", "array", "items", Map.of("type", "string"));
             case "enabled", "confirmed" -> Map.of("type", "boolean");
             case "action" -> Map.of("type", "string", "description", "要执行的受控状态动作");

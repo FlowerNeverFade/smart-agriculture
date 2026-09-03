@@ -33,7 +33,7 @@ test('farm overview summary keeps responsive wrapping and refreshes both style a
   );
   assert.match(indexSource, /css\/style\.css\?v=20260903-v5919-main-merge-v1/);
   assert.match(indexSource, /css\/modules\/admin\.css\?v=20260903-v5919-main-merge-v1/);
-  assert.match(indexSource, /js\/app\.js\?v=20260903-agent-main-merge-v1/);
+  assert.match(indexSource, /js\/app\.js\?v=20260903-v5922-plot-health-v1/);
 });
 
 test('farm overview uses compact three-column plot cards on wide screens', () => {

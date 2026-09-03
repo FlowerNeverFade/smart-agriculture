@@ -14,7 +14,7 @@ import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?
 import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -48,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-performance-v1';
+} from './live-data.js?v=20260903-v5922-plot-health-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -343,7 +343,7 @@ function mergeOverviewPlots(plots) {
       metrics,
       deviceId: plot.device?.deviceId || plot.deviceId || null,
       deviceStatus: plot.device?.status || plot.deviceStatus || 'UNKNOWN',
-      healthScore: plot.device?.healthScore ?? plot.healthScore ?? null,
+      healthScore: plot.health?.score ?? plot.healthScore ?? null,
       lastSeen: plot.device?.lastSeen || plot.lastSeen || null
     };
   });

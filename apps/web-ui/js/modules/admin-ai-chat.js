@@ -3,7 +3,7 @@ import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentRespo
 import { analyzeImageFiles } from './image-vision.js?v=20260902-v5911-zhcn-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260902-v5911-zhcn-v1';
 
-const { ref, computed, inject, onMounted, onBeforeUnmount, nextTick, watch } = Vue;
+const { ref, computed, inject, onMounted, onBeforeUnmount, onActivated, nextTick, watch } = Vue;
 
 const AI_SIDEBAR_MIN = 184;
 const AI_SIDEBAR_MAX = 560;
@@ -42,6 +42,16 @@ function cleanAssistantText(value) {
     .trim();
 }
 
+function oneTimeCredentialText(response = {}) {
+  const credential = response?.oneTimeCredential;
+  if (!credential || typeof credential !== 'object') return '';
+  const parts = [];
+  if (credential.username) parts.push(`账号：${credential.username}`);
+  if (credential.initialPassword) parts.push(`初始密码：${credential.initialPassword}`);
+  if (credential.recoveryCode) parts.push(`恢复码：${credential.recoveryCode}`);
+  return parts.length ? `一次性登录信息（请立即妥善保存）：\n${parts.join('\n')}` : '';
+}
+
 function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '') {
   const role = normalizedRole(item.role);
   const response = item.response && typeof item.response === 'object' ? item.response : item;
@@ -59,9 +69,11 @@ function normalizeAgentMessage(item = {}, sessionMode = 'live', fallbackRole = '
   // when a fresh response has already passed through agentResponseText.  Run
   // both paths through the same display normalizer so `**bold**`, headings and
   // inline code never leak into the plain-text chat surface.
-  const content = role === 'assistant'
+  let content = role === 'assistant'
     ? cleanAssistantText(agentResponseText({ narrative: rawContent }, rawContent))
     : agentHistoryUserText(rawContent, '已上传现场图片');
+  const credentialText = role === 'assistant' ? oneTimeCredentialText(response) : '';
+  if (credentialText) content = `${content}\n\n${credentialText}`.trim();
   const isError = Boolean(item.error);
   return {
     id: item.messageId || item.traceId || `history-${Math.random().toString(36).slice(2)}`,
@@ -299,30 +311,43 @@ export const AdminAiChatView = {
     });
     watch(selectedPlotId, (value, oldValue) => { if (!selectingConversation) switchPlotContext(value, oldValue); });
 
+    let scrollRequestId = 0;
+    const setMessageListToBottom = () => {
+      const el = messageList.value;
+      // When a kept-alive view is being activated, Vue may have rendered the
+      // node before the route transition has given it a height.  Leave the
+      // retry to the scheduled pass below instead of letting a zero-sized
+      // node keep the scroll position at the top.
+      if (!el || !el.isConnected || el.clientHeight <= 0) return false;
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      const previousBehavior = el.style.scrollBehavior;
+      el.style.scrollBehavior = 'auto';
+      el.scrollTop = maxScrollTop;
+      el.style.scrollBehavior = previousBehavior;
+      return el.scrollTop >= Math.max(0, maxScrollTop - 8);
+    };
+
     // 发送消息等用户动作后：平滑滚动到底部（保留 CSS scroll-behavior:smooth 动画）
     const scrollToBottom = async () => { await nextTick(); if (messageList.value) messageList.value.scrollTop = messageList.value.scrollHeight; };
     // 打开/切换历史会话：瞬间定位到底部，禁用 smooth，避免打开时出现滚动动画。
-    // 大列表/异步图片渲染会推高 scrollHeight，只滚一次可能停在半途看不到最新消息，
-    // 因此追加几次延迟滚动，确保最新对话可见。
+    // 历史列表可能在页面过渡、keep-alive 激活或异步图片渲染后才有最终高度，
+    // 因此在这些时序点重试，确保最新消息可见。
     const scrollToBottomInstant = async () => {
+      const requestId = ++scrollRequestId;
       await nextTick();
-      const el = messageList.value;
-      if (!el) return;
-      const prev = el.style.scrollBehavior;
-      el.style.scrollBehavior = 'auto';
-      el.scrollTop = el.scrollHeight;
-      el.style.scrollBehavior = prev;
-      [0, 60, 180].forEach((delay) => setTimeout(() => {
-        const target = messageList.value;
-        if (!target) return;
-        if (target.scrollTop + target.clientHeight < target.scrollHeight - 8) {
-          const prevBehavior = target.style.scrollBehavior;
-          target.style.scrollBehavior = 'auto';
-          target.scrollTop = target.scrollHeight;
-          target.style.scrollBehavior = prevBehavior;
-        }
-      }, delay));
+      const attempt = () => {
+        if (requestId !== scrollRequestId) return;
+        setMessageListToBottom();
+      };
+      attempt();
+      [0, 60, 180, 360, 700].forEach((delay) => setTimeout(attempt, delay));
     };
+    // A kept-alive Agent view does not run onMounted again after navigating
+    // away and back.  Re-apply the latest-message position on every activate.
+    onActivated?.(() => scrollToBottomInstant());
+    watch(() => [messages.value.length, loadingHistory.value], ([, loading]) => {
+      if (!loading && messages.value.length) scrollToBottomInstant();
+    });
     const updateRoute = id => {
       const params = { ...props.routeParams, conversationId: id };
       if (!id) delete params.conversationId;
@@ -333,6 +358,45 @@ export const AdminAiChatView = {
       }
       if (!id) params.new = '1'; else delete params.new;
       emit('navigate', routeTarget.value, params);
+    };
+
+    // History stores a render snapshot, while the durable action row is the
+    // source of truth after confirmation.  Refresh every action card when a
+    // conversation is opened so create/update results expose their real ids
+    // and the corresponding navigation card instead of the old preview route.
+    const refreshActionStates = async (messageList = messages.value) => {
+      const entries = [];
+      const seen = new Set();
+      (Array.isArray(messageList) ? messageList : []).forEach(message => {
+        const proposal = message?.actionProposal;
+        const actionId = String(proposal?.actionId || '').trim();
+        if (!actionId || seen.has(actionId)) return;
+        seen.add(actionId);
+        entries.push({ message, proposal });
+      });
+      await Promise.all(entries.map(async ({ message, proposal }) => {
+        try {
+          const latest = await api.getAgentAction(proposal.actionId);
+          Object.assign(proposal, latest);
+          const cards = latest?.navigationCards || latest?.actionProposal?.navigationCards;
+          if (Array.isArray(cards)) {
+            message.navigationCards = normalizeAgentNavigationCards({
+              ...message,
+              ...latest,
+              actionProposal: latest,
+              navigationCards: cards
+            }, { role: currentRole.value });
+          }
+          const terminal = new Set(['SUCCEEDED', 'FAILED', 'PARTIAL', 'TIMEOUT', 'CANCELED', 'EXPIRED']);
+          if (terminal.has(String(latest?.status || '').toUpperCase()) && latest?.narrative) {
+            message.content = cleanAssistantText(latest.narrative);
+          }
+        } catch {
+          // Keep the immutable history snapshot when an old action row has
+          // already been purged or is unavailable during a transient outage.
+        }
+      }));
+      return messageList;
     };
 
     const loadConversation = async (id, { updateHash = true } = {}) => {
@@ -351,7 +415,9 @@ export const AdminAiChatView = {
         conversationId.value = history?.conversation?.conversationId || id;
         selectedConversationId.value = conversationId.value;
         releaseMessageImages();
-        messages.value = (history?.messages || []).map(item => normalizeAgentMessage(item, props.state.sessionMode, currentRole.value)).filter(item => item.content);
+        const normalizedMessages = (history?.messages || []).map(item => normalizeAgentMessage(item, props.state.sessionMode, currentRole.value)).filter(item => item.content);
+        await refreshActionStates(normalizedMessages);
+        messages.value = normalizedMessages;
         if (updateHash) updateRoute(conversationId.value);
       } catch (error) {
         releaseMessageImages();
@@ -513,15 +579,37 @@ export const AdminAiChatView = {
       try { await loadConversation(id); } finally { selectingConversation = false; }
     };
     const toggleDetails = message => { if (message) message.detailsOpen = !message.detailsOpen; };
+    const waitForActionResult = async initial => {
+      const terminal = new Set(['SUCCEEDED', 'FAILED', 'PARTIAL', 'TIMEOUT', 'CANCELED', 'EXPIRED']);
+      let latest = initial;
+      for (let attempt = 0; attempt < 12 && !terminal.has(String(latest?.status || '').toUpperCase()); attempt += 1) {
+        await new Promise(resolve => window.setTimeout(resolve, 250));
+        try { latest = await api.getAgentAction(initial.actionId); }
+        catch { break; }
+      }
+      return latest;
+    };
     const confirmAction = async proposal => {
       if (!proposal?.actionId || actionBusy.value) return;
       actionBusy.value = proposal.actionId;
       try {
-        const result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `ui-agent:${proposal.actionId}` });
+        let result = await api.confirmAgentAction(proposal.actionId, { idempotencyKey: `ui-agent:${proposal.actionId}` });
         proposal.status = result?.status || 'SUCCEEDED'; proposal.result = result?.result || result;
-        messages.value.push({ id: `agent-result-${Date.now()}`, role: 'assistant', content: `已确认执行：${proposal.summary || '操作'}。${result?.status === 'SUCCEEDED' ? '操作已完成，相关页面正在同步。' : '操作未成功完成。'}`, time: messageTime(), source: '智能助手执行结果', facts: [], inference: '执行结果以平台返回状态为准。', recommendations: [] });
+        if (proposal.status === 'EXECUTING') result = await waitForActionResult(result);
+        Object.assign(proposal, result, { status: result?.status || proposal.status });
+        messages.value.push(normalizeAgentMessage({
+          ...result,
+          messageId: `agent-result-${Date.now()}`,
+          role: 'ASSISTANT',
+          content: result?.narrative || `已确认执行：${proposal.summary || '操作'}。${result?.status === 'SUCCEEDED' ? '操作已完成，相关页面正在同步。' : result?.status === 'EXECUTING' ? '操作正在执行，稍后可在执行记录中查看最终结果。' : '操作未成功完成。'}`,
+          actionProposal: result
+        }, 'live', currentRole.value));
         emit('data-invalidated', { domains: result?.affectedDomains || proposal.affectedDomains || ['plots', 'devices', 'workOrders', 'alerts', 'overview'], record: result?.result || result, actionResult: result });
-      } catch (error) { proposal.status = 'FAILED'; toast(error.message || '智能体操作执行失败', 'error'); }
+      } catch (error) {
+        proposal.status = 'FAILED'; proposal.error = error.message || '智能体操作执行失败';
+        messages.value.push(normalizeAgentMessage({ id: `agent-error-${Date.now()}`, role: 'ASSISTANT', error: true, content: `操作未完成：${proposal.error}` }, 'live', currentRole.value));
+        toast(proposal.error, 'error');
+      }
       finally { actionBusy.value = ''; }
     };
     const cancelAction = async proposal => {
@@ -552,6 +640,7 @@ export const AdminAiChatView = {
       nextTick(() => messageList.value?.addEventListener('scroll', handleMessageScroll));
     });
     onBeforeUnmount(() => {
+      scrollRequestId += 1;
       stopSidebarResize();
       window.removeEventListener('resize', normalizeViewportWidth);
       messageList.value?.removeEventListener('scroll', handleMessageScroll);
@@ -893,7 +982,7 @@ export const AdminAiChatView = {
           <div class="admin-ai-empty-state ai-chat-empty-state" v-else-if="!messages.length"><div class="admin-ai-empty-mark"><app-icon name="smart_toy"></app-icon></div><p class="admin-ai-empty-brand ai-chat-empty-brand">{{ rolePresentation.assistantName }}</p><strong class="admin-ai-empty-greeting">{{ rolePresentation.emptyGreeting }}</strong><p class="admin-ai-empty-copy">{{ rolePresentation.emptyCopy }}</p><div class="admin-ai-suggestions ai-chat-shortcuts" aria-label="快捷问题"><button type="button" v-for="suggestion in suggestions" :key="suggestion" :disabled="sending" @click="send(suggestion)"><span>{{ suggestion }}</span><app-icon name="arrow_upward"></app-icon></button></div></div>
           <template v-else><article v-for="message in visibleMessages" :key="message.id" class="admin-ai-message ai-chat-message" :class="[message.role, { error: message.error }]">
             <div class="admin-ai-avatar ai-chat-avatar" v-if="message.role !== 'user'"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble"><div v-if="message.role !== 'user'" class="admin-ai-message-meta ai-chat-message-meta"><span class="admin-ai-message-author"><strong>{{ rolePresentation.assistantName }}</strong></span><span class="admin-ai-source ai-chat-source" :class="message.degraded ? 'warning' : 'success'">{{ message.source || '智能助手' }}</span><span v-if="message.intentLabel" class="admin-ai-intent ai-chat-intent">{{ message.intentLabel }}</span></div><div v-else class="ai-chat-user-bubble">{{ message.content }}</div><p v-if="message.role !== 'user'" class="ai-chat-answer">{{ message.content }}</p><div v-if="message.facts?.length" class="ai-chat-facts" :aria-label="rolePresentation.factsTitle"><div v-for="fact in message.facts" :key="fact.label" class="ai-chat-fact"><small>{{ fact.label }}</small><strong>{{ fact.value }}</strong></div></div><div v-if="message.recommendations?.length" class="ai-chat-recommendations"><strong>{{ rolePresentation.recommendationsTitle }}</strong><ul><li v-for="item in message.recommendations" :key="item">{{ item }}</li></ul></div><div v-if="message.navigationCards?.length" class="ai-chat-navigation-cards" aria-label="相关页面"><button v-for="card in message.navigationCards" :key="card.id" type="button" class="ai-chat-navigation-card" @click="navigateAgentCard(card)"><span class="ai-chat-navigation-card-icon"><app-icon name="arrow_forward"></app-icon></span><span class="ai-chat-navigation-card-copy"><strong>{{ card.title }}</strong><small>{{ card.description }}</small></span><span class="ai-chat-navigation-card-label">{{ card.label }}</span></button></div><div v-if="message.attachments?.length" class="admin-ai-message-attachments"><figure v-for="attachment in message.attachments" :key="attachment.id"><img :src="attachment.url" :alt="attachment.name"><figcaption>{{ attachment.name }}</figcaption></figure></div>
-              <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'CANCELED' ? '已取消' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
+              <div v-if="message.actionProposal" class="admin-ai-action-card ai-chat-action-card"><div class="admin-ai-action-heading"><app-icon name="bolt"></app-icon><strong>{{ rolePresentation.actionTitle }}</strong><span>{{ message.actionProposal.status === 'SUCCEEDED' ? '已完成' : message.actionProposal.status === 'EXECUTING' ? '执行中' : message.actionProposal.status === 'PARTIAL' ? '部分完成' : message.actionProposal.status === 'FAILED' ? '失败' : message.actionProposal.status === 'TIMEOUT' ? '超时' : message.actionProposal.status === 'CANCELED' ? '已取消' : message.actionProposal.status === 'EXPIRED' ? '已过期' : '待确认' }}</span></div><p>{{ message.actionProposal.summary }}</p><small>仅执行已展示的内容；确认后会再次校验权限和当前数据。</small><div class="admin-ai-action-buttons" v-if="message.actionProposal.status === 'AWAITING_CONFIRMATION'"><button type="button" class="g-btn primary compact" :disabled="isActionBusy()" @click="confirmAction(message.actionProposal)">{{ isActionRunning(message.actionProposal.actionId) ? '执行中…' : '确认执行' }}</button><button type="button" class="g-btn secondary compact" :disabled="isActionBusy()" @click="cancelAction(message.actionProposal)">取消</button></div></div><button v-if="message.evidence?.length || message.traceId" type="button" class="ai-chat-details-button" :aria-expanded="message.detailsOpen ? 'true' : 'false'" @click="toggleDetails(message)"><app-icon :name="message.detailsOpen ? 'expand_less' : 'fact_check'"></app-icon>{{ message.detailsOpen ? rolePresentation.detailsCollapseLabel : rolePresentation.detailsLabel }}</button><div v-if="message.detailsOpen" class="ai-chat-details"><div class="ai-chat-detail-grid"><span v-if="message.roleLabel"><small>回答身份</small><strong>{{ message.roleLabel }}</strong></span><span v-if="message.scopeLabel"><small>数据范围</small><strong>{{ message.scopeLabel }}</strong></span><span v-if="message.intentLabel"><small>意图</small><strong>{{ message.intentLabel }}</strong></span><span v-if="message.traceId"><small>记录编号</small><code>{{ message.traceId }}</code></span></div><ul v-if="message.evidence?.length" class="ai-chat-evidence"><li v-for="item in message.evidence" :key="item.id"><span>{{ item.type === 'knowledge' ? '知识' : item.type === 'tool' ? '工具' : '版本' }}</span><b>{{ item.label }}</b><small>{{ item.scope }} · {{ item.provenance }}<template v-if="item.durationMs"> · {{ item.durationMs }} 毫秒</template></small></li></ul></div><small class="ai-chat-message-time">{{ message.source ? message.source + ' · ' : '' }}{{ message.time }}</small>
             </div></article><article class="admin-ai-message ai-chat-message assistant" v-if="sending"><div class="admin-ai-avatar ai-chat-avatar"><app-icon name="smart_toy"></app-icon></div><div class="admin-ai-bubble admin-ai-typing"><span class="admin-ai-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>{{ rolePresentation.typingLabel }}</span></div></article></template>
         </div>
         <footer class="admin-ai-compose-area"><div v-if="attachments.length" class="admin-ai-attachment-strip" aria-label="待发送图片"><div v-for="attachment in attachments" :key="attachment.id" class="admin-ai-attachment-preview"><img :src="attachment.url" :alt="attachment.name"><div><strong>{{ attachment.name }}</strong><small>{{ formatAttachmentSize(attachment.size) }}</small></div><button type="button" class="g-btn icon-only compact" :aria-label="'移除 ' + attachment.name" @click="removeAttachment(attachment.id)"><app-icon name="close"></app-icon></button></div></div><label class="admin-ai-compose-context"><app-icon name="agriculture"></app-icon><span>{{ rolePresentation.code === 'SYSTEM_ADMIN' ? '对话范围' : '关联地块' }}</span><select class="g-select" v-model="selectedPlotId" aria-label="当前对话范围"><option v-if="rolePresentation.code === 'SYSTEM_ADMIN'" value="">全平台（跨农场）</option><option v-for="plot in state.plots" :key="plot.plotId" :value="plot.plotId">{{ plot.name || plot.plotId }}</option></select></label><div class="admin-ai-composer"><textarea v-model="input" rows="2" maxlength="1000" aria-label="向农智助手提问" :placeholder="rolePresentation.inputPlaceholder" @keydown="handleKeydown"></textarea><div class="admin-ai-compose-tools"><input ref="imageInput" class="admin-ai-image-input" type="file" accept="image/jpeg,image/png,image/webp" multiple aria-label="选择图片" @change="onImageSelected"><button class="g-btn icon-only compact admin-ai-attach" type="button" aria-label="上传图片" title="上传图片" :disabled="sending || attachments.length >= 4" @click="imageInput?.click()"><app-icon name="attach_file"></app-icon></button><button v-if="attachments.length" class="g-btn secondary compact admin-ai-analyze-photo" type="button" :disabled="sending" @click="analyzePhoto"><app-icon name="image_search"></app-icon><span>分析照片</span></button></div><button class="admin-ai-send" type="button" :disabled="sending || (!input.trim() && !attachments.length)" :aria-label="sending ? '正在回答' : '发送消息'" @click="send()"><app-icon :name="sending ? 'hourglass_empty' : 'arrow_upward'"></app-icon></button></div>        <p class="admin-ai-chat-footnote">{{ rolePresentation.composerFootnote }}</p></footer>
