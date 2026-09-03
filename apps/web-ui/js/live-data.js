@@ -1004,9 +1004,8 @@ export function mergeOverviewPlotRecords(plotFacts = [], overviewCards = [], pre
     .filter((plot) => plot && (plot.plotId || plot.id))
     .map((plot) => [String(plot.plotId || plot.id), plot]));
   const freshIds = new Set([...factMap.keys(), ...cardMap.keys()]);
-  const ids = freshIds.size
-    ? [...freshIds]
-    : [...previousMap.keys()];
+  const ids = (freshIds.size ? [...freshIds] : [...previousMap.keys()])
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   return ids.map((plotId) => {
     const fact = factMap.get(plotId) || {};
     const card = cardMap.get(plotId) || {};

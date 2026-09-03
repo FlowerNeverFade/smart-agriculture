@@ -3170,10 +3170,10 @@ class AgriEngine {
             return aiMode.equals("mock") || aiMode.equals("maxkb") ? "DEGRADED" : aiMode;
         }
         long now = System.currentTimeMillis();
-        if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+        if (now - llmHealthCheckedAt < 60_000 && llmHealthStatus != null) return llmHealthStatus;
         synchronized (llmHealthLock) {
             now = System.currentTimeMillis();
-            if (now - llmHealthCheckedAt < 15_000 && llmHealthStatus != null) return llmHealthStatus;
+            if (now - llmHealthCheckedAt < 60_000 && llmHealthStatus != null) return llmHealthStatus;
             llmHealthStatus = probeLlmModels(aiMode);
             llmHealthCheckedAt = System.currentTimeMillis();
             return llmHealthStatus;

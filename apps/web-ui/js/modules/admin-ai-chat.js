@@ -569,15 +569,16 @@ export const AdminAiChatView = {
       } catch (error) { toast(error.message || '置顶状态更新失败', 'error'); }
     };
     const isPinned = id => pinnedIds.value.includes(id) || Boolean(conversations.value.find(item => item.conversationId === id)?.pinned);
+    const conversationTimeValue = (c) => (new Date(c.updatedAt || c.lastMessageAt || 0).getTime() || 0);
     const orderedConversations = computed(() => {
       const list = Array.isArray(conversations.value) ? [...conversations.value] : [];
       list.sort((a, b) => (Number(isPinned(b.conversationId)) - Number(isPinned(a.conversationId)))
-        || (new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0)));
+        || (conversationTimeValue(b) - conversationTimeValue(a)));
       return list;
     });
     const orderedArchivedConversations = computed(() => {
       const list = Array.isArray(archivedConversations.value) ? [...archivedConversations.value] : [];
-      list.sort((a, b) => new Date(b.updatedAt || b.lastMessageAt || 0) - new Date(a.updatedAt || a.lastMessageAt || 0));
+      list.sort((a, b) => conversationTimeValue(b) - conversationTimeValue(a));
       return list;
     });
     const activeConversationTitle = computed(() => {

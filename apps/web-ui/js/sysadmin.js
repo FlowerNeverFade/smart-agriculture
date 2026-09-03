@@ -1081,8 +1081,18 @@ const AdminSimulatorView = {
             const chartDom = document.getElementById('adminDualTrackChart');
             if (!chartDom || !window.echarts) return;
             const myChart = echarts.init(chartDom);
-            const left = comparison?.leftBranch || {};
-            const right = comparison?.rightBranch || {};
+            const summarize = (branch) => {
+              const pts = (Array.isArray(branch?.points) ? branch.points : []).map((p) => Number(p.value)).filter((v) => Number.isFinite(v));
+              if (!pts.length) return { eventCount: 0, soilMean: 0, soilMin: 0, soilMax: 0 };
+              return {
+                eventCount: pts.length,
+                soilMean: Number((pts.reduce((s, v) => s + v, 0) / pts.length).toFixed(1)),
+                soilMin: Math.min(...pts),
+                soilMax: Math.max(...pts)
+              };
+            };
+            const left = summarize(comparison?.leftBranch);
+            const right = summarize(comparison?.rightBranch);
             myChart.setOption({
               tooltip: { trigger: 'axis' },
               legend: { data: ['执行分支', '未执行分支'] },
@@ -1151,7 +1161,9 @@ const AdminSimulatorView = {
     const simHistory = computed(() => props.state.adminSimHistory || []);
     // 运行历史按地块分组（A 方案）：每地块只显示最新一条运行，历史折叠展开
     const expandedSimPlots = ref({});
+    const simSearch = ref('');
     const simGrouped = computed(() => {
+      const query = String(simSearch.value || '').trim().toLowerCase();
       const groups = new Map();
       (props.state.adminSimHistory || []).forEach((run) => {
         const key = run.plotId || '未分配';
@@ -1165,6 +1177,15 @@ const AdminSimulatorView = {
           const tb = new Date(b.timeIso || 0).getTime() || 0;
           return tb - ta;
         });
+        if (query) {
+          const plotName = plotNameOf(plotId);
+          const matched = String(plotId).toLowerCase().includes(query)
+            || String(plotName || '').toLowerCase().includes(query)
+            || runs.some((r) => String(r.scenarioId || '').toLowerCase().includes(query)
+              || String(r.type || '').toLowerCase().includes(query)
+              || String(r.typeLabel || '').toLowerCase().includes(query));
+          if (!matched) return;
+        }
         // 默认只显示最新一条（RUNNING 优先）；展开后显示全部
         const latest = runs[0];
         const displayRuns = expandedSimPlots.value[plotId] ? runs : (latest ? [latest] : []);
@@ -1196,7 +1217,7 @@ const AdminSimulatorView = {
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
       simPrevPage, simNextPage, simChangeSize, simJumpTo,
-      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf, simGrouped, expandedSimPlots, toggleSimGroup
+      scenarioLabel, localizedStatusLabel, formatSimTime, shortId, plotNameOf, simGrouped, simSearch, expandedSimPlots, toggleSimGroup
     };
   }
 };
@@ -2071,6 +2092,11 @@ const app = createApp({
     const selectedPlotId = ref(initialRoute.view === 'plot-detail' ? initialRoute.params.plotId || '' : '');
 
     const currentViewComponent = computed(() => `${currentView.value}-view`);
+    // 切换视图时重置滚动容器，避免不同页面（如仿真模拟滚到底）的滚动位置被共享
+    watch(currentView, () => {
+      const main = document.querySelector('.g-main');
+      if (main) main.scrollTop = 0;
+    });
     const selectedPlot = computed(() => (state.value.allPlots || state.value.plots).find((plot) => plot.plotId === selectedPlotId.value) || null);
     const roleClass = computed(() => `role-${String(state.value.currentUser?.role || 'unknown').toLowerCase().replaceAll('_', '-')}`);
     watch(roleClass, (className) => {
@@ -2343,6 +2369,18 @@ const app = createApp({
         workOrders: api.getWorkOrders(),
         alerts: api.getAlerts(),
         simulator: api.getSimulatorStatus(),
+        resourcePlans: api.listResourcePlans({}),
+        resourceRequests: api.listResourceRequests({}),
+        resourceProfiles: (async () => {
+          const farmList = await api.getFarms();
+          const settled = await Promise.allSettled((farmList || []).map((farm) => api.getWaterResourceProfile(farm.farmId)));
+          return settled.filter((r) => r.status === 'fulfilled').map((r) => r.value).filter(Boolean);
+        })(),
+        devices: (async () => {
+          const farmList = await api.getFarms();
+          const settled = await Promise.allSettled((farmList || []).map((farm) => api.getDevices({ farmId: farm.farmId })));
+          return settled.filter((r) => r.status === 'fulfilled').flatMap((r) => r.value || []);
+        })(),
         systemStatus: (async () => {
           const startedAt = performance.now();
           const status = await api.getSystemStatus();
@@ -2374,7 +2412,7 @@ const app = createApp({
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
-        const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
+        const devices = fulfilled('devices') ? (results.devices.value || []) : (cardDevices.length ? cardDevices : (state.value.devices || []));
         state.value.farms = fulfilled('farms') ? farms : state.value.farms;
         state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
@@ -2386,7 +2424,12 @@ const app = createApp({
         state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
         state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
-        const recentEvents = alerts.slice(0, 8).map((alert, index) => ({
+        state.value.resourcePlans = fulfilled('resourcePlans') ? (results.resourcePlans.value || []) : state.value.resourcePlans;
+        state.value.resourceRequests = fulfilled('resourceRequests') ? (results.resourceRequests.value || []) : state.value.resourceRequests;
+        state.value.resourceProfiles = fulfilled('resourceProfiles') ? (results.resourceProfiles.value || []) : state.value.resourceProfiles;
+        const recentEvents = [...alerts]
+          .sort((a, b) => (new Date(b.createdAt || b.raisedAt || b.updatedAt || 0).getTime() || 0) - (new Date(a.createdAt || a.raisedAt || a.updatedAt || 0).getTime() || 0))
+          .slice(0, 8).map((alert, index) => ({
           id: `alert:${alert.alertId || alert.id || index}`,
           category: 'alert', icon: 'warning',
           title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
