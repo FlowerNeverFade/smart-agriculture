@@ -758,7 +758,16 @@ const AdminOpsView = {
 // Slices the given source ref/computed on the client side; filters apply
 // before pagination so page boundaries always reflect the filtered list.
 function usePagination(source, options = {}) {
-  const pageSize = ref(options.defaultSize || 10);
+  // 每页条数记忆：storageKey 存在时从 localStorage 恢复用户上次选择
+  const storageKey = options.storageKey || null;
+  let initialSize = options.defaultSize || 10;
+  if (storageKey) {
+    try {
+      const saved = Number(window.localStorage.getItem(storageKey));
+      if (Number.isFinite(saved) && (options.sizes || [10, 20, 50]).includes(saved)) initialSize = saved;
+    } catch (_error) { /* 忽略存储不可用 */ }
+  }
+  const pageSize = ref(initialSize);
   const pageSizeOptions = options.sizes || [10, 20, 50];
   const currentPage = ref(1);
   const jumpInput = ref(String(options.defaultPage || 1));
@@ -780,7 +789,12 @@ function usePagination(source, options = {}) {
   });
   const prevPage = () => { if (currentPage.value > 1) currentPage.value -= 1; };
   const nextPage = () => { if (currentPage.value < totalPages.value) currentPage.value += 1; };
-  const changeSize = () => { currentPage.value = 1; };
+  const changeSize = () => {
+    currentPage.value = 1;
+    if (storageKey) {
+      try { window.localStorage.setItem(storageKey, String(pageSize.value)); } catch (_error) { /* 忽略存储不可用 */ }
+    }
+  };
   const jumpTo = () => {
     const n = Math.trunc(Number(jumpInput.value));
     if (!Number.isFinite(n) || n < 1) return;
@@ -1498,7 +1512,7 @@ const AdminRulesView = {
       } catch (error) { toast(error.message || '重新评估失败', 'error'); }
     };
     const rulePage = usePagination(rulesList);
-    const learningPage = usePagination(filteredLearningCases);
+    const learningPage = usePagination(filteredLearningCases, { storageKey: 'agriloop:learningPageSize' });
     return {
       activeTab, expandedPacks, togglePack, showPackModal, editingPackId, packForm, cropIcons, savingPack, packKey, canDeletePack,
       expandedKnowledge, masonryCols, masonryColumns, openCreatePack, openEditPack, savePack,
@@ -1507,7 +1521,7 @@ const AdminRulesView = {
       learningCasesList, learningFilter, learningCounts, filteredLearningCases, learningReason, learningUses, learningStatus, learningTone, strategySummary, offlineEvidence, rollbackSummary, reviewLearningCase, reEvaluateLearningCase,
       candidateStatusCode, canValidateCandidate, canApproveCandidate, canActivateCandidate, canRejectCandidate, canRollbackCandidate, validateCandidate,
       rulePageSize: rulePage.pageSize, rulePageSizeOptions: rulePage.pageSizeOptions, ruleCurrentPage: rulePage.currentPage, ruleJumpInput: rulePage.jumpInput, ruleTotalRecords: rulePage.totalRecords, ruleTotalPages: rulePage.totalPages, rulePageRecords: rulePage.pageRecords, rulePrevPage: rulePage.prevPage, ruleNextPage: rulePage.nextPage, ruleChangeSize: rulePage.changeSize, ruleJumpTo: rulePage.jumpTo,
-      learningPageSize: learningPage.pageSize, learningCurrentPage: learningPage.currentPage, learningJumpInput: learningPage.jumpInput, learningTotalPages: learningPage.totalPages, learningPageRecords: learningPage.pageRecords, learningPrevPage: learningPage.prevPage, learningNextPage: learningPage.nextPage, learningJumpTo: learningPage.jumpTo
+      learningPageSize: learningPage.pageSize, learningPageSizeOptions: learningPage.pageSizeOptions, learningCurrentPage: learningPage.currentPage, learningJumpInput: learningPage.jumpInput, learningTotalPages: learningPage.totalPages, learningPageRecords: learningPage.pageRecords, learningPrevPage: learningPage.prevPage, learningNextPage: learningPage.nextPage, learningChangeSize: learningPage.changeSize, learningJumpTo: learningPage.jumpTo
     };
   }
 };

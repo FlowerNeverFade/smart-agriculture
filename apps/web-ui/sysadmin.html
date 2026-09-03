@@ -235,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260903-v5922-source-fix-merge"></script>
+<script type="module" src="js/sysadmin.js?v=20260903-learning-page-fix"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -990,6 +990,10 @@
         <div v-if="!filteredLearningCases.length" class="admin-governance-empty"><app-icon name="fact_check"></app-icon><strong>暂无受控学习案例</strong><span>反馈、告警闭环和效果评价完成后，案例会自动进入质量门。</span></div>
         <div v-else class="admin-table-wrap"><table class="admin-table admin-learning-table"><thead><tr><th>案例</th><th>范围 / 来源</th><th>质量状态</th><th>判定依据</th><th>学习用途</th><th>效果</th><th>操作</th></tr></thead><tbody><tr v-for="item in learningPageRecords" :key="item.caseId"><td><strong class="admin-governance-code">{{ item.caseId }}</strong><small>{{ item.cropCode || '未指定作物' }} · {{ item.plotId || '未指定地块' }}</small><small>{{ item.farmId || '未指定农场' }}</small></td><td><span class="status-pill info">{{ String(item.sourceMode || item.dataOrigin || '').toUpperCase() === 'REAL' ? '真实遥测' : String(item.sourceMode || '').toUpperCase().includes('SIM') ? '模拟数据' : '记录快照' }}</span><small>{{ item.scenarioId || '标准场景' }}</small></td><td><span class="status-pill" :class="learningTone(item.qualityStatus)">{{ learningStatus(item.qualityStatus) }}</span></td><td><span class="admin-governance-description" :title="learningReason(item)">{{ learningReason(item) }}</span></td><td><span class="admin-learning-uses">{{ learningUses(item) }}</span></td><td>{{ item.result || item.evaluationResult || '待评价' }}<small v-if="item.reviewedBy">审核：{{ item.reviewedBy }}</small></td><td class="admin-governance-actions"><span class="admin-governance-muted">只读</span></td></tr></tbody></table></div>
           <div class="admin-pagination">
+            <span>共 {{ filteredLearningCases.length }} 条</span>
+            <select v-model.number="learningPageSize" @change="learningChangeSize()">
+              <option v-for="s in learningPageSizeOptions" :key="s" :value="s">{{ s }} 条/页</option>
+            </select>
             <button class="g-btn text sm" :disabled="learningCurrentPage <= 1" @click="learningPrevPage()">上一页</button>
             <span class="admin-pagination-current">第 {{ learningCurrentPage }} / {{ learningTotalPages }} 页</span>
             <button class="g-btn text sm" :disabled="learningCurrentPage >= learningTotalPages" @click="learningNextPage()">下一页</button>
