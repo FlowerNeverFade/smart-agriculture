@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="vendor/material-symbols/material-symbols.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/google-material.css">
-  <link rel="stylesheet" href="css/style.css?v=20260902-v5913-summary-row-v2">
+  <link rel="stylesheet" href="css/style.css?v=20260903-v5917-admin-plot-order-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-alerts.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-market.css?v=20260902-v5911-zhcn-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260902-v5913-summary-row-v2">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260903-v5917-admin-plot-order-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-v5911-zhcn-v1">
 
@@ -263,10 +263,17 @@
         </button>
       </div>
 
-      <div v-if="visiblePlots.length" class="manager-plot-grid" aria-label="地块状态和管理列表">
+      <p v-if="visiblePlots.length" id="manager-plot-order-help" class="sr-only">拖动每张地块卡片上的排序按钮可以调整顺序；聚焦排序按钮后也可使用方向键、Home 和 End 键移动。</p>
+      <div v-if="visiblePlots.length" class="manager-plot-grid" :class="{ 'is-reordering': plotDragState.active }"
+           aria-label="地块状态和管理列表" aria-describedby="manager-plot-order-help">
         <article v-for="plot in visiblePlots" :key="plot.plotId"
-                 class="manager-plot-card" :class="[`is-${cardTone(plot)}`, { 'has-open-menu': plotMenuId === plot.plotId }]"
+                 class="manager-plot-card" :class="[`is-${cardTone(plot)}`, {
+                   'has-open-menu': plotMenuId === plot.plotId,
+                   'is-dragging': plotDragState.active && plotDragState.sourcePlotId === plot.plotId,
+                   'is-drop-target': plotDragState.active && plotDragState.targetPlotId === plot.plotId
+                 }]"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
+                 :style="plotDragStyle(plot)"
                  :aria-label="`查看${plot.name}二维详情`"
                  @click="openPlotDetail(plot, $event)"
                  @keydown.enter.prevent="openPlotDetail(plot, $event)"
@@ -277,6 +284,15 @@
               <span>{{ plot.lastSeen || '—' }}</span>
             </div>
             <div class="manager-plot-card-tools">
+              <button type="button" class="manager-plot-drag-handle"
+                      :aria-label="`调整${plot.name}的显示顺序`"
+                      title="拖动调整顺序；也可使用方向键移动"
+                      @click.stop.prevent
+                      @pointerdown.stop="startPlotReorder($event, plot)"
+                      @keydown="handlePlotOrderKeydown($event, plot)"
+                      @keydown.esc.stop="cancelPlotReorder">
+                <app-icon name="drag_indicator"></app-icon>
+              </button>
               <span class="manager-lifecycle-status" :class="String(plot.status || 'ACTIVE').toLowerCase()">{{ String(plot.status || 'ACTIVE').toUpperCase() === 'INACTIVE' ? '已停用' : '使用中' }}</span>
               <div class="manager-health-score" :class="`is-${healthTone(plot)}`">综合健康 <strong>{{ healthScore(plot) }}</strong></div>
               <div class="manager-plot-actions" @click.stop>
@@ -1216,7 +1232,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260902-v5916-inspection-detail-v1"></script>
+  <script type="module" src="js/app.js?v=20260903-v5917-admin-plot-order-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 

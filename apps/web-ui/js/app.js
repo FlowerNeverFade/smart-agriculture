@@ -15,6 +15,7 @@ import { AdminMemberManagementView } from './modules/admin-member-management.js?
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
 import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5914-ui-fixes-v1';
+import { managerPlotOrderStorageKey, movePlotOrder, reconcilePlotOrder } from './plot-display.js?v=20260903-v5917-admin-plot-order-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -125,6 +126,7 @@ const ICON_CLASS = Object.freeze({
   edit: 'ph-pencil-simple',
   delete: 'ph-trash',
   add: 'ph-plus',
+  drag_indicator: 'ph-dots-six-vertical',
   add_location_alt: 'ph-map-pin-plus',
   expand_more: 'ph-caret-down',
   expand_less: 'ph-caret-up',
@@ -621,11 +623,169 @@ const DashboardView = {
       set: farmId => emit('context-changed', { farmId, plotId: null, sessionMode: props.state.sessionMode })
     });
     const managedFarm = computed(() => (props.state.farms || []).find((farm) => farm.farmId === selectedFarmId.value) || {});
-    const visiblePlots = computed(() => (
+    const sourcePlots = computed(() => (
       Array.isArray(props.state.allPlots) && props.state.allPlots.length
         ? props.state.allPlots
         : (props.state.plots || [])
     ));
+    const plotOrderIds = ref([]);
+    const plotDragState = ref({
+      active: false,
+      pointerId: null,
+      sourcePlotId: '',
+      targetPlotId: '',
+      originX: 0,
+      originY: 0,
+      offsetX: 0,
+      offsetY: 0
+    });
+    const plotOrderKey = computed(() => managerPlotOrderStorageKey(
+      props.state.currentUser || {},
+      selectedFarmId.value
+    ));
+    const plotIdsOf = (plots = []) => (Array.isArray(plots) ? plots : [])
+      .map((plot) => String(plot?.plotId || plot?.id || '').trim())
+      .filter(Boolean);
+    const readPlotOrder = (key) => {
+      try {
+        const stored = JSON.parse(window.localStorage.getItem(key) || 'null');
+        return Array.isArray(stored) ? stored : (Array.isArray(stored?.plotOrder) ? stored.plotOrder : []);
+      } catch {
+        return [];
+      }
+    };
+    const refreshPlotOrder = () => {
+      const ordered = reconcilePlotOrder(sourcePlots.value, readPlotOrder(plotOrderKey.value));
+      plotOrderIds.value = plotIdsOf(ordered);
+    };
+    watch(
+      [plotOrderKey, () => plotIdsOf(sourcePlots.value).join('\u0001')],
+      refreshPlotOrder,
+      { immediate: true }
+    );
+    const visiblePlots = computed(() => reconcilePlotOrder(sourcePlots.value, plotOrderIds.value));
+    const persistPlotOrder = (nextOrder) => {
+      const normalized = reconcilePlotOrder(sourcePlots.value, nextOrder);
+      const plotOrder = plotIdsOf(normalized);
+      plotOrderIds.value = plotOrder;
+      try {
+        window.localStorage.setItem(plotOrderKey.value, JSON.stringify({
+          plotOrder,
+          updatedAt: new Date().toISOString()
+        }));
+        toast('地块顺序已保存到当前设备');
+      } catch {
+        toast('地块顺序已调整，但当前浏览器无法保存', 'error');
+      }
+    };
+    const resetPlotDragState = () => {
+      plotDragState.value = {
+        active: false,
+        pointerId: null,
+        sourcePlotId: '',
+        targetPlotId: '',
+        originX: 0,
+        originY: 0,
+        offsetX: 0,
+        offsetY: 0
+      };
+    };
+    const plotTargetAtPoint = (clientX, clientY) => {
+      const sourceId = String(plotDragState.value.sourcePlotId || '');
+      const elements = document.elementsFromPoint?.(clientX, clientY)
+        || [document.elementFromPoint(clientX, clientY)];
+      const card = elements
+        .map((element) => element?.closest?.('[data-plot-card]'))
+        .find((candidate) => candidate && String(candidate.dataset?.plotCard || '') !== sourceId);
+      return String(card?.dataset?.plotCard || '');
+    };
+    let plotDragHandle = null;
+    const removePlotDragListeners = () => {
+      window.removeEventListener('pointermove', handlePlotPointerMove);
+      window.removeEventListener('pointerup', handlePlotPointerUp);
+      window.removeEventListener('pointercancel', cancelPlotReorder);
+    };
+    const finishPlotReorder = () => {
+      removePlotDragListeners();
+      if (plotDragHandle && plotDragState.value.pointerId !== null) {
+        try { plotDragHandle.releasePointerCapture?.(plotDragState.value.pointerId); } catch { /* already released */ }
+      }
+      plotDragHandle = null;
+      resetPlotDragState();
+    };
+    function handlePlotPointerMove(event) {
+      if (!plotDragState.value.active || plotDragState.value.pointerId !== event.pointerId) return;
+      event.preventDefault();
+      plotDragState.value = {
+        ...plotDragState.value,
+        targetPlotId: plotTargetAtPoint(event.clientX, event.clientY),
+        offsetX: event.clientX - plotDragState.value.originX,
+        offsetY: event.clientY - plotDragState.value.originY
+      };
+    }
+    function handlePlotPointerUp(event) {
+      const state = plotDragState.value;
+      if (!state.active || state.pointerId !== event.pointerId) return;
+      const currentOrder = plotIdsOf(visiblePlots.value);
+      const nextOrder = state.targetPlotId
+        ? movePlotOrder(currentOrder, state.sourcePlotId, state.targetPlotId)
+        : currentOrder;
+      const changed = nextOrder.join('\u0001') !== currentOrder.join('\u0001');
+      finishPlotReorder();
+      if (changed) persistPlotOrder(nextOrder);
+    }
+    function cancelPlotReorder() {
+      if (!plotDragState.value.active) return;
+      finishPlotReorder();
+    }
+    const startPlotReorder = (event, plot) => {
+      if (plotDragState.value.active || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      closePlotMenu();
+      event.preventDefault();
+      plotDragHandle = event.currentTarget;
+      plotDragState.value = {
+        active: true,
+        pointerId: event.pointerId,
+        sourcePlotId: String(plot?.plotId || ''),
+        targetPlotId: '',
+        originX: event.clientX,
+        originY: event.clientY,
+        offsetX: 0,
+        offsetY: 0
+      };
+      plotDragHandle?.setPointerCapture?.(event.pointerId);
+      window.addEventListener('pointermove', handlePlotPointerMove, { passive: false });
+      window.addEventListener('pointerup', handlePlotPointerUp);
+      window.addEventListener('pointercancel', cancelPlotReorder);
+    };
+    const plotDragStyle = (plot) => {
+      if (!plotDragState.value.active || plotDragState.value.sourcePlotId !== String(plot?.plotId || '')) return null;
+      return {
+        '--manager-plot-drag-x': `${Math.round(plotDragState.value.offsetX)}px`,
+        '--manager-plot-drag-y': `${Math.round(plotDragState.value.offsetY)}px`
+      };
+    };
+    const handlePlotOrderKeydown = (event, plot) => {
+      const currentOrder = plotIdsOf(visiblePlots.value);
+      const sourceIndex = currentOrder.indexOf(String(plot?.plotId || ''));
+      if (sourceIndex < 0) return;
+      const targetIndexByKey = {
+        ArrowLeft: Math.max(0, sourceIndex - 1),
+        ArrowUp: Math.max(0, sourceIndex - 1),
+        ArrowRight: Math.min(currentOrder.length - 1, sourceIndex + 1),
+        ArrowDown: Math.min(currentOrder.length - 1, sourceIndex + 1),
+        Home: 0,
+        End: currentOrder.length - 1
+      };
+      if (!(event.key in targetIndexByKey)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const trigger = event.currentTarget;
+      const targetIndex = targetIndexByKey[event.key];
+      if (targetIndex === sourceIndex) return;
+      persistPlotOrder(movePlotOrder(currentOrder, currentOrder[sourceIndex], currentOrder[targetIndex]));
+      nextTick(() => trigger?.focus());
+    };
     const devices = computed(() => props.state.devices || []);
     const deviceOptions = computed(() => devices.value
       .filter(device => !device.farmId || device.farmId === selectedFarmId.value)
@@ -828,7 +988,10 @@ const DashboardView = {
       }
     };
     onMounted(() => document.addEventListener('click', closePlotMenu));
-    onBeforeUnmount(() => document.removeEventListener('click', closePlotMenu));
+    onBeforeUnmount(() => {
+      document.removeEventListener('click', closePlotMenu);
+      finishPlotReorder();
+    });
     const createTask = () => emit('navigate', 'work-orders', { tab: 'tasks', openCreateTask: true, farmId: selectedFarmId.value });
     const visibleActions = (actions = []) => actions.filter((action) => {
       if (action.action === 'execute-irrigation') return canExecuteIrrigationRole(props.state.currentUser);
@@ -853,6 +1016,11 @@ const DashboardView = {
       selectedFarmId,
       managedFarm,
       visiblePlots,
+      plotDragState,
+      startPlotReorder,
+      cancelPlotReorder,
+      plotDragStyle,
+      handlePlotOrderKeydown,
       devices,
       deviceOptions,
       deviceLabel,

@@ -47,6 +47,31 @@ export function normalizePlotOrder(order = []) {
 }
 
 /**
+ * Move one plot to the position occupied by another plot. Moving forward
+ * places it after the target; moving backward places it before the target,
+ * which matches the visual result users expect when dropping onto a card.
+ */
+export function movePlotOrder(order = [], sourcePlotId = '', targetPlotId = '') {
+  const normalized = normalizePlotOrder(order);
+  const sourceId = stableText(sourcePlotId);
+  const targetId = stableText(targetPlotId);
+  const sourceIndex = normalized.indexOf(sourceId);
+  const targetIndex = normalized.indexOf(targetId);
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return normalized;
+  const next = normalized.slice();
+  const [moved] = next.splice(sourceIndex, 1);
+  next.splice(targetIndex, 0, moved);
+  return next;
+}
+
+/** Keep farm-manager ordering isolated by both signed-in account and farm. */
+export function managerPlotOrderStorageKey(user = {}, farmId = '') {
+  const account = stableText(user?.userId || user?.id || user?.username) || 'anonymous';
+  const farm = stableText(farmId) || 'unassigned';
+  return `agriloop_manager_plot_order:${encodeURIComponent(account)}:${encodeURIComponent(farm)}`;
+}
+
+/**
  * Apply a saved order to the currently visible plots. Missing/new plots are
  * appended in stable plot-id order, so assignment changes cannot reshuffle
  * the cards on their own.

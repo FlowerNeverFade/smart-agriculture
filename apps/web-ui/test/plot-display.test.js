@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   PLOT_METRIC_CODES,
   orderedPlotMetrics,
+  managerPlotOrderStorageKey,
+  movePlotOrder,
   plotMetricValue,
   reconcilePlotOrder,
   stablePlotSort
@@ -19,6 +21,20 @@ test('plot cards use a deterministic fallback order and preserve saved order', (
     plots[0], plots[2], plots[1]
   ]);
   assert.deepEqual(reconcilePlotOrder(plots, ['plot-b02']).map((plot) => plot.plotId), ['plot-b02', 'plot-a02', 'plot-a10']);
+});
+
+test('farm manager plot order moves in both directions and is scoped per account and farm', () => {
+  assert.deepEqual(movePlotOrder(['plot-a', 'plot-b', 'plot-c'], 'plot-a', 'plot-c'), ['plot-b', 'plot-c', 'plot-a']);
+  assert.deepEqual(movePlotOrder(['plot-a', 'plot-b', 'plot-c'], 'plot-c', 'plot-a'), ['plot-c', 'plot-a', 'plot-b']);
+  assert.deepEqual(movePlotOrder(['plot-a', 'plot-b'], 'missing', 'plot-a'), ['plot-a', 'plot-b']);
+  assert.equal(
+    managerPlotOrderStorageKey({ userId: 'admin/a' }, 'farm demo'),
+    'agriloop_manager_plot_order:admin%2Fa:farm%20demo'
+  );
+  assert.notEqual(
+    managerPlotOrderStorageKey({ userId: 'admin/a' }, 'farm-a'),
+    managerPlotOrderStorageKey({ userId: 'admin/a' }, 'farm-b')
+  );
 });
 
 test('all standard metric slots stay fixed and unavailable values render as a dash', () => {
