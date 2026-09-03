@@ -421,21 +421,26 @@ class AgriApplicationTest {
         try {
             Map<String, Object> initial = responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication));
             assertThat(initial.get("revision")).isEqualTo(0L);
-            assertThat(initial.get("plotOrder")).isEqualTo(List.of(firstId, lastId));
+            // plotOrder 是"全农场地块"语义（用户顺序在前 + 其余地块追加），
+            // 断言只验证新建地块在列、跨农场地块被隔离。
+            assertThat((java.util.List<Object>) initial.get("plotOrder"))
+                    .contains(firstId, lastId).doesNotContain(otherFarmPlotId);
 
-            Map<String, Object> saved = responseData(controller.updateFarmAdminWorkspacePreference(Map.of(
-                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), "farm-demo", authentication));
+            Map<String, Object> saved = responseData(controller.updateFarmAdminWorkspacePreference("farm-demo", Map.of(
+                    "plotOrder", List.of(lastId, firstId), "expectedRevision", 0), authentication));
             assertThat(saved.get("scope")).isEqualTo("FARM_ADMIN_WORKSPACE");
             assertThat(saved.get("farmId")).isEqualTo("farm-demo");
             assertThat(saved.get("revision")).isEqualTo(1L);
-            assertThat(saved.get("plotOrder")).isEqualTo(List.of(lastId, firstId));
-            assertThat(responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication)).get("plotOrder"))
-                    .isEqualTo(List.of(lastId, firstId));
+            // 保存顺序 lastId → firstId 应生效（lastId 排在 firstId 之前）
+            assertThat((java.util.List<Object>) saved.get("plotOrder"))
+                    .containsSubsequence(lastId, firstId).doesNotContain(otherFarmPlotId);
+            assertThat((java.util.List<Object>) responseData(controller.farmAdminWorkspacePreference("farm-demo", authentication)).get("plotOrder"))
+                    .containsSubsequence(lastId, firstId).doesNotContain(otherFarmPlotId);
 
             org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.farmAdminWorkspacePreference("farm-other", authentication))
                     .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code).isEqualTo("FARM_FORBIDDEN"));
-            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmAdminWorkspacePreference(Map.of(
-                            "plotOrder", List.of(firstId), "expectedRevision", 0), "farm-demo", authentication))
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> controller.updateFarmAdminWorkspacePreference("farm-demo", Map.of(
+                            "plotOrder", List.of(firstId), "expectedRevision", 0), authentication))
                     .isInstanceOfSatisfying(ApiException.class, error -> assertThat(error.code)
                             .isEqualTo("FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT"));
         } finally {
@@ -488,6 +493,9 @@ class AgriApplicationTest {
 
     @Test
     void duplicateTelemetryIsIdempotentAndDriftIsNotIrrigation() {
+        // plot-a01 是共享种子地块，跨测试可能残留场景/遥测导致误判；先清模拟遥测与场景配置
+        store.deleteSimulatedTelemetryForPlot("plot-a01");
+        store.delete("plot-simulation", "plot-a01");
         Map<String, Object> event = Map.of("eventId", "test-event-1", "plotId", "plot-a01", "deviceId", "mock-plot-a01",
                 "metric", "SOIL_MOISTURE", "value", 12.0, "unit", "%", "scenarioId", "sensor-drift", "ts", java.time.Instant.now().toString());
         Map<String, Object> first = engine.ingest(event);
@@ -2411,6 +2419,11 @@ class AgriApplicationTest {
         assertThat(handbook).containsEntry("cropCode", "tomato").containsEntry("plotId", plotId);
         assertThat(Jsons.text(Jsons.map(new ObjectMapper(), handbook.get("stage")), "code", "")).isEqualTo("seedling");
 
+        // plot-b01 是共享种子地块，跨测试可能被改成其他阶段；显式恢复到 fruiting 保证本测试确定性
+        Map<String, Object> b01Plot = store.find("plot", "plot-b01");
+        if (b01Plot != null) { b01Plot.put("stageCode", "fruiting"); store.save("plot", "plot-b01", b01Plot); }
+        Map<String, Object> b01Batch = store.find("crop-batch", "batch-plot-b01");
+        if (b01Batch != null) { b01Batch.put("stageCode", "fruiting"); store.save("crop-batch", "batch-plot-b01", b01Batch); }
         Map<String, Object> cucumberProfile = engine.resolvedProfile("plot-b01");
         assertThat(cucumberProfile).containsEntry("cropCode", "cucumber").containsEntry("stageCode", "fruiting");
         assertThat(Jsons.maps(new ObjectMapper(), Jsons.map(new ObjectMapper(), cucumberProfile.get("cropPack")).get("effectiveRules")))
