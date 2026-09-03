@@ -1894,7 +1894,13 @@ export class ApiService {
     let mixedError = null;
     if (this.sessionMode === 'live') {
       try {
-        const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/telemetry?limit=${boundedLimit}`);
+        // The mixed endpoint applies `limit` to the whole plot, while the
+        // farmer charts need a complete window for every simulator metric.
+        // The engine emits eleven metrics per tick, so reserve one window per
+        // metric; otherwise the last global rows can leave earlier series with
+        // zero or one point and an invisible SVG polyline.
+        const mixedLimit = Math.min(10000, boundedLimit * 11);
+        const resp = await this._fetch(`/api/v1/plots/${encodeURIComponent(plotId)}/telemetry?limit=${mixedLimit}`);
         if (Array.isArray(resp?.data) && resp.data.length) {
           return resp.data
             .filter(point => point && point.metric)

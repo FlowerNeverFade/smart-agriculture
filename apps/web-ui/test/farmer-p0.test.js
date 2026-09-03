@@ -24,6 +24,27 @@ function memoryStorage() {
 
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
 
+test('live mixed telemetry reserves a complete window for every metric', async () => {
+  const service = new ApiService();
+  service.saveSession({
+    mode: 'live',
+    token: 'test-token',
+    user: { userId: 'test-farmer', username: 'farmer', role: 'FARMER', permissions: [] }
+  });
+  let requestedPath = '';
+  service._fetch = async (path) => {
+    requestedPath = path;
+    return {
+      data: [{ metric: 'LIGHT', value: 42000, unit: 'lux', ts: '2026-09-03T02:00:00Z' }]
+    };
+  };
+
+  const points = await service.getPlotTelemetryAll('plot-a01', 120);
+
+  assert.equal(points.length, 1);
+  assert.match(requestedPath, /\/plots\/plot-a01\/telemetry\?limit=1320$/);
+});
+
 test('farmer message read state is account-scoped, durable and tolerant of bad storage', () => {
   const store = memoryStorage();
   const demoKey = messageReadStorageKey('demo', 'farmer:one');
