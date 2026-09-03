@@ -763,6 +763,34 @@
 .admin-device-control-panel { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 13px; border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, var(--g-primary-bg) 58%, var(--g-bg-base)); }
 .admin-device-control-panel strong { font-size: 13px; }
 .admin-device-control-panel p { margin: 4px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.admin-bearpi-actuator-panel { display: grid; gap: 12px; padding: 14px; border: 1px solid color-mix(in srgb, #16845b 34%, var(--g-border)); border-radius: 9px; background: color-mix(in srgb, #16845b 5%, var(--g-bg-base)); }
+.admin-bearpi-actuator-panel > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.admin-bearpi-actuator-panel > header small { color: #16845b; font-size: 10px; font-weight: 800; }
+.admin-bearpi-actuator-panel > header h4 { margin: 2px 0 0; color: var(--g-text-primary); font-size: 14px; }
+.admin-bearpi-actuator-panel > header p { margin: 4px 0 0; color: var(--g-text-secondary); font-size: 11px; line-height: 1.5; }
+.admin-actuator-master-switch,
+.admin-actuator-bindings footer label { display: inline-flex; align-items: center; gap: 7px; color: var(--g-text-primary); font-size: 11px; font-weight: 700; white-space: nowrap; cursor: pointer; }
+.admin-actuator-master-switch input,
+.admin-actuator-bindings footer input { width: 16px; height: 16px; margin: 0; accent-color: #16845b; }
+.admin-actuator-bindings { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.admin-actuator-bindings > article { display: grid; min-width: 0; gap: 11px; padding: 12px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-surface); }
+.admin-actuator-bindings > article.running { border-color: color-mix(in srgb, #16845b 55%, var(--g-border)); box-shadow: inset 3px 0 #16845b; }
+.admin-actuator-bindings > article.pending { border-color: color-mix(in srgb, #b7791f 55%, var(--g-border)); }
+.admin-actuator-binding-head { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.admin-actuator-binding-head > .material-symbols-outlined { display: grid; width: 32px; height: 32px; flex: 0 0 auto; place-items: center; border-radius: 7px; background: color-mix(in srgb, #16845b 12%, var(--g-bg-base)); color: #16845b; font-size: 19px; }
+.admin-actuator-binding-head > div { display: grid; min-width: 0; gap: 2px; }
+.admin-actuator-binding-head strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.admin-actuator-binding-head small { color: var(--g-text-secondary); font-size: 10px; line-height: 1.4; }
+.admin-actuator-binding-state { display: grid; grid-template-columns: auto auto minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; }
+.admin-actuator-binding-state i { width: 8px; height: 8px; border-radius: 50%; background: #8b949e; }
+.admin-actuator-bindings > article.running .admin-actuator-binding-state i { background: #16845b; box-shadow: 0 0 0 3px color-mix(in srgb, #16845b 14%, transparent); }
+.admin-actuator-bindings > article.pending .admin-actuator-binding-state i { background: #b7791f; }
+.admin-actuator-binding-state span { font-size: 11px; font-weight: 800; white-space: nowrap; }
+.admin-actuator-binding-state em { overflow: hidden; color: var(--g-text-secondary); font-size: 9px; font-style: normal; text-align: right; text-overflow: ellipsis; white-space: nowrap; }
+.admin-actuator-bindings footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 9px; border-top: 1px solid var(--g-border-subtle); }
+.admin-actuator-bindings footer .g-btn { border: 1px solid color-mix(in srgb, #16845b 36%, var(--g-border)); background: color-mix(in srgb, #16845b 8%, var(--g-bg-base)); color: #14744f; white-space: nowrap; }
+.admin-actuator-policy-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 2px; }
+.admin-actuator-policy-footer > span { color: var(--g-text-secondary); font-size: 10px; line-height: 1.45; }
 .admin-device-detail-facts dd { white-space: normal; }
 .admin-device-binding-editor { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--g-border); border-radius: 8px; background: var(--g-bg-base); }
 .admin-device-binding-editor label { display: grid; gap: 6px; }
@@ -1027,6 +1055,10 @@
   .admin-device-toolbar { grid-template-columns: 1fr; }
   .admin-device-toolbar .admin-device-search { grid-column: auto; }
   .admin-device-related-grid { grid-template-columns: 1fr; }
+  .admin-actuator-bindings { grid-template-columns: 1fr; }
+  .admin-bearpi-actuator-panel > header,
+  .admin-actuator-policy-footer { align-items: stretch; flex-direction: column; }
+  .admin-actuator-master-switch { align-self: flex-start; }
   .admin-device-detail-facts { grid-template-columns: 1fr; }
   .admin-device-detail-facts > div { border-right: 0; border-bottom: 1px solid var(--g-border-subtle); }
   .admin-device-detail-facts > div:nth-last-child(-n + 2) { border-bottom: 1px solid var(--g-border-subtle); }

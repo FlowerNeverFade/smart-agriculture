@@ -5812,6 +5812,67 @@ export class ApiService {
     };
   }
 
+  async updateDeviceActuatorPolicy(deviceId, input = {}) {
+    const id = String(deviceId || '').trim();
+    if (!id) throw new ApiError('缺少设备编号', { status: 400, code: 'DEVICE_ID_REQUIRED' });
+    const payload = {
+      automaticEnabled: Boolean(input.automaticEnabled),
+      fanAlertEnabled: Boolean(input.fanAlertEnabled),
+      lightAlertEnabled: Boolean(input.lightAlertEnabled)
+    };
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}/actuator-policy`, {
+        method: 'PUT', body: JSON.stringify(payload)
+      });
+      if (resp?.data?.deviceId === id) return resp.data;
+      throw new ApiError('后端返回了无效的执行器联动设置', { code: 'ACTUATOR_POLICY_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device || id !== 'bearpi-e53-ia1-a01') throw new ApiError('真实风扇和补光控制仅支持 BearPi E53_IA1', { status: 409, code: 'ACTUATOR_HARDWARE_UNSUPPORTED' });
+    const saved = {
+      ...device,
+      actuatorPolicy: {
+        ...(device.actuatorPolicy || {}), ...payload,
+        heatOnCelsius: 35, heatOffCelsius: 33, lightOnLux: 50, lightOffLux: 60,
+        fanMaxRunSeconds: 900, lightMaxRunSeconds: 1800,
+        policyVersion: 'bearpi-actuator-policy-v1', updatedAt: new Date().toISOString()
+      }
+    };
+    this.demoDevices.set(id, saved);
+    return { ...saved };
+  }
+
+  async controlDeviceActuator(deviceId, actuator, input = {}) {
+    const id = String(deviceId || '').trim();
+    const kind = String(actuator || '').trim().toUpperCase() === 'LIGHT' ? 'GROW_LIGHT' : String(actuator || '').trim().toUpperCase();
+    const targetState = String(input.targetState || '').trim().toUpperCase();
+    if (!['FAN', 'GROW_LIGHT'].includes(kind)) throw new ApiError('执行器类型无效', { status: 400, code: 'ACTUATOR_TYPE_INVALID' });
+    if (!['ON', 'OFF'].includes(targetState)) throw new ApiError('执行器目标状态无效', { status: 400, code: 'ACTUATOR_TARGET_INVALID' });
+    const payload = {
+      targetState,
+      durationSeconds: targetState === 'ON' ? Number(input.durationSeconds || (kind === 'FAN' ? 900 : 1800)) : 0,
+      confirmed: Boolean(input.confirmed),
+      idempotencyKey: String(input.idempotencyKey || '').trim()
+    };
+    if (!payload.idempotencyKey) throw new ApiError('执行器控制缺少幂等键', { status: 400, code: 'IDEMPOTENCY_REQUIRED' });
+    if (this.sessionMode === 'live') {
+      const resp = await this._fetch(`/api/v1/devices/${encodeURIComponent(id)}/actuators/${encodeURIComponent(kind)}/control`, {
+        method: 'POST', body: JSON.stringify(payload)
+      });
+      if (resp?.data?.commandStatus) return resp.data;
+      throw new ApiError('后端返回了无效的执行器控制结果', { code: 'ACTUATOR_CONTROL_INVALID', payload: resp });
+    }
+    const device = this.demoDevices.get(id);
+    if (!device || id !== 'bearpi-e53-ia1-a01') throw new ApiError('真实风扇和补光控制仅支持 BearPi E53_IA1', { status: 409, code: 'ACTUATOR_HARDWARE_UNSUPPORTED' });
+    const commandId = `bearpi-cmd-${Date.now().toString(36)}`;
+    const now = new Date().toISOString();
+    const actuatorStates = { ...(device.actuatorStates || {}) };
+    actuatorStates[kind] = { ...(actuatorStates[kind] || {}), state: targetState, desiredState: targetState, status: 'SUCCEEDED', commandId, updatedAt: now };
+    const saved = { ...device, actuatorStates, lastActuatorCommandId: commandId, lastActuatorCommandAt: now };
+    this.demoDevices.set(id, saved);
+    return { commandId, deviceId: id, actuator: kind, targetState, commandStatus: 'SUCCEEDED', status: 'SUCCEEDED', device: { ...saved } };
+  }
+
   async getCropBatches(filters = {}) {
     const query = new URLSearchParams();
     if (filters?.farmId) query.set('farmId', filters.farmId);

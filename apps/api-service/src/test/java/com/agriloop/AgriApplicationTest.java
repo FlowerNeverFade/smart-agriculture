@@ -1038,6 +1038,72 @@ class AgriApplicationTest {
     }
 
     @Test
+    void bearPiActuatorThresholdsAreDeviceSpecificAndIncludeThirtyFiveDegrees() {
+        String plotId = "plot-bearpi-actuator-" + System.nanoTime();
+        String deviceId = "bearpi-e53-ia1-a01";
+        String unsupportedDeviceId = "other-hardware-" + System.nanoTime();
+        Map<String, Object> previousDevice = store.find("device", deviceId);
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        store.save("plot", plotId, new LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "BearPi 联动测试田",
+                "status", "ACTIVE", "cropCode", "tomato", "stageCode", "fruiting")));
+        try {
+            Instant midday = Instant.parse("2026-09-03T04:00:00Z");
+            Map<String, Object> atLightBoundary = engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "bearpi-light-boundary-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "LIGHT"),
+                    Map.entry("value", 50.0), Map.entry("unit", "lux"), Map.entry("ts", midday.toString()),
+                    Map.entry("sourceMode", "REAL"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"),
+                    Map.entry("quality", Map.of("status", "GOOD"))));
+            assertThat(Jsons.map(new ObjectMapper(), atLightBoundary.get("ruleResult"))).doesNotContainKey("risk");
+
+            Map<String, Object> belowLightBoundary = engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "bearpi-light-low-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "LIGHT"),
+                    Map.entry("value", 49.9), Map.entry("unit", "lux"), Map.entry("ts", midday.plusSeconds(1).toString()),
+                    Map.entry("sourceMode", "REAL"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"),
+                    Map.entry("quality", Map.of("status", "GOOD"))));
+            Map<String, Object> lightRule = Jsons.map(new ObjectMapper(), belowLightBoundary.get("ruleResult"));
+            assertThat(lightRule).containsEntry("risk", "LIGHT_DEFICIT").containsEntry("lightTargetLow", 50.0);
+
+            Map<String, Object> belowHeatBoundary = engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "bearpi-heat-below-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "AIR_TEMPERATURE"),
+                    Map.entry("value", 34.9), Map.entry("unit", "°C"), Map.entry("ts", midday.plusSeconds(2).toString()),
+                    Map.entry("sourceMode", "REAL"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"),
+                    Map.entry("quality", Map.of("status", "GOOD"))));
+            assertThat(Jsons.map(new ObjectMapper(), belowHeatBoundary.get("ruleResult"))).doesNotContainKey("risk");
+
+            Map<String, Object> atHeatBoundary = engine.ingest(Map.ofEntries(
+                    Map.entry("eventId", "bearpi-heat-boundary-" + System.nanoTime()), Map.entry("farmId", "farm-demo"),
+                    Map.entry("plotId", plotId), Map.entry("deviceId", deviceId), Map.entry("metric", "AIR_TEMPERATURE"),
+                    Map.entry("value", 35.0), Map.entry("unit", "°C"), Map.entry("ts", midday.plusSeconds(3).toString()),
+                    Map.entry("sourceMode", "REAL"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"),
+                    Map.entry("quality", Map.of("status", "GOOD"))));
+            assertThat(Jsons.map(new ObjectMapper(), atHeatBoundary.get("ruleResult"))).containsEntry("risk", "HEAT_STRESS");
+
+            Map<String, Object> policy = Jsons.map(new ObjectMapper(), engine.bearPiActuatorPolicy(deviceId, admin).get("policy"));
+            assertThat(policy).containsEntry("heatOnCelsius", 35.0).containsEntry("lightOnLux", 50.0);
+
+            store.save("device", unsupportedDeviceId, new LinkedHashMap<>(Map.of(
+                    "deviceId", unsupportedDeviceId, "farmId", "farm-demo", "plotId", plotId,
+                    "sourceMode", "REAL", "dataOrigin", "HARDWARE", "bindingState", "BOUND", "status", "ONLINE")));
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> engine.controlBearPiActuator(
+                            unsupportedDeviceId, "FAN", Map.of("targetState", "ON", "durationSeconds", 10,
+                                    "confirmed", true, "idempotencyKey", "unsupported-device"), admin))
+                    .isInstanceOfSatisfying(ApiException.class,
+                            error -> assertThat(error.code).isEqualTo("ACTUATOR_HARDWARE_UNSUPPORTED"));
+        } finally {
+            store.deleteWhere("alert", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteWhere("command", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteTelemetryForPlot(plotId);
+            store.delete("device", unsupportedDeviceId);
+            store.delete("plot", plotId);
+            if (previousDevice == null) store.delete("device", deviceId); else store.save("device", deviceId, previousDevice);
+        }
+    }
+
+    @Test
     void nightLightingUsesRestBandAndDoesNotOpenFillLight() {
         Instant night = Instant.parse("2026-09-01T18:00:00Z"); // 02:00 Asia/Shanghai
         Map<String, Object> reading = engine.ingest(Map.ofEntries(

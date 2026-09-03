@@ -30,6 +30,9 @@ export const AdminResourceCenterView = {
     const toast = inject('toast');
     const busy = ref(false);
     const controlBusyId = ref('');
+    const actuatorBusy = ref('');
+    const actuatorPolicySaving = ref(false);
+    const actuatorPolicyDraft = ref({ automaticEnabled: true, fanAlertEnabled: true, lightAlertEnabled: true });
     const showDeviceRegistration = ref(false);
     const activeDeviceId = ref('');
     const deviceMenuId = ref('');
@@ -101,6 +104,12 @@ export const AdminResourceCenterView = {
       showDeviceRegistration.value = false;
       activeDeviceId.value = device?.deviceId || '';
       if (device?.deviceId) bindSelections.value[device.deviceId] = device.plotId || '';
+      const policy = device?.actuatorPolicy || {};
+      actuatorPolicyDraft.value = {
+        automaticEnabled: policy.automaticEnabled !== false,
+        fanAlertEnabled: policy.fanAlertEnabled !== false,
+        lightAlertEnabled: policy.lightAlertEnabled !== false
+      };
     };
     const closeDeviceDetail = () => {
       if (!busy.value) activeDeviceId.value = '';
@@ -251,6 +260,52 @@ export const AdminResourceCenterView = {
       finally { controlBusyId.value = ''; }
     };
 
+    const isBearPiActuatorDevice = device => String(device?.deviceId || '') === 'bearpi-e53-ia1-a01'
+      && ['REAL', 'HARDWARE'].includes(String(device?.sourceMode || device?.dataOrigin || '').toUpperCase());
+    const actuatorState = (device, actuator) => device?.actuatorStates?.[actuator] || { state: 'OFF', status: 'UNKNOWN' };
+    const actuatorStateLabel = (device, actuator) => {
+      const state = actuatorState(device, actuator);
+      if (String(state.status || '').toUpperCase() === 'PENDING') return '等待硬件回执';
+      if (['FAILED', 'TIMEOUT'].includes(String(state.status || '').toUpperCase())) return '控制失败';
+      return String(state.state || 'OFF').toUpperCase() === 'ON' ? '运行中' : '已关闭';
+    };
+    const actuatorOn = (device, actuator) => String(actuatorState(device, actuator).state || 'OFF').toUpperCase() === 'ON';
+    const actuatorPending = (device, actuator) => String(actuatorState(device, actuator).status || '').toUpperCase() === 'PENDING';
+    const saveActuatorPolicy = async device => {
+      if (!isBearPiActuatorDevice(device) || actuatorPolicySaving.value) return;
+      actuatorPolicySaving.value = true;
+      try {
+        const saved = await api.updateDeviceActuatorPolicy(device.deviceId, actuatorPolicyDraft.value);
+        upsertDevice(saved);
+        emit('data-invalidated', { domains: ['devices', 'alerts'], record: saved });
+        toast('BearPi 告警联动设置已保存');
+      } catch (error) { toast(error.message || '联动设置保存失败', 'error'); }
+      finally { actuatorPolicySaving.value = false; }
+    };
+    const controlActuator = async (device, actuator) => {
+      if (!isBearPiActuatorDevice(device) || actuatorBusy.value || actuatorPending(device, actuator)) return;
+      const targetState = actuatorOn(device, actuator) ? 'OFF' : 'ON';
+      const label = actuator === 'FAN' ? '风扇' : '补光灯';
+      const durationSeconds = actuator === 'FAN' ? 900 : 1800;
+      if (targetState === 'ON' && !window.confirm(`确认开启 BearPi ${label}？设备将在收到真实指令后运行，最长 ${durationSeconds / 60} 分钟。`)) return;
+      actuatorBusy.value = actuator;
+      try {
+        const randomKey = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        const result = await api.controlDeviceActuator(device.deviceId, actuator, {
+          targetState, durationSeconds, confirmed: targetState === 'ON',
+          idempotencyKey: `ui-${device.deviceId}-${actuator}-${targetState}-${randomKey}`
+        });
+        const saved = result?.device || device;
+        upsertDevice(saved);
+        emit('data-invalidated', { domains: ['devices', 'alerts'], record: saved });
+        const commandStatus = String(result?.commandStatus || '').toUpperCase();
+        toast(commandStatus === 'PENDING'
+          ? `${label}${targetState === 'ON' ? '开启' : '关闭'}指令已发送，等待板卡回执`
+          : commandStatus === 'NO_CHANGE' ? `${label}已经处于目标状态` : `${label}已${targetState === 'ON' ? '开启' : '关闭'}`);
+      } catch (error) { toast(error.message || `${label}控制失败`, 'error'); }
+      finally { actuatorBusy.value = ''; }
+    };
+
     function plotName(plotId) {
       return plots.value.find(plot => plot.plotId === plotId)?.name || plotId || '未绑定';
     }
@@ -286,14 +341,15 @@ export const AdminResourceCenterView = {
     };
 
     return {
-      busy, controlBusyId, farmId, plots, devices, visibleDevices, summary, typeOptions, activeDevice, activeDeviceAlerts, activeDeviceTasks,
+      busy, controlBusyId, actuatorBusy, actuatorPolicySaving, actuatorPolicyDraft, farmId, plots, devices, visibleDevices, summary, typeOptions, activeDevice, activeDeviceAlerts, activeDeviceTasks,
       statusFilter, typeFilter, bindingFilter, keyword, bindSelections, deviceForm, showDeviceRegistration, deviceMenuId, deviceDeleteTarget, deviceDeleteConfirm,
       registerDevice, bind, unbind, setSummaryFilter, summaryFilterActive, resetFilters,
       bindingLabel, deviceStatusLabel, deviceLastSeen, readableTime, healthLabel, sourceLabel, deviceTypeLabel: deviceTypeLabel || adminDeviceTypeLabel, display,
       alertStatusLabel, alertLevelLabel, taskStatusLabel, plotName, openAlertCenter, openRelatedTask, createDeviceTask,
       openDeviceRegistration, closeDeviceRegistration, openDeviceDetail, closeDeviceDetail, openDeviceFromKeyboard,
       openDeviceEdit, toggleDeviceMenu, closeDeviceMenu, requestDeleteDevice, closeDeleteDevice, confirmDeleteDevice, deleteDeviceBlockers, canDeleteDevice,
-      controlKind, controlAvailable, controlPending, controlButtonLabel, controlUnavailableReason, controlDevice
+      controlKind, controlAvailable, controlPending, controlButtonLabel, controlUnavailableReason, controlDevice,
+      isBearPiActuatorDevice, actuatorState, actuatorStateLabel, actuatorOn, actuatorPending, saveActuatorPolicy, controlActuator
     };
   },
   template: `
@@ -403,6 +459,25 @@ export const AdminResourceCenterView = {
               <div><strong>设备开关</strong><p v-if="controlAvailable(activeDevice)">{{ controlKind(activeDevice) === 'REAL' ? '真实设备：等待 MQTT 设备回执后更新状态。' : '模拟设备：切换后立即暂停或恢复模拟遥测。' }}</p><p v-else>{{ controlUnavailableReason(activeDevice) }}</p></div>
               <button type="button" class="g-btn compact admin-device-control-button" :class="{offline: String(activeDevice.status || '').toUpperCase() === 'ONLINE'}" :disabled="!controlAvailable(activeDevice) || controlPending(activeDevice) || controlBusyId === activeDevice.deviceId" @click.stop="controlDevice(activeDevice)">{{ controlBusyId === activeDevice.deviceId ? '处理中…' : controlButtonLabel(activeDevice) }}</button>
             </div>
+            <section v-if="isBearPiActuatorDevice(activeDevice)" class="admin-bearpi-actuator-panel" aria-label="BearPi 真实执行器">
+              <header>
+                <div><small>真实硬件联动</small><h4>风扇与补光灯</h4><p>只控制当前 BearPi E53_IA1；执行成功以板卡回执为准。</p></div>
+                <label class="admin-actuator-master-switch"><input v-model="actuatorPolicyDraft.automaticEnabled" type="checkbox"><span>自动联动</span></label>
+              </header>
+              <div class="admin-actuator-bindings">
+                <article :class="{running: actuatorOn(activeDevice, 'FAN'), pending: actuatorPending(activeDevice, 'FAN')}">
+                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">mode_fan</span><div><strong>高温胁迫 -> 风扇</strong><small>高于 35°C 开启，降至 33°C 关闭</small></div></div>
+                  <div class="admin-actuator-binding-state"><i></i><span>{{ actuatorStateLabel(activeDevice, 'FAN') }}</span><em>{{ actuatorState(activeDevice, 'FAN').error || '最长连续运行 15 分钟' }}</em></div>
+                  <footer><label><input v-model="actuatorPolicyDraft.fanAlertEnabled" type="checkbox"><span>绑定高温告警</span></label><button type="button" class="g-btn compact" :disabled="String(activeDevice.status || '').toUpperCase() !== 'ONLINE' || actuatorPending(activeDevice, 'FAN') || actuatorBusy" @click="controlActuator(activeDevice, 'FAN')">{{ actuatorBusy === 'FAN' ? '发送中…' : (actuatorOn(activeDevice, 'FAN') ? '关闭风扇' : '开启风扇') }}</button></footer>
+                </article>
+                <article :class="{running: actuatorOn(activeDevice, 'GROW_LIGHT'), pending: actuatorPending(activeDevice, 'GROW_LIGHT')}">
+                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">lightbulb</span><div><strong>光照不足 -> 补光灯</strong><small>白天低于 50 lux 开启，恢复到 60 lux 关闭</small></div></div>
+                  <div class="admin-actuator-binding-state"><i></i><span>{{ actuatorStateLabel(activeDevice, 'GROW_LIGHT') }}</span><em>{{ actuatorState(activeDevice, 'GROW_LIGHT').error || '最长连续运行 30 分钟' }}</em></div>
+                  <footer><label><input v-model="actuatorPolicyDraft.lightAlertEnabled" type="checkbox"><span>绑定缺光告警</span></label><button type="button" class="g-btn compact" :disabled="String(activeDevice.status || '').toUpperCase() !== 'ONLINE' || actuatorPending(activeDevice, 'GROW_LIGHT') || actuatorBusy" @click="controlActuator(activeDevice, 'GROW_LIGHT')">{{ actuatorBusy === 'GROW_LIGHT' ? '发送中…' : (actuatorOn(activeDevice, 'GROW_LIGHT') ? '关闭补光灯' : '开启补光灯') }}</button></footer>
+                </article>
+              </div>
+              <div class="admin-actuator-policy-footer"><span>异常数据、离线或 30 秒无新遥测时不会自动开启。</span><button type="button" class="g-btn primary compact" :disabled="actuatorPolicySaving" @click="saveActuatorPolicy(activeDevice)">{{ actuatorPolicySaving ? '保存中…' : '保存联动设置' }}</button></div>
+            </section>
             <dl class="admin-device-detail-facts">
               <div><dt>设备编号</dt><dd>{{ activeDevice.deviceId }}</dd></div>
               <div><dt>设备类型</dt><dd>{{ deviceTypeLabel(activeDevice.type) }}</dd></div>

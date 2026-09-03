@@ -664,6 +664,11 @@ paths:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 解绑设备}}}
   /api/v1/devices/{deviceId}/control:
     post: {tags: [management], description: 仅农场管理员可控制已绑定设备；模拟设备即时完成，REAL/HARDWARE 设备必须等待 MQTT ACK，失败或超时不伪造实际状态, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/DeviceControlRequest'}}}}, responses: {'200': {description: 控制命令及最新设备记录}, '400': {description: 目标状态或幂等键无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备未绑定或没有控制通道}}}
+  /api/v1/devices/{deviceId}/actuator-policy:
+    get: {tags: [management], description: 查询指定 BearPi 的风扇/补光灯联动策略与硬件 ACK 状态；仍执行地块权限校验, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], responses: {'200': {description: 固定阈值、联动开关和执行器状态}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备不是受支持的 BearPi 硬件}}}
+    put: {tags: [management], description: 仅农场管理员可启停 BearPi 自动联动及高温/缺光绑定；35/33°C、50/60 lux 和最长运行时间不可由客户端覆盖, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BearPiActuatorPolicyUpdate'}}}}, responses: {'200': {description: 更新后的设备和联动策略}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备不是受支持的 BearPi 硬件}}}
+  /api/v1/devices/{deviceId}/actuators/{actuator}/control:
+    post: {tags: [management], description: 仅农场管理员可控制 bearpi-e53-ia1-a01 的 FAN 或 GROW_LIGHT；ON 要求人工确认、在线且 30 秒内有 GOOD 真实遥测，终态以固件 ACK 为准, parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}, {name: actuator, in: path, required: true, schema: {type: string, enum: [FAN, GROW_LIGHT]}}], requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/BearPiActuatorControlRequest'}}}}, responses: {'200': {description: PENDING、NO_CHANGE 或已存在幂等命令状态}, '400': {description: 状态、时长或幂等键无效}, '403': {$ref: '#/components/responses/Forbidden'}, '409': {description: 设备离线、遥测过期、未绑定或仍有待回执命令}, '422': {description: 开启真实执行器前未明确确认}}}
   /api/v1/devices/{deviceId}/heartbeat:
     post: {tags: [management], parameters: [{name: deviceId, in: path, required: true, schema: {type: string}}], requestBody: {$ref: '#/components/requestBodies/JsonObject'}, responses: {'200': {description: 心跳恢复}}}
 components:
@@ -1034,6 +1039,20 @@ components:
         commandStatus: {type: string, enum: [PENDING, SUCCEEDED, FAILED, TIMEOUT]}
         status: {type: string, enum: [ONLINE, OFFLINE]}
         device: {type: object, additionalProperties: true}
+    BearPiActuatorPolicyUpdate:
+      type: object
+      properties:
+        automaticEnabled: {type: boolean}
+        fanAlertEnabled: {type: boolean}
+        lightAlertEnabled: {type: boolean}
+    BearPiActuatorControlRequest:
+      type: object
+      required: [targetState, idempotencyKey]
+      properties:
+        targetState: {type: string, enum: [ON, OFF]}
+        durationSeconds: {type: integer, minimum: 0, maximum: 1800, description: FAN 开启最长 900 秒，GROW_LIGHT 开启最长 1800 秒；关闭必须为 0}
+        confirmed: {type: boolean, description: 开启真实执行器时必须为 true}
+        idempotencyKey: {type: string, minLength: 1, maxLength: 200}
     FarmMember:
       type: object
       required: [userId, username, displayName, role, roleLabel, farmIds, plotIds, status]

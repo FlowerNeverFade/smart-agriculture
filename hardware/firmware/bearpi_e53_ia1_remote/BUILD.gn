@@ -1,0 +1,16 @@
+# Copyright (c) 2026 AgriLoop contributors.
+
+static_library("e53_ia1_example") {
+    sources = [
+        "src/E53_IA1.c",
+        "e53_ia1_example.c"
+    ]
+
+    include_dirs = [
+        "//utils/native/lite/include",
+        "//kernel/liteos_m/components/cmsis/2.0",
+        "//base/iot_hardware/interfaces/kits/wifiiot_lite",
+        "//vendor/hisi/hi3861/hi3861/include",
+        "include"
+    ]
+}

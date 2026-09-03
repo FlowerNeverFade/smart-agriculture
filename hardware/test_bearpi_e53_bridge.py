@@ -1,7 +1,14 @@
 import argparse
 import unittest
 
-from hardware.bearpi_e53_bridge import Publisher, make_event, parse_line, parse_lines
+from hardware.bearpi_e53_bridge import (
+    Publisher,
+    make_event,
+    parse_actuator_ack,
+    parse_actuator_state,
+    parse_line,
+    parse_lines,
+)
 
 
 class BearPiParserTest(unittest.TestCase):
@@ -40,6 +47,46 @@ class BearPiParserTest(unittest.TestCase):
         publisher.apply_control_payload({"commandId": "cmd-2", "deviceId": "bearpi-test", "targetStatus": "ONLINE"})
         assert publisher.offline is False
         assert publisher.apply_control_payload({"deviceId": "other", "targetStatus": "OFFLINE"}) is None
+
+    def test_firmware_control_lines_are_strictly_parsed(self):
+        self.assertEqual(
+            parse_actuator_ack("AGRI_ACK cmd-1 LIGHT ON SUCCEEDED APPLIED"),
+            {"command_id": "cmd-1", "actuator": "GROW_LIGHT", "state": "ON", "status": "SUCCEEDED", "reason": "APPLIED"},
+        )
+        self.assertEqual(
+            parse_actuator_state("AGRI_STATE FAN OFF LIGHT ON REASON PERIODIC"),
+            {"FAN": "OFF", "GROW_LIGHT": "ON", "reason": "PERIODIC"},
+        )
+        self.assertIsNone(parse_actuator_ack("fan is now on"))
+
+    def test_actuator_command_waits_for_real_firmware_ack(self):
+        class SerialCapture:
+            def __init__(self):
+                self.written = bytearray()
+
+            def write(self, value):
+                self.written.extend(value)
+
+            def flush(self):
+                return None
+
+        args = argparse.Namespace(mqtt=False, farm_id="farm-demo", plot_id="plot-a01", device_id="bearpi-test")
+        publisher = Publisher(args)
+        immediate = publisher.apply_control_payload({
+            "commandId": "cmd-remote-1", "deviceId": "bearpi-test", "type": "FAN_SET",
+            "targetState": "ON", "durationSeconds": 30,
+        })
+        self.assertIsNone(immediate)
+        self.assertEqual(publisher.actuator_status()["FAN"]["status"], "PENDING")
+        serial_capture = SerialCapture()
+        publisher.flush_serial_commands(serial_capture)
+        self.assertEqual(
+            bytes(serial_capture.written),
+            b"AT+AGRI=cmd-remote-1,FAN,ON,30\r\n",
+        )
+        self.assertTrue(publisher.handle_serial_line("AGRI_ACK cmd-remote-1 FAN ON SUCCEEDED APPLIED"))
+        self.assertEqual(publisher.actuator_status()["FAN"]["state"], "ON")
+        self.assertEqual(publisher.actuator_status()["FAN"]["status"], "SUCCEEDED")
 
 
 if __name__ == "__main__":

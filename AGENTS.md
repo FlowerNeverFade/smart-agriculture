@@ -7,7 +7,7 @@
 
 ## 1. 项目范围（必须遵守）
 
-本项目当前交付三条软件主线及已验证的 BearPi E53_IA1 真实遥测输入链路：
+本项目当前交付三条软件主线及已验证的 BearPi E53_IA1 真实遥测与板载风扇/补光灯受控执行链路：
 
 ```text
 模拟数据或 BearPi 实时遥测 -> MQTT/事件管道 -> 智能体决策 -> 可视化呈现/操作
@@ -15,15 +15,15 @@
 
 本期允许使用：模拟器、情景脚本、BearPi E53_IA1 串口/MQTT 适配器、MQTT、Redis Streams、PostgreSQL、SSE/WebSocket、MaxKB/RAG、LLM 适配器、Vue/ECharts、虚拟执行器。
 
-除已记录的 BearPi E53_IA1 遥测适配外，本期不承诺、不应在文档或答辩中表述为“已完成”：
+除已记录的 BearPi E53_IA1 遥测适配及该扩展板风扇/补光灯控制外，本期不承诺、不应在文档或答辩中表述为“已完成”：
 
 - 其他未验证的真实传感器、现场网关以及真实水泵/阀门执行器；
-- 鸿蒙端、GPIO 控制、串口执行器和其他真实设备驱动；
+- 其他鸿蒙端应用、其他 GPIO/串口执行器和未验证的真实设备驱动；
 - 超出 BearPi 遥测链路的生产级端-智-云全链路联调；
 - 视觉/语音模型的生产级接入；
 - 未经本地测试的代码或配置。
 
-BearPi E53_IA1 -> MQTT -> API -> SSE 的已验证遥测链路可以作为本期验收证据；未覆盖的硬件仍只能作为后续适配方向说明。所有硬件数据必须保留 `sourceMode=REAL`、`provenance=OBSERVED` 和 `dataOrigin=HARDWARE`，不得把模拟数据或虚拟执行结果写成真实现场结果。
+BearPi E53_IA1 -> 串口桥 -> MQTT -> API -> SSE 的遥测链路，以及 API -> MQTT -> 串口桥 -> `AT+AGRI` -> GPIO -> 固件 ACK 的板载风扇/补光灯链路，可以作为本期验收证据；未覆盖的硬件仍只能作为后续适配方向说明。所有硬件数据与执行回执必须保留 `sourceMode=REAL`、`provenance=OBSERVED` 和 `dataOrigin=HARDWARE`，不得把模拟数据或虚拟执行结果写成真实现场结果。
 
 ## 2. 文档优先级与事实来源
 

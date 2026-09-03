@@ -1676,6 +1676,14 @@ class AgriEngine {
     private static final Set<String> TERMINAL_ALERT_STATUSES = Set.of("CLOSED", "RESOLVED");
     private static final Set<String> DEVICE_CONTROL_TARGETS = Set.of("ONLINE", "OFFLINE");
     private static final Set<String> DEVICE_CONTROL_TERMINAL = Set.of("SUCCEEDED", "FAILED", "TIMEOUT");
+    private static final String BEARPI_E53_IA1_DEVICE_ID = "bearpi-e53-ia1-a01";
+    private static final Set<String> BEARPI_ACTUATORS = Set.of("FAN", "GROW_LIGHT");
+    private static final Set<String> BEARPI_ACTUATOR_COMMANDS = Set.of("FAN_SET", "LIGHT_SET");
+    private static final double BEARPI_HEAT_ON_CELSIUS = 35.0;
+    private static final double BEARPI_HEAT_OFF_CELSIUS = 33.0;
+    private static final double BEARPI_LIGHT_ON_LUX = 50.0;
+    private static final double BEARPI_LIGHT_OFF_LUX = 60.0;
+    private static final long BEARPI_CONTROL_FRESHNESS_SECONDS = 30L;
     /** Terminal irrigation commands are already reflected in the daily balance and must not reserve reservoir capacity again. */
     private static final Set<String> WATER_COMMAND_TERMINAL_STATUSES = Set.of(
             "SUCCEEDED", "COMPLETED", "PARTIAL", "FAILED", "TIMEOUT", "CANCELLED", "INCONCLUSIVE", "REJECTED", "EXPIRED");
@@ -3097,6 +3105,14 @@ class AgriEngine {
             device.put("sourceMode", sourceMode);
             device.put("provenance", Jsons.text(event, "provenance", "OBSERVED"));
             device.put("dataOrigin", Jsons.text(event, "dataOrigin", "SIMULATOR"));
+            if (BEARPI_E53_IA1_DEVICE_ID.equals(deviceId)) {
+                device.put("farmId", Jsons.text(event, "farmId", farmIdForPlot(plotId)));
+                device.put("plotId", plotId);
+                device.put("bindingState", "BOUND");
+                device.putIfAbsent("name", "BearPi E53_IA1 环境与执行终端");
+                device.put("type", "BEARPI_E53_IA1");
+                ensureBearPiActuatorMetadata(device);
+            }
             store.save("device", deviceId, device);
         }
         Map<String, Object> ruleResult = evaluateRuleForEvent(event);
@@ -3380,10 +3396,18 @@ class AgriEngine {
         double heatThreshold = Jsons.number(heatRule, "threshold", 35);
         double lightLowThreshold = Jsons.number(lightLowRule, "threshold", 15000);
         double lightHighThreshold = Jsons.number(lightHighRule, "threshold", 30000);
+        boolean bearPiHardwareEvent = isBearPiHardwareEvent(event);
+        if (bearPiHardwareEvent) {
+            // The attached E53_IA1 is an indoor/demo-range sensor. Its proven
+            // hardware thresholds are intentionally isolated from Crop Pack
+            // thresholds used by simulated and future field devices.
+            heatThreshold = BEARPI_HEAT_ON_CELSIUS;
+            lightLowThreshold = BEARPI_LIGHT_ON_LUX;
+        }
         Instant eventTs = parseInstant(Jsons.text(event, "ts", ""), Instant.now());
         Map<String, Object> lightTarget = lightTarget(context, eventTs);
         if ("LIGHT".equals(metric)) {
-            lightLowThreshold = Jsons.number(lightTarget, "low", lightLowThreshold);
+            lightLowThreshold = bearPiHardwareEvent ? BEARPI_LIGHT_ON_LUX : Jsons.number(lightTarget, "low", lightLowThreshold);
             lightHighThreshold = Jsons.number(lightTarget, "high", lightHighThreshold);
             result.put("lightPhase", lightTarget.get("phase"));
             result.put("lightPhaseLabel", lightTarget.get("phaseLabel"));
@@ -3410,17 +3434,20 @@ class AgriEngine {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
         }
-        if ("AIR_TEMPERATURE".equals(metric) && value > heatThreshold) {
+        if ("AIR_TEMPERATURE".equals(metric) && value >= heatThreshold) {
             Instant now = Instant.now();
             int heatDuration = (int) Jsons.whole(heatRule, "durationMinutes", 10);
             Deque<Instant> window = ruleWindows.computeIfAbsent(plotId + "|HEAT_STRESS", ignored -> new ConcurrentLinkedDeque<>());
             window.addLast(now); while (!window.isEmpty() && Duration.between(window.peekFirst(), now).toMinutes() > heatDuration) window.removeFirst();
-            String message = "当前阶段「" + context.get("stageLabel") + "」空气温度已高于 " + heatThreshold
+            String message = "当前阶段「" + context.get("stageLabel") + "」空气温度已达到或超过 " + heatThreshold
                     + "°C。请先通风或遮阴核验，不要直接按缺水处理。";
             Map<String, Object> alert = upsertRuleAlert(plotId, "HEAT_STRESS_RULE", "MEDIUM", "高温胁迫", message, event, heatRule,
                     heatThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
             result.put("risk", "HEAT_STRESS");
             result.put("alert", alert);
+            if (bearPiHardwareEvent) {
+                result.put("actuatorAutomation", automaticBearPiActuatorForAlert(event, alert, "FAN"));
+            }
             if (!Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
@@ -3435,6 +3462,9 @@ class AgriEngine {
             Map<String, Object> alert = upsertRuleAlert(plotId, "LIGHT_DEFICIT_RULE", "MEDIUM", "光照不足", message, event, lightLowRule,
                     lightLowThreshold, context, now, window.size() >= 3 ? "TRIGGERED" : "CANDIDATE");
             result.put("risk", "LIGHT_DEFICIT"); result.put("alert", alert);
+            if (bearPiHardwareEvent) {
+                result.put("actuatorAutomation", automaticBearPiActuatorForAlert(event, alert, "GROW_LIGHT"));
+            }
             if (store.find("plot", plotId) != null && !Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
@@ -3452,6 +3482,12 @@ class AgriEngine {
             if (store.find("plot", plotId) != null && !Jsons.bool(alert, "reused", false) && !Jsons.bool(alert, "suppressedByCooldown", false)) {
                 result.put("diagnosis", diagnose(plotId, Map.of("scenarioId", Jsons.text(event, "scenarioId", "normal"))));
             }
+        }
+        if (bearPiHardwareEvent && "AIR_TEMPERATURE".equals(metric) && value <= BEARPI_HEAT_OFF_CELSIUS) {
+            result.put("actuatorRecovery", recoverBearPiActuator(event, "FAN", "HEAT_STRESS_RULE"));
+        }
+        if (bearPiHardwareEvent && "LIGHT".equals(metric) && value >= BEARPI_LIGHT_OFF_LUX) {
+            result.put("actuatorRecovery", recoverBearPiActuator(event, "GROW_LIGHT", "LIGHT_DEFICIT_RULE"));
         }
         return result;
     }
@@ -3708,6 +3744,331 @@ class AgriEngine {
                 .toList());
     }
 
+    private boolean isBearPiHardwareEvent(Map<String, Object> event) {
+        return BEARPI_E53_IA1_DEVICE_ID.equals(Jsons.text(event, "deviceId", ""))
+                && "REAL".equalsIgnoreCase(Jsons.text(event, "sourceMode", ""))
+                && "HARDWARE".equalsIgnoreCase(Jsons.text(event, "dataOrigin", ""))
+                && "OBSERVED".equalsIgnoreCase(Jsons.text(event, "provenance", "OBSERVED"));
+    }
+
+    private boolean isBearPiRemoteDevice(Map<String, Object> device) {
+        return device != null
+                && BEARPI_E53_IA1_DEVICE_ID.equals(Jsons.text(device, "deviceId", ""))
+                && isHardwareDevice(device);
+    }
+
+    private Map<String, Object> defaultBearPiActuatorPolicy() {
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("automaticEnabled", true);
+        policy.put("fanAlertEnabled", true);
+        policy.put("lightAlertEnabled", true);
+        policy.put("heatOnCelsius", BEARPI_HEAT_ON_CELSIUS);
+        policy.put("heatOffCelsius", BEARPI_HEAT_OFF_CELSIUS);
+        policy.put("lightOnLux", BEARPI_LIGHT_ON_LUX);
+        policy.put("lightOffLux", BEARPI_LIGHT_OFF_LUX);
+        policy.put("fanMaxRunSeconds", 900);
+        policy.put("lightMaxRunSeconds", 1800);
+        policy.put("freshnessSeconds", BEARPI_CONTROL_FRESHNESS_SECONDS);
+        policy.put("policyVersion", "bearpi-actuator-policy-v1");
+        return policy;
+    }
+
+    private void ensureBearPiActuatorMetadata(Map<String, Object> device) {
+        if (!BEARPI_E53_IA1_DEVICE_ID.equals(Jsons.text(device, "deviceId", ""))) return;
+        device.put("actuatorCapabilities", List.of("FAN", "GROW_LIGHT"));
+        Map<String, Object> policy = new LinkedHashMap<>(defaultBearPiActuatorPolicy());
+        policy.putAll(Jsons.map(mapper, device.get("actuatorPolicy")));
+        // Threshold and safety values are firmware-specific, not editable farm
+        // preferences. Re-assert them when old or malformed records are read.
+        policy.put("heatOnCelsius", BEARPI_HEAT_ON_CELSIUS);
+        policy.put("heatOffCelsius", BEARPI_HEAT_OFF_CELSIUS);
+        policy.put("lightOnLux", BEARPI_LIGHT_ON_LUX);
+        policy.put("lightOffLux", BEARPI_LIGHT_OFF_LUX);
+        policy.put("fanMaxRunSeconds", 900);
+        policy.put("lightMaxRunSeconds", 1800);
+        policy.put("freshnessSeconds", BEARPI_CONTROL_FRESHNESS_SECONDS);
+        policy.put("policyVersion", "bearpi-actuator-policy-v1");
+        device.put("actuatorPolicy", policy);
+
+        Map<String, Object> states = new LinkedHashMap<>(Jsons.map(mapper, device.get("actuatorStates")));
+        for (String actuator : BEARPI_ACTUATORS) {
+            Map<String, Object> state = new LinkedHashMap<>(Jsons.map(mapper, states.get(actuator)));
+            state.putIfAbsent("state", "OFF");
+            state.putIfAbsent("desiredState", state.get("state"));
+            state.putIfAbsent("status", "UNKNOWN");
+            states.put(actuator, state);
+        }
+        device.put("actuatorStates", states);
+    }
+
+    private Map<String, Object> requireBearPiRemoteDevice(String deviceId) {
+        Map<String, Object> device = requireRecord("device", deviceId);
+        if (!BEARPI_E53_IA1_DEVICE_ID.equals(deviceId) || !isBearPiRemoteDevice(device)) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACTUATOR_HARDWARE_UNSUPPORTED",
+                    "真实风扇和补光控制仅支持已接入的 BearPi E53_IA1 终端");
+        }
+        ensureBearPiActuatorMetadata(device);
+        return device;
+    }
+
+    Map<String, Object> bearPiActuatorPolicy(String deviceId, UserPrincipal principal) {
+        Map<String, Object> device = requireBearPiRemoteDevice(deviceId);
+        String plotId = Jsons.text(device, "plotId", "");
+        ensurePlotAccess(principal, plotId);
+        return Map.of(
+                "deviceId", deviceId,
+                "farmId", Jsons.text(device, "farmId", farmIdForPlot(plotId)),
+                "plotId", plotId,
+                "deviceStatus", Jsons.text(device, "status", "OFFLINE"),
+                "policy", Jsons.map(mapper, device.get("actuatorPolicy")),
+                "actuatorStates", Jsons.map(mapper, device.get("actuatorStates")));
+    }
+
+    Map<String, Object> updateBearPiActuatorPolicy(String deviceId, Map<String, Object> input, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以修改硬件告警联动");
+        }
+        Map<String, Object> device = requireBearPiRemoteDevice(deviceId);
+        String plotId = Jsons.text(device, "plotId", "");
+        ensurePlotAccess(principal, plotId);
+        Map<String, Object> policy = new LinkedHashMap<>(Jsons.map(mapper, device.get("actuatorPolicy")));
+        policy.put("automaticEnabled", Jsons.bool(input, "automaticEnabled", Jsons.bool(policy, "automaticEnabled", true)));
+        policy.put("fanAlertEnabled", Jsons.bool(input, "fanAlertEnabled", Jsons.bool(policy, "fanAlertEnabled", true)));
+        policy.put("lightAlertEnabled", Jsons.bool(input, "lightAlertEnabled", Jsons.bool(policy, "lightAlertEnabled", true)));
+        policy.put("updatedBy", principal.userId);
+        policy.put("updatedAt", Instant.now().toString());
+        device.put("actuatorPolicy", policy);
+        ensureBearPiActuatorMetadata(device);
+        store.save("device", deviceId, device);
+        Map<String, Object> audit = new LinkedHashMap<>();
+        audit.put("deviceId", deviceId); audit.put("farmId", Jsons.text(device, "farmId", farmIdForPlot(plotId)));
+        audit.put("plotId", plotId); audit.put("policy", device.get("actuatorPolicy")); audit.put("updatedBy", principal.userId);
+        audit.put("updatedAt", Instant.now().toString());
+        events.publish("device.actuator-policy.updated", audit);
+        store.logEvent("DEVICE_ACTUATOR_POLICY_UPDATED", audit);
+        return device;
+    }
+
+    Map<String, Object> controlBearPiActuator(String deviceId, String requestedActuator,
+                                              Map<String, Object> input, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_REQUIRED", "只有农场管理员可以控制真实风扇和补光灯");
+        }
+        Map<String, Object> device = requireBearPiRemoteDevice(deviceId);
+        String plotId = Jsons.text(device, "plotId", "");
+        ensurePlotAccess(principal, plotId);
+        String actuator = normaliseBearPiActuator(requestedActuator);
+        String targetState = Jsons.text(input, "targetState", "").trim().toUpperCase(Locale.ROOT);
+        if (!Set.of("ON", "OFF").contains(targetState)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACTUATOR_TARGET_INVALID", "执行器目标状态只能是 ON 或 OFF");
+        }
+        if ("ON".equals(targetState) && !Jsons.bool(input, "confirmed", false)) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "ACTUATOR_CONFIRMATION_REQUIRED",
+                    "开启真实执行器前需要确认目标、时长和影响范围");
+        }
+        int defaultDuration = "FAN".equals(actuator) ? 900 : 1800;
+        int durationSeconds = "ON".equals(targetState) ? (int) Jsons.whole(input, "durationSeconds", defaultDuration) : 0;
+        return requestBearPiActuatorCommand(device, actuator, targetState, durationSeconds,
+                Jsons.text(input, "idempotencyKey", ""), principal.userId, "FARM_ADMIN_MANUAL",
+                null, null, null);
+    }
+
+    private String normaliseBearPiActuator(String requestedActuator) {
+        String actuator = String.valueOf(requestedActuator == null ? "" : requestedActuator).trim().toUpperCase(Locale.ROOT);
+        if ("LIGHT".equals(actuator)) actuator = "GROW_LIGHT";
+        if (!BEARPI_ACTUATORS.contains(actuator)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACTUATOR_TYPE_INVALID", "执行器只能是 FAN 或 GROW_LIGHT");
+        }
+        return actuator;
+    }
+
+    private synchronized Map<String, Object> requestBearPiActuatorCommand(
+            Map<String, Object> device, String actuator, String targetState, int durationSeconds,
+            String rawIdempotencyKey, String requestedBy, String source,
+            String alertId, Double observedValue, String ruleVersion) {
+        ensureBearPiActuatorMetadata(device);
+        String deviceId = Jsons.text(device, "deviceId", "");
+        String plotId = Jsons.text(device, "plotId", "");
+        if (!isBearPiRemoteDevice(device) || plotId.isBlank()
+                || !"BOUND".equalsIgnoreCase(Jsons.text(device, "bindingState", "BOUND"))) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACTUATOR_BINDING_UNAVAILABLE", "BearPi 尚未绑定可控制地块");
+        }
+        if (!"ON".equals(targetState) && !"OFF".equals(targetState)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACTUATOR_TARGET_INVALID", "执行器目标状态无效");
+        }
+        int maxDuration = "FAN".equals(actuator) ? 900 : 1800;
+        if (("ON".equals(targetState) && (durationSeconds < 1 || durationSeconds > maxDuration))
+                || ("OFF".equals(targetState) && durationSeconds != 0)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ACTUATOR_DURATION_INVALID",
+                    "风扇最长运行 15 分钟，补光灯最长运行 30 分钟");
+        }
+        if ("ON".equals(targetState)) {
+            if (!"ONLINE".equalsIgnoreCase(Jsons.text(device, "status", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "ACTUATOR_DEVICE_OFFLINE", "BearPi 当前离线，未发送开启指令");
+            }
+            Instant lastSeen = Jsons.instant(device.get("lastSeen"), Instant.EPOCH);
+            if (Duration.between(lastSeen, Instant.now()).getSeconds() > BEARPI_CONTROL_FRESHNESS_SECONDS) {
+                throw new ApiException(HttpStatus.CONFLICT, "ACTUATOR_TELEMETRY_STALE", "BearPi 实时数据超过 30 秒，未发送开启指令");
+            }
+        }
+        String rawKey = String.valueOf(rawIdempotencyKey == null ? "" : rawIdempotencyKey).trim();
+        if (rawKey.isBlank() || rawKey.length() > 200) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "IDEMPOTENCY_REQUIRED", "真实执行器控制必须携带有效 idempotencyKey");
+        }
+        String key = "bearpi-actuator:" + deviceId + ":" + rawKey;
+        Map<String, Object> previous = idempotentCommands.get(key);
+        if (previous == null) {
+            Map<String, Object> durable = store.find("idempotency", key);
+            previous = durable == null ? null : store.find("command", Jsons.text(durable, "commandId", ""));
+            if (previous != null) idempotentCommands.put(key, previous);
+        }
+        if (previous != null) {
+            if (!actuator.equals(Jsons.text(previous, "actuator", ""))
+                    || !targetState.equals(Jsons.text(previous, "targetState", ""))) {
+                throw new ApiException(HttpStatus.CONFLICT, "IDEMPOTENCY_CONTEXT_MISMATCH", "幂等键已绑定其他执行器操作");
+            }
+            return actuatorControlResponse(previous, store.find("device", deviceId));
+        }
+
+        Map<String, Object> states = new LinkedHashMap<>(Jsons.map(mapper, device.get("actuatorStates")));
+        Map<String, Object> currentState = new LinkedHashMap<>(Jsons.map(mapper, states.get(actuator)));
+        String status = Jsons.text(currentState, "status", "").toUpperCase(Locale.ROOT);
+        if ("PENDING".equals(status)) {
+            throw new ApiException(HttpStatus.CONFLICT, "ACTUATOR_COMMAND_PENDING", "该执行器仍在等待上一条硬件回执");
+        }
+        if (targetState.equals(Jsons.text(currentState, "state", "OFF").toUpperCase(Locale.ROOT))) {
+            Map<String, Object> noChange = new LinkedHashMap<>();
+            noChange.put("commandId", Jsons.text(currentState, "commandId", ""));
+            noChange.put("deviceId", deviceId); noChange.put("actuator", actuator); noChange.put("targetState", targetState);
+            noChange.put("commandStatus", "NO_CHANGE"); noChange.put("status", "NO_CHANGE");
+            noChange.put("device", device); noChange.put("message", "硬件已经处于目标状态");
+            return noChange;
+        }
+
+        Instant now = Instant.now();
+        String commandId = Jsons.id("bearpi-cmd");
+        Map<String, Object> command = new LinkedHashMap<>();
+        command.put("commandId", commandId);
+        command.put("type", "FAN".equals(actuator) ? "FAN_SET" : "LIGHT_SET");
+        command.put("farmId", Jsons.text(device, "farmId", farmIdForPlot(plotId)));
+        command.put("plotId", plotId); command.put("deviceId", deviceId); command.put("actuator", actuator);
+        command.put("targetState", targetState); command.put("durationSeconds", durationSeconds);
+        command.put("sourceMode", "REAL"); command.put("dataOrigin", "HARDWARE"); command.put("provenance", "OBSERVED");
+        command.put("executionMode", "HARDWARE"); command.put("status", "PENDING"); command.put("commandStatus", "PENDING");
+        command.put("idempotencyKey", key); command.put("requestedBy", requestedBy); command.put("source", source);
+        command.put("requestedAt", now.toString());
+        if (alertId != null && !alertId.isBlank()) command.put("alertId", alertId);
+        if (observedValue != null) command.put("observedValue", observedValue);
+        if (ruleVersion != null && !ruleVersion.isBlank()) command.put("ruleVersion", ruleVersion);
+
+        currentState.put("desiredState", targetState); currentState.put("status", "PENDING");
+        currentState.put("commandId", commandId); currentState.put("requestedAt", now.toString()); currentState.remove("error");
+        states.put(actuator, currentState); device.put("actuatorStates", states);
+        device.put("lastActuatorCommandId", commandId); device.put("lastActuatorCommandAt", now.toString());
+        store.save("command", commandId, command); store.save("device", deviceId, device);
+        idempotentCommands.put(key, command);
+        store.save("idempotency", key, Map.of("idempotencyKey", key, "commandId", commandId, "createdAt", now.toString()));
+        events.publish("device.actuator.requested", command); store.logEvent("DEVICE_ACTUATOR_REQUESTED", command);
+        mqttCommands.publish(command);
+        command.put("transport", mqttCommands.available() ? "MQTT" : "MQTT_PENDING");
+        store.save("command", commandId, command);
+        return actuatorControlResponse(command, device);
+    }
+
+    private Map<String, Object> actuatorControlResponse(Map<String, Object> command, Map<String, Object> device) {
+        Map<String, Object> response = new LinkedHashMap<>();
+        response.put("commandId", Jsons.text(command, "commandId", ""));
+        response.put("deviceId", Jsons.text(command, "deviceId", ""));
+        response.put("actuator", Jsons.text(command, "actuator", ""));
+        response.put("targetState", Jsons.text(command, "targetState", ""));
+        response.put("durationSeconds", Jsons.whole(command, "durationSeconds", 0));
+        response.put("commandStatus", Jsons.text(command, "commandStatus", Jsons.text(command, "status", "PENDING")));
+        response.put("status", Jsons.text(command, "status", "PENDING"));
+        response.put("command", new LinkedHashMap<>(command));
+        response.put("device", device == null ? Map.of() : new LinkedHashMap<>(device));
+        return response;
+    }
+
+    private Map<String, Object> automaticBearPiActuatorForAlert(Map<String, Object> event,
+                                                                 Map<String, Object> alert,
+                                                                 String actuator) {
+        if (!"TRIGGERED".equalsIgnoreCase(Jsons.text(alert, "ruleState", ""))) {
+            return Map.of("status", "WAITING", "reason", "ALERT_NOT_TRIGGERED");
+        }
+        Map<String, Object> quality = Jsons.map(mapper, event.get("quality"));
+        if (!"GOOD".equalsIgnoreCase(Jsons.text(quality, "status", ""))) {
+            return Map.of("status", "BLOCKED", "reason", "TELEMETRY_QUALITY_NOT_GOOD");
+        }
+        Map<String, Object> device = store.find("device", BEARPI_E53_IA1_DEVICE_ID);
+        if (device == null) return Map.of("status", "BLOCKED", "reason", "DEVICE_NOT_FOUND");
+        ensureBearPiActuatorMetadata(device);
+        Map<String, Object> policy = Jsons.map(mapper, device.get("actuatorPolicy"));
+        boolean bindingEnabled = "FAN".equals(actuator)
+                ? Jsons.bool(policy, "fanAlertEnabled", true)
+                : Jsons.bool(policy, "lightAlertEnabled", true);
+        if (!Jsons.bool(policy, "automaticEnabled", true) || !bindingEnabled) {
+            return Map.of("status", "DISABLED", "reason", "ALERT_BINDING_DISABLED");
+        }
+        String alertId = Jsons.text(alert, "alertId", "");
+        try {
+            Map<String, Object> response = requestBearPiActuatorCommand(device, actuator, "ON",
+                    "FAN".equals(actuator) ? 900 : 1800,
+                    "alert:" + alertId + ":" + actuator + ":ON", "SYSTEM_ALERT_AUTOMATION",
+                    "ALERT_AUTOMATION", alertId, Jsons.number(event, "value", 0), Jsons.text(alert, "ruleVersion", ""));
+            Map<String, Object> binding = new LinkedHashMap<>();
+            binding.put("deviceId", BEARPI_E53_IA1_DEVICE_ID); binding.put("actuator", actuator);
+            binding.put("commandId", response.get("commandId")); binding.put("status", response.get("commandStatus"));
+            binding.put("requestedAt", Instant.now().toString()); binding.put("executionMode", "HARDWARE");
+            alert.put("actuatorBinding", binding);
+            store.save("alert", alertId, alert);
+            return response;
+        } catch (ApiException error) {
+            Map<String, Object> blocked = Map.of("status", "BLOCKED", "reason", error.code, "message", error.getMessage());
+            Map<String, Object> audit = new LinkedHashMap<>(blocked);
+            audit.put("deviceId", BEARPI_E53_IA1_DEVICE_ID); audit.put("actuator", actuator); audit.put("alertId", alertId);
+            audit.put("plotId", Jsons.text(event, "plotId", "")); audit.put("at", Instant.now().toString());
+            store.logEvent("DEVICE_ACTUATOR_AUTOMATION_BLOCKED", audit);
+            return blocked;
+        }
+    }
+
+    private Map<String, Object> recoverBearPiActuator(Map<String, Object> event, String actuator, String alertSource) {
+        Map<String, Object> quality = Jsons.map(mapper, event.get("quality"));
+        if (!"GOOD".equalsIgnoreCase(Jsons.text(quality, "status", ""))) {
+            return Map.of("status", "BLOCKED", "reason", "TELEMETRY_QUALITY_NOT_GOOD");
+        }
+        Map<String, Object> device = store.find("device", BEARPI_E53_IA1_DEVICE_ID);
+        if (device == null) return Map.of("status", "NO_CHANGE", "reason", "DEVICE_NOT_FOUND");
+        ensureBearPiActuatorMetadata(device);
+        Map<String, Object> policy = Jsons.map(mapper, device.get("actuatorPolicy"));
+        boolean bindingEnabled = "FAN".equals(actuator)
+                ? Jsons.bool(policy, "fanAlertEnabled", true)
+                : Jsons.bool(policy, "lightAlertEnabled", true);
+        if (!Jsons.bool(policy, "automaticEnabled", true) || !bindingEnabled) {
+            return Map.of("status", "DISABLED", "reason", "ALERT_BINDING_DISABLED");
+        }
+        Map<String, Object> state = Jsons.map(mapper, Jsons.map(mapper, device.get("actuatorStates")).get(actuator));
+        String actual = Jsons.text(state, "state", "OFF").toUpperCase(Locale.ROOT);
+        String desired = Jsons.text(state, "desiredState", actual).toUpperCase(Locale.ROOT);
+        if (!"ON".equals(actual) && !"ON".equals(desired)) return Map.of("status", "NO_CHANGE", "reason", "ALREADY_OFF");
+        String stateCommandId = Jsons.text(state, "commandId", "unknown");
+        try {
+            Map<String, Object> response = requestBearPiActuatorCommand(device, actuator, "OFF", 0,
+                    "recovery:" + actuator + ":" + stateCommandId, "SYSTEM_ALERT_AUTOMATION",
+                    "ALERT_RECOVERY", null, Jsons.number(event, "value", 0), null);
+            Map<String, Object> alert = findLatestMatchingAlert(Jsons.text(event, "plotId", ""), alertSource);
+            if (alert != null && OPEN_ALERT_STATUSES.contains(Jsons.text(alert, "status", "ACTIVE").toUpperCase(Locale.ROOT))) {
+                alert.put("recoveryCommandId", response.get("commandId"));
+                alert.put("recoveryObservedValue", Jsons.number(event, "value", 0));
+                alert.put("recoveryRequestedAt", Instant.now().toString());
+                store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+            }
+            return response;
+        } catch (ApiException error) {
+            return Map.of("status", "BLOCKED", "reason", error.code, "message", error.getMessage());
+        }
+    }
+
     private boolean isHardwareDevice(Map<String, Object> device) {
         if (deviceIsSimulated(device)) return false;
         String source = Jsons.text(device, "sourceMode", Jsons.text(device, "dataOrigin", ""))
@@ -3760,8 +4121,10 @@ class AgriEngine {
         String deviceId = Jsons.text(input, "deviceId", "");
         if (deviceId.isBlank()) return;
         Map<String, Object> current = store.find("device", deviceId);
+        Object trustedPolicy = current == null ? null : current.get("actuatorPolicy");
         Map<String, Object> device = current == null ? new LinkedHashMap<>() : new LinkedHashMap<>(current);
         device.putAll(Jsons.copy(mapper, input)); device.put("deviceId", deviceId);
+        if (trustedPolicy != null) device.put("actuatorPolicy", trustedPolicy);
         String controlStatus = Jsons.text(device, "controlStatus", "").toUpperCase(Locale.ROOT);
         String desiredStatus = Jsons.text(device, "desiredStatus", "").toUpperCase(Locale.ROOT);
         if ("SUCCEEDED".equals(controlStatus) && "OFFLINE".equals(desiredStatus)) {
@@ -3773,6 +4136,7 @@ class AgriEngine {
         } else if (!deviceIsSimulated(device) && "PENDING".equals(controlStatus) && current != null) {
             device.put("status", Jsons.text(current, "status", "OFFLINE"));
         }
+        if (BEARPI_E53_IA1_DEVICE_ID.equals(deviceId)) ensureBearPiActuatorMetadata(device);
         store.save("device", deviceId, device);
         events.publish("device.updated", device);
     }
@@ -3917,6 +4281,85 @@ class AgriEngine {
         events.publish("command.ack", ack); store.logEvent("DEVICE_CONTROL_ACK", ack);
     }
 
+    void handleBearPiActuatorAck(Map<String, Object> command, Map<String, Object> input) {
+        if (command == null || !BEARPI_ACTUATOR_COMMANDS.contains(Jsons.text(command, "type", "").toUpperCase(Locale.ROOT))) return;
+        Map<String, Object> ack = new LinkedHashMap<>(input == null ? Map.of() : input);
+        String commandId = Jsons.text(command, "commandId", "");
+        String deviceId = Jsons.text(command, "deviceId", "");
+        String actuator = Jsons.text(command, "actuator", "").toUpperCase(Locale.ROOT);
+        String targetState = Jsons.text(command, "targetState", "").toUpperCase(Locale.ROOT);
+        String incomingDevice = Jsons.text(ack, "deviceId", deviceId);
+        String incomingActuator = Jsons.text(ack, "actuator", actuator).toUpperCase(Locale.ROOT);
+        if ("LIGHT".equals(incomingActuator)) incomingActuator = "GROW_LIGHT";
+        String status = Jsons.text(ack, "status", "TIMEOUT").trim().toUpperCase(Locale.ROOT);
+        if (!DEVICE_CONTROL_TERMINAL.contains(status)) status = "FAILED";
+        String actualState = Jsons.text(ack, "actualState", Jsons.text(ack, "targetState", "")).toUpperCase(Locale.ROOT);
+        if (!deviceId.equals(incomingDevice) || !actuator.equals(incomingActuator)) {
+            status = "FAILED";
+            ack.put("reason", "ACK_CONTEXT_MISMATCH");
+        }
+        if ("SUCCEEDED".equals(status) && !targetState.equals(actualState)) {
+            status = "FAILED";
+            ack.put("reason", "ACTUAL_STATE_MISMATCH");
+        }
+        ack.put("commandId", commandId); ack.put("deviceId", deviceId); ack.put("actuator", actuator);
+        ack.put("targetState", targetState); ack.put("status", status);
+        ack.put("receivedAt", Jsons.text(ack, "receivedAt", Instant.now().toString()));
+        ack.put("executionMode", "HARDWARE"); ack.put("sourceMode", "REAL");
+        ack.put("dataOrigin", "HARDWARE"); ack.put("provenance", "OBSERVED");
+        command.put("ack", ack); command.put("status", status); command.put("commandStatus", status);
+        command.put("completedAt", ack.get("receivedAt"));
+        store.save("command", commandId, command); ackByCommand.put(commandId, ack);
+
+        Map<String, Object> device = store.find("device", deviceId);
+        if (device != null) {
+            ensureBearPiActuatorMetadata(device);
+            Map<String, Object> states = new LinkedHashMap<>(Jsons.map(mapper, device.get("actuatorStates")));
+            Map<String, Object> state = new LinkedHashMap<>(Jsons.map(mapper, states.get(actuator)));
+            state.put("desiredState", targetState); state.put("status", status); state.put("commandId", commandId);
+            state.put("updatedAt", ack.get("receivedAt")); state.put("lastAck", ack);
+            if ("SUCCEEDED".equals(status)) {
+                state.put("state", actualState); state.remove("error");
+                if ("ON".equals(actualState)) {
+                    Instant receivedAt = Jsons.instant(ack.get("receivedAt"), Instant.now());
+                    state.put("autoOffAt", receivedAt.plusSeconds(Jsons.whole(command, "durationSeconds", 0)).toString());
+                } else {
+                    state.remove("autoOffAt");
+                }
+            } else {
+                state.put("error", Jsons.text(ack, "reason", Jsons.text(ack, "result", "硬件未确认执行结果")));
+            }
+            states.put(actuator, state); device.put("actuatorStates", states);
+            device.put("lastActuatorAck", ack); device.put("lastActuatorCommandId", commandId);
+            device.put("lastActuatorCommandAt", ack.get("receivedAt"));
+            store.save("device", deviceId, device);
+            events.publish("device.actuator.updated", device); events.publish("device.updated", device);
+        }
+
+        String alertId = Jsons.text(command, "alertId", "");
+        if (!alertId.isBlank()) {
+            Map<String, Object> alert = store.find("alert", alertId);
+            if (alert != null) {
+                Map<String, Object> binding = new LinkedHashMap<>(Jsons.map(mapper, alert.get("actuatorBinding")));
+                binding.put("commandId", commandId); binding.put("status", status); binding.put("ack", ack);
+                binding.put("completedAt", ack.get("receivedAt")); alert.put("actuatorBinding", binding);
+                store.save("alert", alertId, alert); events.publish("alert.updated", alert);
+            }
+        }
+        if ("ALERT_RECOVERY".equals(Jsons.text(command, "source", "")) && "SUCCEEDED".equals(status)) {
+            String alertSource = "FAN".equals(actuator) ? "HEAT_STRESS_RULE" : "LIGHT_DEFICIT_RULE";
+            Map<String, Object> alert = findLatestMatchingAlert(Jsons.text(command, "plotId", ""), alertSource);
+            if (alert != null && OPEN_ALERT_STATUSES.contains(Jsons.text(alert, "status", "ACTIVE").toUpperCase(Locale.ROOT))) {
+                alert.put("status", "RESOLVED"); alert.put("closedBy", "SYSTEM_ALERT_AUTOMATION");
+                alert.put("closedAt", ack.get("receivedAt")); alert.put("updatedAt", ack.get("receivedAt"));
+                alert.put("resolution", "硬件读数恢复并收到执行器关闭回执");
+                store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+                events.publish("alert.resolved", alert); store.logEvent("alert.resolved", alert);
+            }
+        }
+        events.publish("command.ack", ack); store.logEvent("DEVICE_ACTUATOR_ACK", ack);
+    }
+
     @Scheduled(fixedDelay = 5000)
     void expireDeviceControlCommands() {
         Instant cutoff = Instant.now().minusSeconds(15);
@@ -3929,6 +4372,50 @@ class AgriEngine {
             createSystemAlert("CONTROL_TIMEOUT", "HIGH", "控制命令执行超时",
                     "命令 " + Jsons.text(command, "commandId", "未知") + "（" + Jsons.text(command, "type", "") + "）未在 15 秒内收到设备回执。",
                     Jsons.text(command, "plotId", ""));
+        }
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    void expireBearPiActuatorCommands() {
+        Instant cutoff = Instant.now().minusSeconds(15);
+        for (Map<String, Object> command : store.list("command")) {
+            if (!BEARPI_ACTUATOR_COMMANDS.contains(Jsons.text(command, "type", "").toUpperCase(Locale.ROOT))
+                    || !"PENDING".equals(Jsons.text(command, "commandStatus", Jsons.text(command, "status", "")))) continue;
+            if (Jsons.instant(command.get("requestedAt"), Instant.now()).isAfter(cutoff)) continue;
+            Map<String, Object> ack = new LinkedHashMap<>();
+            ack.put("status", "TIMEOUT"); ack.put("reason", "硬件在 15 秒内未返回执行器回执");
+            ack.put("receivedAt", Instant.now().toString());
+            handleBearPiActuatorAck(command, ack);
+            createSystemAlert("ACTUATOR_CONTROL_TIMEOUT", "HIGH", "真实执行器控制超时",
+                    "BearPi " + Jsons.text(command, "actuator", "执行器") + " 未确认 "
+                            + Jsons.text(command, "targetState", "") + " 指令，系统未将其标记为成功。",
+                    Jsons.text(command, "plotId", ""));
+        }
+    }
+
+    @Scheduled(fixedDelay = 5000)
+    void enforceBearPiActuatorRunLimits() {
+        Map<String, Object> device = store.find("device", BEARPI_E53_IA1_DEVICE_ID);
+        if (device == null || !isBearPiRemoteDevice(device)) return;
+        ensureBearPiActuatorMetadata(device);
+        Map<String, Object> states = Jsons.map(mapper, device.get("actuatorStates"));
+        Instant now = Instant.now();
+        for (String actuator : BEARPI_ACTUATORS) {
+            Map<String, Object> state = Jsons.map(mapper, states.get(actuator));
+            if (!"ON".equalsIgnoreCase(Jsons.text(state, "state", ""))
+                    || "PENDING".equalsIgnoreCase(Jsons.text(state, "status", ""))) continue;
+            Instant autoOffAt = Jsons.instant(state.get("autoOffAt"), Instant.MAX);
+            if (autoOffAt.isAfter(now)) continue;
+            try {
+                requestBearPiActuatorCommand(device, actuator, "OFF", 0,
+                        "max-run:" + actuator + ":" + Jsons.text(state, "commandId", "unknown"),
+                        "SYSTEM_SAFETY_TIMER", "MAX_RUN_SAFETY", null, null, "bearpi-actuator-policy-v1");
+            } catch (ApiException error) {
+                Map<String, Object> audit = new LinkedHashMap<>();
+                audit.put("deviceId", BEARPI_E53_IA1_DEVICE_ID); audit.put("actuator", actuator);
+                audit.put("reason", error.code); audit.put("message", error.getMessage()); audit.put("at", now.toString());
+                store.logEvent("DEVICE_ACTUATOR_SAFETY_OFF_BLOCKED", audit);
+            }
         }
     }
 
@@ -13717,6 +14204,26 @@ class AgriController {
         return ok(engine.controlDevice(deviceId, body == null ? Map.of() : body, principal(a)));
     }
 
+    @GetMapping("/devices/{deviceId}/actuator-policy")
+    ResponseEntity<?> actuatorPolicy(@PathVariable String deviceId, Authentication a) {
+        return ok(engine.bearPiActuatorPolicy(deviceId, principal(a)));
+    }
+
+    @PutMapping("/devices/{deviceId}/actuator-policy")
+    ResponseEntity<?> updateActuatorPolicy(@PathVariable String deviceId,
+                                           @RequestBody(required = false) Map<String, Object> body,
+                                           Authentication a) {
+        return ok(engine.updateBearPiActuatorPolicy(deviceId, body == null ? Map.of() : body, principal(a)));
+    }
+
+    @PostMapping("/devices/{deviceId}/actuators/{actuator}/control")
+    ResponseEntity<?> controlActuator(@PathVariable String deviceId,
+                                      @PathVariable String actuator,
+                                      @RequestBody(required = false) Map<String, Object> body,
+                                      Authentication a) {
+        return ok(engine.controlBearPiActuator(deviceId, actuator, body == null ? Map.of() : body, principal(a)));
+    }
+
     @PostMapping("/devices/{deviceId}/heartbeat")
     ResponseEntity<?> heartbeat(@PathVariable String deviceId, @RequestBody(required = false) Map<String, Object> body, Authentication a) { return ok(engine.heartbeat(deviceId, body, principal(a))); }
 
@@ -13804,6 +14311,7 @@ class MqttBridge {
                                     Map<String, Object> c = store.find("command", commandId);
                                     if (c != null && c.get("ack") == null) {
                                         if ("DEVICE_STATUS_SET".equals(Jsons.text(c, "type", ""))) engine.handleDeviceControlAck(c, body);
+                                        else if (Set.of("FAN_SET", "LIGHT_SET").contains(Jsons.text(c, "type", "").toUpperCase(Locale.ROOT))) engine.handleBearPiActuatorAck(c, body);
                                         else { c.put("ack", body); c.put("status", Jsons.text(body, "status", "TIMEOUT")); store.save("command", commandId, c); engine.evaluateCommand(c, body); }
                                     }
                                 }
