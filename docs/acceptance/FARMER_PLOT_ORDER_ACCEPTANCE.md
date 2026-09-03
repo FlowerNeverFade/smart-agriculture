@@ -1,8 +1,8 @@
 # 农户端地块稳定排序与拖拽排序验收
 
 > 最近验收日期：2026-09-03
-> 功能编号：T-134（排序基线）/ T-152（拖动可用性修复）/ T-153（V5.9.21 键盘排序移除）
-> 范围：本地 `main` 预览工作树；V5.9.21 未推送、未部署。既有排序后端基线曾随 `165aefd9` 发布，本轮不修改接口、权限或服务器。
+> 功能编号：T-134（排序基线）/ T-154（拖动可用性修复）/ T-155（V5.9.21 键盘排序移除）
+> 范围：合并最新 `origin/main` 后的本地 `main`；本轮仅发布 GitHub `main`，不部署服务器。既有排序后端基线曾随 `165aefd9` 发布，本轮不修改接口或权限。
 
 ## 功能证据
 
@@ -18,10 +18,10 @@
 
 | 验证项 | 结果 |
 | --- | --- |
-| Web 全量测试 | `npm test -- --test-concurrency=1`：167/167 |
+| Web 全量测试 | `npm test -- --test-concurrency=1`：168/168 |
 | 农户排序定向测试 | `farmer-plot-drag`、`plot-display`、`api-session`：28/28 |
 | 脚本语法 | `farmer.js`、`icon-map.js`、`farmer-plot-drag.test.js`：通过 |
-| 生产构建 | Vite：67 modules，通过 |
+| 生产构建 | Vite：68 modules，通过 |
 | API/OpenAPI | 本轮合同未变，未重复执行后端测试 |
 | 差异检查 | `git diff --check`：通过 |
 

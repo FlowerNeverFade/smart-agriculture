@@ -24,6 +24,27 @@ function memoryStorage() {
 
 const { ApiService, moistureDeltaFromWater } = await import('../js/api.js');
 
+test('live mixed telemetry reserves a complete window for every metric', async () => {
+  const service = new ApiService();
+  service.saveSession({
+    mode: 'live',
+    token: 'test-token',
+    user: { userId: 'test-farmer', username: 'farmer', role: 'FARMER', permissions: [] }
+  });
+  let requestedPath = '';
+  service._fetch = async (path) => {
+    requestedPath = path;
+    return {
+      data: [{ metric: 'LIGHT', value: 42000, unit: 'lux', ts: '2026-09-03T02:00:00Z' }]
+    };
+  };
+
+  const points = await service.getPlotTelemetryAll('plot-a01', 120);
+
+  assert.equal(points.length, 1);
+  assert.match(requestedPath, /\/plots\/plot-a01\/telemetry\?limit=1320$/);
+});
+
 test('farmer message read state is account-scoped, durable and tolerant of bad storage', () => {
   const store = memoryStorage();
   const demoKey = messageReadStorageKey('demo', 'farmer:one');
@@ -306,6 +327,7 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(farmerSurface, /夜间目标|夜间休息/);
   assert.match(source, /light_target_context/);
   assert.match(source, /LIGHT_NOT_REQUIRED_AT_NIGHT|isNight/);
+  assert.equal((html.match(/preserveAspectRatio="none"/g) || []).length, 3);
   assert.match(css, /\.g-btn:not\(:disabled\):active/);
   assert.match(css, /\.farmer-risk-mini-card:focus-visible/);
   assert.match(css, /\.farmer-operation-subsystem-tab:not\(\.active\):hover/);
@@ -476,5 +498,5 @@ test('role shells constrain overflow and desktop farmer collapse releases the si
   assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
   assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
   assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
-  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-v5920-farmer-plot-drag-v1/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-v5921-farmer-plot-drag-chart-fix-v1/);
 });

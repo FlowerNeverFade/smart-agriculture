@@ -256,6 +256,16 @@ class SimulationEngine {
         }
     }
 
+    /** Apply a supplemental lighting floor that persists across samples for the given duration. */
+    void applyLighting(String plotId, double floorLux, long durationSeconds) {
+        if (plotId == null || plotId.isBlank() || floorLux <= 0 || durationSeconds <= 0) return;
+        synchronized (lock) {
+            PlotState state = states.computeIfAbsent(plotId, id -> initialState(id, rng));
+            state.lightBoostFloor = floorLux;
+            state.lightBoostUntil = Instant.now().plusSeconds(durationSeconds);
+        }
+    }
+
     /** Snap engine state to the latest observed values before applying irrigation. */
     void syncPlotMetrics(String plotId, double soil, double waterLevel) {
         if (plotId == null || plotId.isBlank()) return;
@@ -393,6 +403,12 @@ class SimulationEngine {
             case "LIGHT" -> {
                 double cloud = "heavy-rain".equals(normalized) ? 0.35 : "drought".equals(normalized) ? 1.12 : 1.0;
                 value = 45.0 + daylightFraction(ts) * 47_000.0 * cloud * PlotFacility.lightTransmission(facilityType);
+                if (state.lightBoostFloor > 0 && state.lightBoostUntil != null
+                        && Instant.now().isBefore(state.lightBoostUntil)) {
+                    // 补光语义：保证光照不低于补光目标并保持平稳，
+                    // 不与日光弧线复合叠加，避免补光后出现缓慢爬坡。
+                    value = Math.max(value, state.lightBoostFloor);
+                }
             }
             case "CO2" -> value = state.co2;
             case "PH" -> {
@@ -496,6 +512,11 @@ class SimulationEngine {
                     created.temperature += (20.5 - created.temperature) * climateResponse;
                     created.humidity += (90.0 - created.humidity) * climateResponse;
                     created.water = 90.0;
+                }
+                PlotState previous = states.get(plotId);
+                if (previous != null) {
+                    created.lightBoostFloor = previous.lightBoostFloor;
+                    created.lightBoostUntil = previous.lightBoostUntil;
                 }
                 states.put(plotId, created);
                 configSignatures.put(plotId, signature);
@@ -766,6 +787,8 @@ class SimulationEngine {
         double ph;
         double water;
         double scenarioSteps;
+        double lightBoostFloor;
+        Instant lightBoostUntil;
 
         PlotState copy() {
             PlotState copy = new PlotState();
@@ -776,6 +799,8 @@ class SimulationEngine {
             copy.ph = ph;
             copy.water = water;
             copy.scenarioSteps = scenarioSteps;
+            copy.lightBoostFloor = lightBoostFloor;
+            copy.lightBoostUntil = lightBoostUntil;
             return copy;
         }
     }

@@ -483,6 +483,14 @@ const AGENT_INTENT_LABELS = Object.freeze({
   PLATFORM_OVERVIEW: '平台风险概览',
   FARM_OVERVIEW: '农场风险概览',
   RULE_STRATEGY_STATUS: '规则与策略状态',
+  DEVICE_STATUS: '设备状态',
+  ALERT_STATUS: '告警状态',
+  WORK_ORDER_STATUS: '任务状态',
+  CROP_MANUAL: '作物培养手册',
+  SIMULATION_STATUS: '模拟状态',
+  LEARNING_CASES: '学习案例',
+  STRATEGY_CANDIDATES: '策略候选',
+  AUDIT_RECORDS: '审计记录',
   TODAY_WORK: '今日农务',
   PLOT_STATUS: '地块状态',
   IMAGE_ANALYSIS: '图片分析',
@@ -529,6 +537,14 @@ const AGENT_TOOL_LABELS = Object.freeze({
   get_platform_risk_overview: '汇总全平台风险',
   get_rule_strategy_status: '读取规则与策略状态',
   get_farm_overview: '汇总当前农场'
+  ,get_devices: '读取设备状态'
+  ,get_alerts: '读取告警状态'
+  ,get_work_orders: '读取任务状态'
+  ,get_crop_manual: '读取作物培养手册'
+  ,get_simulation_status: '读取模拟状态'
+  ,get_learning_cases: '读取学习案例'
+  ,get_strategy_candidates: '读取策略候选'
+  ,get_audit_records: '读取审计记录'
 });
 
 const AGENT_SCOPE_LABELS = Object.freeze({
@@ -763,11 +779,10 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
       || agentToolOutput(response, 'diagnose_root_cause')
       || {};
     const cause = displayText(diagnosis.primaryCause || diagnosis.riskType, '待分析');
-    const confidence = formatAgentConfidence(diagnosis.confidence ?? response.confidence);
     return {
       kind: 'DIAGNOSIS',
       title: '诊断结论卡',
-      summary: `主因 ${cause}${confidence ? `，置信度 ${confidence}` : ''}`,
+      summary: `主因 ${cause}`,
       plotId,
       plotName,
       traceId,
@@ -826,6 +841,49 @@ export function normalizeAgentDecisionCard(response = {}, plot = null) {
   return null;
 }
 
+const AGENT_NAVIGATION_VIEWS = Object.freeze({
+  FARMER: new Set(['dashboard', 'plots', 'tasks', 'tools', 'advice', 'inspections', 'assistant', 'settings']),
+  FARM_ADMIN: new Set(['dashboard', 'plot-detail', 'decision-console', 'work-orders', 'resource-coordination', 'farm-members', 'rules-strategies', 'ai-assistant', 'settings']),
+  SYSTEM_ADMIN: new Set(['plot-detail', 'admin-overview', 'admin-ops', 'admin-resources', 'admin-audit', 'admin-simulator', 'admin-rules', 'admin-settings', 'admin-agent', 'settings'])
+});
+const AGENT_NAVIGATION_PARAM_KEYS = new Set(['farmId', 'plotId', 'deviceId', 'taskId', 'workOrderId', 'alertId', 'caseId', 'candidateId', 'tab', 'section', 'scope', 'metric', 'conversationId']);
+
+/**
+ * Normalize server navigation cards through a small client-side route
+ * registry.  A model can describe a destination, but it cannot provide a
+ * free URL or arbitrary query parameters.
+ */
+export function normalizeAgentNavigationCards(response = {}, options = {}) {
+  const role = String(options.role || response.role || response.agentRole || '').trim().toUpperCase();
+  const allowedViews = AGENT_NAVIGATION_VIEWS[role] || AGENT_NAVIGATION_VIEWS.FARMER;
+  return asArray(response.navigationCards)
+    .filter(card => card && String(card.type || 'NAVIGATION_CARD').toUpperCase() === 'NAVIGATION_CARD')
+    .map((card, index) => {
+      const targetRole = String(card.targetRole || role).trim().toUpperCase();
+      const route = card.route && typeof card.route === 'object' ? card.route : {};
+      const view = String(route.view || '').trim();
+      if (!view || !allowedViews.has(view) || (targetRole && targetRole !== role)) return null;
+      const paramsSource = route.params && typeof route.params === 'object' ? route.params : route;
+      const params = {};
+      AGENT_NAVIGATION_PARAM_KEYS.forEach(key => {
+        const value = paramsSource[key];
+        if (value !== undefined && value !== null && String(value).trim() !== '') params[key] = String(value).trim();
+      });
+      return {
+        id: String(card.id || `${view}-${index}`),
+        type: 'NAVIGATION_CARD',
+        title: text(card.title, '查看详情'),
+        description: text(card.description, '打开相关农业工作台'),
+        label: text(card.label, '前往查看'),
+        targetRole: targetRole || role,
+        route: { view, params }
+      };
+    })
+    .filter(Boolean)
+    .filter((card, index, list) => list.findIndex(item => item.route.view === card.route.view && JSON.stringify(item.route.params) === JSON.stringify(card.route.params)) === index)
+    .slice(0, 4);
+}
+
 /** Normalize a full farmer QA turn for rendering evidence, traceId and decision cards. */
 export function normalizeAgentTurn(response = {}, question = '', options = {}) {
   const plot = options.plot || null;
@@ -847,11 +905,11 @@ export function normalizeAgentTurn(response = {}, question = '', options = {}) {
     roleLabel: text(response.roleLabel || response.roleProfile?.label || agentRoleLabel(roleCode), ''),
     scopeLabel: text(response.roleProfile?.scopeLabel || options.scopeLabel, ''),
     roleProfile: response.roleProfile && typeof response.roleProfile === 'object' ? response.roleProfile : null,
-    confidence: formatAgentConfidence(response.confidence),
     degraded: Boolean(response.degraded),
     evidence: normalizeAgentEvidence(response),
     facts: normalizeAgentFacts(response),
     recommendations: normalizeAgentRecommendations(response),
+    navigationCards: normalizeAgentNavigationCards(response, { role: roleCode }),
     decisionCard: normalizeAgentDecisionCard(response, plot),
     actionProposal: response?.actionProposal ? { ...response.actionProposal } : null,
     plotId: text(plot?.plotId || response.plotId, ''),
