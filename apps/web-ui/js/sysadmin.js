@@ -2442,7 +2442,12 @@ const app = createApp({
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
-        const devices = fulfilled('devices') ? (results.devices.value || []) : (cardDevices.length ? cardDevices : (state.value.devices || []));
+        // 全量 devices job 未完成时保持上一次全量（统计不回落 cardDevices，
+        // 避免总览设备在线数闪过 overview 卡片的中间设备子集如 24/24）
+        const devicesFulfilled = fulfilled('devices');
+        const devices = devicesFulfilled ? (results.devices.value || []) : (state.value.devices || []);
+        // 设备页列表可用卡片设备即时占位，但统计口径始终用全量 devices
+        const listDevices = devices.length ? devices : cardDevices;
         state.value.farms = fulfilled('farms') ? farms : state.value.farms;
         state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
@@ -2451,7 +2456,7 @@ const app = createApp({
         state.value.alerts = fulfilled('alerts') ? alerts : state.value.alerts;
         state.value.devices = devices;
         state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
-        state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
+        state.value.adminDevices = listDevices.map((device) => mapAdminDevice(device, plotMap));
         state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
         state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
         state.value.resourcePlans = fulfilled('resourcePlans') ? (results.resourcePlans.value || []) : state.value.resourcePlans;

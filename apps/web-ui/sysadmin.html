@@ -235,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260903-agent-main-merge-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260903-device-count-fix"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -253,7 +253,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'devices'})">
           <div class="admin-metric-icon" :class="state.adminOverview.devices.offline > 0 ? 'orange' : 'green'"><app-icon name="sensors"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">设备在线</div><div class="admin-metric-value">{{ state.adminOverview.devices.online }} / {{ state.adminOverview.devices.total }}</div><div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">设备在线</div><div class="admin-metric-value">{{ state.adminOverview.devices.total > 0 ? state.adminOverview.devices.online + ' / ' + state.adminOverview.devices.total : '—' }}</div><div class="admin-metric-sub">{{ state.adminOverview.devices.total > 0 ? '离线 ' + state.adminOverview.devices.offline : '统计加载中' }}</div></div>
         </div>
         <div class="admin-metric-card">
           <div class="admin-metric-icon green"><app-icon name="schedule"></app-icon></div>
