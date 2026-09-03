@@ -476,5 +476,5 @@ test('role shells constrain overflow and desktop farmer collapse releases the si
   assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
   assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
   assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
-  assert.match(farmerHtml, /css\/farmer\.css\?v=20260902-message-read-v3/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260903-v5920-farmer-plot-drag-v1/);
 });

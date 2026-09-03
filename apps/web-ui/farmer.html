@@ -9,7 +9,7 @@
   <link rel="stylesheet" href="vendor/phosphor/style.css">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" />
   <link rel="stylesheet" href="css/style.css?v=20260902-shell-fixes-v1">
-  <link rel="stylesheet" href="css/farmer.css?v=20260902-message-read-v3">
+  <link rel="stylesheet" href="css/farmer.css?v=20260903-v5920-farmer-plot-drag-v1">
   <link rel="stylesheet" href="css/account-profile.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-ai-chat.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
@@ -406,7 +406,7 @@
             <div class="farmer-page-header">
               <div>
                 <h2>我的地块</h2>
-                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化；长按地块可调整排列顺序。</p>
+                <p class="role-summary">查看负责地块的土壤湿度、温度、设备状态和历史变化；拖动右上角排序按钮可调整顺序，移动端也可长按卡片。</p>
               </div>
               <button type="button" class="g-btn primary farmer-btn-analyze" @click="navigate('tasks')">
                 <app-icon name="event_available"></app-icon>
@@ -414,9 +414,9 @@
               </button>
             </div>
 
-            <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块，可长按拖动排序">
-              <button
-                type="button"
+            <p v-if="plots.length" id="farmer-plot-order-help" class="sr-only">拖动每张地块卡片右上角的排序按钮，或长按卡片，可以调整顺序；聚焦排序按钮后也可使用方向键、Home 和 End 键移动。</p>
+            <div class="farmer-plot-grid farmer-plot-grid-page" :class="{'is-reordering': plot_drag_state.active}" aria-label="我的地块" aria-describedby="farmer-plot-order-help">
+              <article
                 v-for="(plot, plot_index) in plots"
                 :key="plot.plotId"
                 :data-farmer-plot-id="plot.plotId"
@@ -428,9 +428,14 @@
                   'is-dragging': plot_drag_state.active && plot_drag_state.dragPlotId === plot.plotId,
                   'is-drop-target': plot_drag_state.active && plot_drag_state.dropTargetId === plot.plotId
                 }"
+                role="button"
+                tabindex="0"
+                :aria-label="`查看${plot.name}地块详情`"
                 @click="handle_plot_card_click(plot)"
                 @pointerdown="handle_plot_pointer_down($event, plot, plot_index)"
                 @keydown.esc="cancel_plot_drag"
+                @keydown.enter.prevent="open_plot(plot)"
+                @keydown.space.prevent="open_plot(plot)"
               >
                 <div class="farmer-plot-overview-head">
                   <div class="farmer-plot-overview-head-left">
@@ -451,7 +456,17 @@
                         risk: plot_band_status(plot) === 'ALERT'
                       }"
                     >{{ plot_band_label(plot) }}</span>
-                    <span class="farmer-plot-drag-hint" title="长按拖动排序"><span aria-hidden="true">⠿</span><small>长按排序</small></span>
+                    <button
+                      type="button"
+                      class="farmer-plot-drag-handle"
+                      :aria-label="`调整${plot.name}的显示顺序`"
+                      title="拖动调整顺序；也可使用方向键移动"
+                      :disabled="plot_order_busy || !plot_order_loaded"
+                      @click.stop.prevent
+                      @pointerdown.stop="start_plot_handle_drag($event, plot, plot_index)"
+                      @keydown.stop="handle_plot_order_keydown($event, plot)"
+                      @keydown.esc.stop="cancel_plot_drag"
+                    ><app-icon name="drag_indicator"></app-icon></button>
                   </div>
                 </div>
                 <dl class="farmer-plot-overview-metrics">
@@ -460,7 +475,7 @@
                     <dd :class="'metric-' + metric_status_of(plot, metric.code, metric)">{{ metric_value(metric) }}<small>{{ metric.unit }}</small></dd>
                   </div>
                 </dl>
-              </button>
+              </article>
             </div>
 
             <div v-if="selected_plot && batch_timeline.length" class="g-card farmer-batch-panel">
@@ -1919,6 +1934,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260902-performance-message-read-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5920-farmer-plot-drag-v1"></script>
 </body>
 </html>
