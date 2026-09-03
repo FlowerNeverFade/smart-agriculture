@@ -538,6 +538,8 @@ class AdminManagementService {
         Map<String, Object> member = new LinkedHashMap<>();
         member.put("userId", Jsons.id("user"));
         member.put("username", username);
+        String displayName = Jsons.text(input, "displayName", username).trim();
+        member.put("displayName", displayName.isBlank() ? username : displayName);
         member.put("passwordHash", passwordEncoder.encode(password));
         member.put("role", role);
         member.put("farmIds", List.of(farmId));

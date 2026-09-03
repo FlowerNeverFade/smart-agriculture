@@ -1682,7 +1682,17 @@ class AgriEngine {
             "assign_work_order", "transition_work_order", "review_work_order", "transition_assigned_work_order",
             "create_inspection_record", "create_evidence_request",
             "execute_virtual_irrigation", "update_simulation_settings", "review_learning_case",
-            "transition_strategy_candidate");
+            "transition_strategy_candidate", "create_farm_member", "update_farm_member_scope",
+            "update_farm_member_status", "delete_farm_member", "create_user_account",
+            "update_user_account_status", "delete_user_account");
+    private static final Set<String> AGENT_ACTION_TERMINAL_STATUSES = Set.of(
+            "SUCCEEDED", "FAILED", "PARTIAL", "TIMEOUT", "CANCELED", "EXPIRED");
+    private static final Set<String> AGENT_CREDENTIAL_FIELDS = Set.of(
+            "password", "passwordhash", "recoverycode", "recoverycodehash", "authorizationcode",
+            "initialpassword", "generatedpassword", "onetimecredential");
+    private static final Set<String> AGENT_SENSITIVE_FIELDS = Set.of(
+            "password", "passwordHash", "recoveryCodeHash", "authorizationCode",
+            "confirmationIdempotencyKey", "idempotencyKey");
     private static final Set<String> INSPECTION_PHOTO_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
     private static final int INSPECTION_PHOTO_MAX_COUNT = 6;
     private static final int INSPECTION_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
@@ -5608,6 +5618,9 @@ class AgriEngine {
             events.publish("command.ack", ack); store.logEvent("command.ack", ack);
             Map<String, Object> evaluation = evaluateCommand(command, ack);
             completeAgentActionFromCommand(command, ack, evaluation);
+        }).exceptionally(error -> {
+            completeAgentActionFromCommandFailure(command, error);
+            return null;
         });
     }
 
@@ -5708,11 +5721,44 @@ class AgriEngine {
         action.put("status", next);
         action.put("result", Map.of("commandId", command.get("commandId"), "ack", ack, "evaluation", evaluation == null ? Map.of() : evaluation));
         action.put("completedAt", Instant.now().toString());
+        clearAgentActionSecrets(action);
         store.save("agent-action", actionId, action);
         String key = Jsons.text(action, "idempotencyKey", "").trim();
-        if (!key.isBlank()) store.save("agent-action-idempotency", key, action);
-        events.publish("agent.action.completed", action);
-        store.logEvent("agent.action.completed", action);
+        saveCompletedAgentActionIdempotency(actionId, action, key);
+        Map<String, Object> publicAction = publicAgentAction(action);
+        events.publish("agent.action.completed", publicAction);
+        store.logEvent("agent.action.completed", publicAction);
+    }
+
+    private void completeAgentActionFromCommandFailure(Map<String, Object> command, Throwable error) {
+        String actionId = Jsons.text(command, "agentActionId", "").trim();
+        if (actionId.isBlank()) return;
+        Map<String, Object> action = store.find("agent-action", actionId);
+        if (action == null || !"EXECUTING".equals(Jsons.text(action, "status", ""))) return;
+        Throwable cause = error == null ? null : (error.getCause() == null ? error : error.getCause());
+        String message = cause == null || cause.getMessage() == null || cause.getMessage().isBlank()
+                ? "执行链路未能完成" : cause.getMessage();
+        action.put("status", "FAILED");
+        action.put("error", message);
+        action.put("result", Map.of("commandId", Jsons.text(command, "commandId", ""), "message", message));
+        action.put("completedAt", Instant.now().toString());
+        clearAgentActionSecrets(action);
+        store.save("agent-action", actionId, action);
+        saveCompletedAgentActionIdempotency(actionId, action, Jsons.text(action, "idempotencyKey", "").trim());
+        Map<String, Object> publicAction = publicAgentAction(action);
+        events.publish("agent.action.failed", publicAction);
+        store.logEvent("agent.action.failed", publicAction);
+    }
+
+    private void saveCompletedAgentActionIdempotency(String actionId, Map<String, Object> action, String key) {
+        if (key == null || key.isBlank()) return;
+        Map<String, Object> safeAction = Jsons.copy(mapper, action == null ? Map.of() : action);
+        clearAgentActionSecrets(safeAction);
+        String owner = Jsons.text(action, "userId", "").trim();
+        if (!owner.isBlank()) store.save("agent-action-idempotency", owner + ":" + actionId + ":" + key, safeAction);
+        // Keep the legacy key updated for old clients. Confirmation reads it
+        // only when both owner and action id match, so it cannot cross scopes.
+        store.save("agent-action-idempotency", key, safeAction);
     }
 
     Map<String, Object> evaluateCommand(Map<String, Object> command, Map<String, Object> ack) {
@@ -8459,10 +8505,12 @@ class AgriEngine {
         Map<String, Object> action = store.find("agent-action", actionId);
         if (action == null) return;
         String actionPlotId = Jsons.text(action, "plotId", "").trim();
+        AgentToolRegistry.Definition definition = AgentToolRegistry.definition(Jsons.text(action, "toolName", ""));
+        boolean plotScoped = definition != null && "PLOT".equals(definition.targetScope());
         if (!plotId.isBlank() && !actionPlotId.isBlank() && !plotId.equals(actionPlotId)) {
             throw new ApiException(HttpStatus.CONFLICT, "AGENT_SCOPE_MISMATCH", "操作预览的地块与当前对话不一致");
         }
-        if (actionPlotId.isBlank()) actionPlotId = plotId == null ? "" : plotId.trim();
+        if (actionPlotId.isBlank() && plotScoped) actionPlotId = plotId == null ? "" : plotId.trim();
         String farmId = Jsons.text(action, "farmId", actionPlotId.isBlank() ? "" : farmIdForPlot(actionPlotId));
         if (farmId.isBlank() && !actionPlotId.isBlank()) farmId = farmIdForPlot(actionPlotId);
         action.put("accountId", principal.userId);
@@ -8494,10 +8542,71 @@ class AgriEngine {
         if (!principal.isFarmAdmin()) return null;
         String text = message.trim();
         String lower = text.toLowerCase(Locale.ROOT);
-        boolean asksWrite = lower.matches(".*(新增|新建|创建|修改|更新|编辑|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加|分配|重新分配|取消|撤销|验收|审核|通过任务|退回任务).*");
+        boolean asksWrite = lower.matches(".*(新增|新建|创建|修改|更新|编辑|绑定|换绑|解绑|下发|发布|关闭|安排|派发|添加|分配|重新分配|取消|撤销|验收|审核|通过任务|退回任务|启用|停用|禁用|恢复|删除|移除).*");
         if (!asksWrite) return null;
 
         String resolvedPlotId = resolveAgentPlot(text, plotId, principal);
+        if (containsAny(text, "新增农户", "新建农户", "创建农户", "添加农户", "新增种植农户", "新建种植农户",
+                "创建种植农户", "添加种植农户", "新增农场成员", "新建农场成员", "创建农场成员", "添加农场成员",
+                "新增成员账号", "新建成员账号", "创建成员账号", "添加成员账号", "新增农户账号", "创建农户账号")) {
+            String farmId = firstAccessibleFarmId(principal);
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("farmId", farmId);
+            String username = match(text, "(?:账号|用户名|登录名)\\s*[：:=]\\s*([A-Za-z0-9._-]{4,32})");
+            String displayName = match(text, "(?:姓名|显示名|农户名称|称呼)\\s*[：:=]\\s*([^，。；;\\n]+)");
+            String password = match(text, "(?:初始密码|密码)\\s*[：:=]\\s*([^，。；;\\s]{8,64})");
+            boolean generate = containsAny(text, "随机生成", "自动生成", "你来生成", "帮我生成", "随便生成");
+            if (username.isBlank() && generate) username = generateAgentUsername("grower");
+            if (password.isBlank() && generate) {
+                password = generateAgentPassword();
+                args.put("generatedCredential", true);
+            }
+            if (!username.isBlank()) args.put("username", username);
+            if (!password.isBlank()) args.put("password", password);
+            if (!displayName.isBlank()) args.put("displayName", displayName.trim());
+            List<String> memberPlots = resolveAgentPlotIds(text, farmId, principal);
+            if (!memberPlots.isEmpty()) args.put("plotIds", memberPlots);
+            List<String> missing = new ArrayList<>();
+            if (username.isBlank()) missing.add("登录账号（4～32 位字母、数字、点、下划线或短横线）");
+            if (password.isBlank()) missing.add("初始密码（8～64 位，包含字母和数字）");
+            if (!missing.isEmpty()) {
+                return clarification("创建种植农户还缺少：" + String.join("、", missing)
+                        + "。可以直接补充，也可以回复“随机生成账号和密码”。联系方式和只读级别不是当前成员账号字段，不会伪造保存。");
+            }
+            return createAgentActionProposal("create_farm_member", args,
+                    "在当前农场创建种植农户 " + username, traceId, principal, "", List.of("farmMembers", "accounts"));
+        }
+        if (containsAny(text, "农户", "农场成员", "成员账号") && containsAny(text, "启用", "恢复", "停用", "禁用")) {
+            String userId = resolveAgentUser(text);
+            if (userId.isBlank()) return clarification("请指定要启用或停用的农户编号、用户名或显示名称。");
+            boolean enabled = containsAny(text, "启用", "恢复");
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("userId", userId); args.put("farmId", firstAccessibleFarmId(principal)); args.put("enabled", enabled);
+            return createAgentActionProposal("update_farm_member_status", args,
+                    (enabled ? "启用农户 " : "停用农户 ") + assigneeDisplayName(userId), traceId, principal, "", List.of("farmMembers", "accounts"));
+        }
+        if (containsAny(text, "农场成员", "成员账号", "农户账号") && containsAny(text, "删除", "移除")) {
+            String userId = resolveAgentUser(text);
+            if (userId.isBlank()) return clarification("请指定要从当前农场移除的农户编号、用户名或显示名称。");
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("userId", userId); args.put("farmId", firstAccessibleFarmId(principal));
+            return createAgentActionProposal("delete_farm_member", args,
+                    "从当前农场移除农户 " + assigneeDisplayName(userId), traceId, principal, "", List.of("farmMembers", "accounts"));
+        }
+        if (containsAny(text, "农场成员", "成员账号", "农户账号", "农户权限")
+                && containsAny(text, "负责地块", "地块权限", "授权地块")
+                && containsAny(text, "修改", "更新", "调整", "设置", "分配", "清空")) {
+            String userId = resolveAgentUser(text);
+            if (userId.isBlank()) return clarification("请指定要调整权限的农户编号、用户名或显示名称。");
+            String farmId = firstAccessibleFarmId(principal);
+            List<String> memberPlots = resolveAgentPlotIds(text, farmId, principal);
+            if (memberPlots.isEmpty() && !containsAny(text, "清空", "取消全部", "不负责地块")) {
+                return clarification("请指定新的负责地块名称或编号；若要清空当前农场的地块权限，请明确说“清空负责地块”。");
+            }
+            Map<String, Object> args = new LinkedHashMap<>(); args.put("userId", userId); args.put("farmId", farmId); args.put("plotIds", memberPlots);
+            return createAgentActionProposal("update_farm_member_scope", args,
+                    "调整 " + assigneeDisplayName(userId) + " 的负责地块", traceId, principal, "", List.of("farmMembers", "accounts"));
+        }
         String scenario = scenarioFromAgentText(text);
         if (!scenario.isBlank() && containsAny(text, "模拟", "场景", "策略", "异常注入", "simulation", "scenario")) {
             if (resolvedPlotId.isBlank()) return clarification("请指定要调整模拟场景的地块名称或编号。");
@@ -8513,6 +8622,21 @@ class AgriEngine {
             String variety = match(text, "(?:品种|品名)\\s*[：:]?\\s*([^，。；;]+)");
             Double area = decimalMatch(text, "(\\d+(?:\\.\\d+)?)\\s*(?:㎡|平方米|平米|m2)");
             Long cycle = longMatch(text, "(\\d+)\\s*天");
+            boolean generate = containsAny(text, "随机生成", "自动生成", "你来生成", "帮我生成", "随便生成");
+            if (generate) {
+                int ordinal = store.list("plot").size() + 1;
+                if (name.isBlank() || containsAny(name, "随机", "自动", "随便")) name = "智能示范地块" + ordinal;
+                if (cropCode.isBlank()) cropCode = List.of("tomato", "cucumber", "pepper", "strawberry").get(ordinal % 4);
+                if (variety.isBlank()) variety = switch (cropCode) {
+                    case "cucumber" -> "水果黄瓜";
+                    case "pepper" -> "彩椒";
+                    case "strawberry" -> "红颜草莓";
+                    default -> "千禧番茄";
+                };
+                if (area == null) area = 100.0;
+                if (cycle == null) cycle = switch (cropCode) { case "cucumber" -> 95L; case "pepper" -> 130L; case "strawberry" -> 150L; default -> 120L; };
+                args.put("facilityType", "GREENHOUSE");
+            }
             if (!name.isBlank()) args.put("name", name.trim());
             if (!cropCode.isBlank()) args.put("cropCode", cropCode);
             if (!variety.isBlank()) args.put("cropVariety", variety.trim());
@@ -8526,7 +8650,7 @@ class AgriEngine {
             if (variety.isBlank()) missing.add("作物品种");
             if (area == null) missing.add("面积（㎡）");
             if (cycle == null) missing.add("生长周期（天）");
-            return missingProposalOrAction(missing, "create_plot", args, "新增地块", traceId, principal, resolvedPlotId);
+            return missingProposalOrAction(missing, "create_plot", args, "新增地块 " + name, traceId, principal, "");
         }
         if (containsAny(text, "绑定", "换绑", "解绑") && containsAny(text, "设备", "传感器", "控制器")) {
             if (resolvedPlotId.isBlank()) return clarification("请指定要绑定设备的地块名称或编号，例如“把设备 sensor-01 绑定到 plot-a01”。");
@@ -8616,6 +8740,60 @@ class AgriEngine {
     private Map<String, Object> planSystemAdminAgentAction(String message, String plotId, UserPrincipal principal, String traceId) {
         String text = message == null ? "" : message.trim();
         String lower = text.toLowerCase(Locale.ROOT);
+        if (containsAny(text, "账号", "用户", "农户", "农场管理员", "系统管理员")
+                && containsAny(text, "新增", "新建", "创建", "添加")) {
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("scope", "PLATFORM");
+            String role = containsAny(text, "系统管理员") ? "SYSTEM_ADMIN"
+                    : containsAny(text, "农场管理员") ? "FARM_ADMIN" : "FARMER";
+            String username = match(text, "(?:账号|用户名|登录名)\\s*[：:=]\\s*([A-Za-z0-9._-]{4,32})");
+            String password = match(text, "(?:初始密码|密码)\\s*[：:=]\\s*([^，。；;\\s]{8,64})");
+            boolean generate = containsAny(text, "随机生成", "自动生成", "你来生成", "帮我生成", "随便生成");
+            if (username.isBlank() && generate) username = generateAgentUsername("FARM_ADMIN".equals(role) ? "manager" : "SYSTEM_ADMIN".equals(role) ? "sysadmin" : "grower");
+            if (password.isBlank() && generate) {
+                password = generateAgentPassword();
+                args.put("generatedCredential", true);
+            }
+            args.put("role", role);
+            if (!username.isBlank()) args.put("username", username);
+            if (!password.isBlank()) args.put("password", password);
+            String farmId = resolveAgentFarm(text, principal);
+            if (farmId.isBlank() && !"SYSTEM_ADMIN".equals(role) && store.list("farm").size() == 1) farmId = firstAccessibleFarmId(principal);
+            if (!farmId.isBlank()) {
+                args.put("farmId", farmId);
+                List<String> memberPlots = resolveAgentPlotIds(text, farmId, principal);
+                if (!memberPlots.isEmpty()) args.put("plotIds", memberPlots);
+            }
+            String authorizationCode = match(text, "(?:授权码|authorizationCode)\\s*[：:=]\\s*([^，。；;\\s]+)");
+            if (!authorizationCode.isBlank()) args.put("authorizationCode", authorizationCode);
+            List<String> missing = new ArrayList<>();
+            if (username.isBlank()) missing.add("登录账号");
+            if (password.isBlank()) missing.add("初始密码");
+            if (!"SYSTEM_ADMIN".equals(role) && farmId.isBlank()) missing.add("所属农场");
+            if ("SYSTEM_ADMIN".equals(role) && authorizationCode.isBlank()) missing.add("系统管理员授权码");
+            if (!missing.isEmpty()) {
+                return clarification("创建" + RolePolicy.label(role) + "账号还缺少：" + String.join("、", missing)
+                        + "。账号和密码可回复“随机生成”，但所属农场和系统管理员授权码不会猜测。");
+            }
+            return createAgentActionProposal("create_user_account", args,
+                    "创建" + RolePolicy.label(role) + "账号 " + username, traceId, principal, "", List.of("accounts", "audit"));
+        }
+        if (containsAny(text, "账号", "用户") && containsAny(text, "启用", "恢复", "停用", "禁用")) {
+            String userId = resolveAgentUser(text);
+            if (userId.isBlank()) return clarification("请指定要启用或停用的账号编号、用户名或显示名称。");
+            boolean enabled = containsAny(text, "启用", "恢复");
+            Map<String, Object> args = new LinkedHashMap<>();
+            args.put("scope", "PLATFORM"); args.put("userId", userId); args.put("enabled", enabled);
+            return createAgentActionProposal("update_user_account_status", args,
+                    (enabled ? "启用账号 " : "停用账号 ") + userId, traceId, principal, "", List.of("accounts", "audit"));
+        }
+        if (containsAny(text, "账号", "用户") && containsAny(text, "删除", "移除")) {
+            String userId = resolveAgentUser(text);
+            if (userId.isBlank()) return clarification("请指定要删除的账号编号、用户名或显示名称。删除操作会先生成高风险预览。");
+            Map<String, Object> args = new LinkedHashMap<>(); args.put("scope", "PLATFORM"); args.put("userId", userId);
+            return createAgentActionProposal("delete_user_account", args,
+                    "删除账号 " + userId, traceId, principal, "", List.of("accounts", "audit"));
+        }
         String scenario = scenarioFromAgentText(text);
         if (!scenario.isBlank() && containsAny(text, "模拟", "场景", "策略", "异常注入", "simulation", "scenario")) {
             String resolvedPlotId = resolveAgentPlot(text, plotId, principal);
@@ -8727,8 +8905,10 @@ class AgriEngine {
         action.put("argumentSummary", agentActionArgumentSummary(tool, safeArguments, actionPlotId));
         action.put("affectedDomains", domains); action.put("status", "AWAITING_CONFIRMATION"); action.put("createdAt", now.toString());
         action.put("expiresAt", now.plus(AGENT_ACTION_TTL).toString()); action.put("traceId", traceId);
-        store.save("agent-action", actionId, action); events.publish("agent.action.proposed", action); store.logEvent("agent.action.proposed", action);
-        Map<String, Object> publicView = new LinkedHashMap<>(action); publicView.remove("userId"); publicView.put("requiresConfirmation", true); return publicView;
+        store.save("agent-action", actionId, action);
+        Map<String, Object> publicView = publicAgentAction(action);
+        events.publish("agent.action.proposed", publicView); store.logEvent("agent.action.proposed", publicView);
+        publicView.put("requiresConfirmation", true); return publicView;
     }
 
     private String agentActionArgumentSummary(String tool, Map<String, Object> args, String plotId) {
@@ -8807,6 +8987,41 @@ class AgriEngine {
                 .map(u -> Jsons.text(u, "userId", "")).findFirst().orElse("");
     }
 
+    private String resolveAgentFarm(String text, UserPrincipal principal) {
+        Matcher id = Pattern.compile("farm[-_][A-Za-z0-9-]+", Pattern.CASE_INSENSITIVE).matcher(text == null ? "" : text);
+        if (id.find()) {
+            String farmId = id.group();
+            return store.find("farm", farmId) != null && principal.canAccessFarm(farmId) ? farmId : "";
+        }
+        String normalized = String.valueOf(text == null ? "" : text).toLowerCase(Locale.ROOT);
+        List<String> matches = store.list("farm").stream()
+                .filter(farm -> principal.canAccessFarm(Jsons.text(farm, "farmId", "")))
+                .filter(farm -> {
+                    String name = Jsons.text(farm, "name", "").trim().toLowerCase(Locale.ROOT);
+                    return !name.isBlank() && normalized.contains(name);
+                })
+                .map(farm -> Jsons.text(farm, "farmId", ""))
+                .filter(value -> !value.isBlank()).distinct().toList();
+        return matches.size() == 1 ? matches.get(0) : "";
+    }
+
+    private String resolveAgentUser(String text) {
+        String value = text == null ? "" : text;
+        Matcher id = Pattern.compile("user[-_][A-Za-z0-9_-]+", Pattern.CASE_INSENSITIVE).matcher(value);
+        if (id.find() && store.userById(id.group()) != null) return id.group();
+        String normalized = value.toLowerCase(Locale.ROOT);
+        List<String> matches = store.listUsers().stream()
+                .filter(user -> {
+                    String username = Jsons.text(user, "username", "").trim().toLowerCase(Locale.ROOT);
+                    String displayName = Jsons.text(user, "displayName", "").trim().toLowerCase(Locale.ROOT);
+                    return (!username.isBlank() && normalized.contains(username))
+                            || (!displayName.isBlank() && normalized.contains(displayName));
+                })
+                .map(user -> Jsons.text(user, "userId", ""))
+                .filter(userId -> !userId.isBlank()).distinct().toList();
+        return matches.size() == 1 ? matches.get(0) : "";
+    }
+
     private String assigneeDisplayName(String userId) {
         Map<String, Object> user = store.userById(userId);
         return user == null ? (userId == null || userId.isBlank() ? "指定农户" : userId)
@@ -8848,6 +9063,71 @@ class AgriEngine {
 
     private String cropCodeFrom(String text) { if (containsAny(text, "番茄", "西红柿", "tomato")) return "tomato"; if (containsAny(text, "黄瓜", "cucumber")) return "cucumber"; if (containsAny(text, "辣椒", "pepper")) return "pepper"; if (containsAny(text, "草莓", "strawberry")) return "strawberry"; return ""; }
     private String stageFrom(String text) { if (containsAny(text, "苗期", "育苗")) return "seedling"; if (containsAny(text, "开花")) return "flowering"; if (containsAny(text, "结果")) return "fruiting"; return "vegetative"; }
+    private String generateAgentUsername(String prefix) {
+        String base = (prefix == null || prefix.isBlank() ? "user" : prefix).toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        for (int attempt = 0; attempt < 20; attempt++) {
+            String suffix = String.valueOf(Math.abs(new SecureRandom().nextInt(900000)) + 100000);
+            String candidate = (base + suffix).substring(0, Math.min(32, base.length() + suffix.length()));
+            if (store.userByUsername(candidate) == null) return candidate;
+        }
+        return "grower" + Instant.now().toEpochMilli() % 10_000_000L;
+    }
+    private String generateAgentPassword() {
+        SecureRandom random = new SecureRandom();
+        String alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+        StringBuilder value = new StringBuilder("Agri#");
+        for (int i = 0; i < 11; i++) value.append(alphabet.charAt(random.nextInt(alphabet.length())));
+        value.append(random.nextInt(10));
+        return value.toString();
+    }
+    private List<String> resolveAgentPlotIds(String text, String farmId, UserPrincipal principal) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        Matcher ids = Pattern.compile("plot[-_][A-Za-z0-9-]+", Pattern.CASE_INSENSITIVE).matcher(text == null ? "" : text);
+        while (ids.find()) {
+            String id = ids.group();
+            Map<String, Object> plot = store.find("plot", id);
+            if (plot != null && farmId.equals(Jsons.text(plot, "farmId", "")) && canAccessPlot(principal, id)) result.add(id);
+        }
+        String normalized = String.valueOf(text == null ? "" : text).toLowerCase(Locale.ROOT);
+        store.list("plot").stream()
+                .filter(plot -> farmId.equals(Jsons.text(plot, "farmId", "")))
+                .filter(plot -> canAccessPlot(principal, Jsons.text(plot, "plotId", "")))
+                .filter(plot -> {
+                    String name = Jsons.text(plot, "name", "").trim().toLowerCase(Locale.ROOT);
+                    return !name.isBlank() && normalized.contains(name);
+                })
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank()).forEach(result::add);
+        return new ArrayList<>(result);
+    }
+    private String agentMutationMessageWithHistory(String message, List<Map<String, Object>> history) {
+        String current = message == null ? "" : message.trim();
+        if (current.isBlank() || history == null || history.isEmpty()) return current;
+        boolean supplement = containsAny(current, "随机生成", "自动生成", "你来生成", "帮我生成", "随便生成",
+                "账号", "用户名", "密码", "姓名", "显示名", "联系方式", "负责地块", "作物", "品种", "面积", "周期", "设施类型");
+        if (!supplement || containsAny(current, "新增", "新建", "创建", "添加")) return current;
+        int anchor = -1;
+        for (int i = history.size() - 1; i >= 0; i--) {
+            Map<String, Object> item = history.get(i);
+            if (!"USER".equalsIgnoreCase(Jsons.text(item, "role", ""))) continue;
+            String content = Jsons.text(item, "content", "");
+            if (containsAny(content, "新增", "新建", "创建", "添加")
+                    && containsAny(content, "地块", "农户", "农场成员", "账号", "用户")) {
+                anchor = i;
+                break;
+            }
+        }
+        if (anchor < 0) return current;
+        StringBuilder combined = new StringBuilder();
+        for (int i = anchor; i < history.size(); i++) {
+            Map<String, Object> item = history.get(i);
+            if (!"USER".equalsIgnoreCase(Jsons.text(item, "role", ""))) continue;
+            String content = Jsons.text(item, "content", "").trim();
+            if (!content.isBlank()) combined.append(content).append("；");
+        }
+        combined.append(current);
+        return combined.length() > 3000 ? combined.substring(combined.length() - 3000) : combined.toString();
+    }
     private boolean containsAny(String text, String... values) { for (String value : values) if (text.toLowerCase(Locale.ROOT).contains(value.toLowerCase(Locale.ROOT))) return true; return false; }
     private String quotedOrAfter(String text, String... markers) { Matcher q = Pattern.compile("[“\\\"]([^”\\\"]+)[”\\\"]").matcher(text); if (q.find()) return q.group(1).trim(); for (String marker : markers) { int i = text.indexOf(marker); if (i >= 0) { String tail = text.substring(i + marker.length()).replaceFirst("^[：:]", "").trim(); if (!tail.isBlank()) return tail.split("[，。；;]")[0].trim(); } } return ""; }
     private String match(String text, String regex) { Matcher m = Pattern.compile(regex, Pattern.CASE_INSENSITIVE).matcher(text); return m.find() ? m.group(1).trim() : ""; }
@@ -8866,13 +9146,54 @@ class AgriEngine {
         if (!plotId.isBlank()) ensurePlotAccess(principal, plotId);
         String actorRole = Jsons.text(action, "actorRole", principal.role);
         if (!principal.role.equals(actorRole)) throw new ApiException(HttpStatus.FORBIDDEN, "AGENT_ACTION_ROLE_CHANGED", "当前角色与操作预览不一致，请重新生成操作");
-        AgentToolRegistry.validate(tool, Jsons.map(mapper, action.get("arguments")), principal);
-        validateAgentScope(tool, Jsons.map(mapper, action.get("arguments")), principal);
+        Map<String, Object> arguments = Jsons.map(mapper, action.get("arguments"));
+        String status = Jsons.text(action, "status", "").trim().toUpperCase(Locale.ROOT);
+        // Terminal records have their one-time credentials removed after the
+        // first execution.  Re-running the creation schema against that
+        // redacted history would make an otherwise authorized status lookup
+        // fail with a missing-password error.  Scope/ownership checks still
+        // run for every state; only the mutation-input schema is skipped once
+        // the action can no longer execute.
+        if (!AGENT_ACTION_TERMINAL_STATUSES.contains(status)) {
+            AgentToolRegistry.validate(tool, arguments, principal);
+        }
+        validateAgentScope(tool, arguments, principal);
+    }
+
+    private boolean isAgentConfirmation(String message) {
+        if (message == null) return false;
+        String normalized = message.trim().replaceAll("[\\s，,。.!！]+", "");
+        return Set.of("确认", "确认执行", "确认创建", "执行", "同意", "同意执行", "好的确认", "可以执行").contains(normalized)
+                || normalized.matches("(?:确认|确认执行|执行)agent-action-[A-Za-z0-9_-]+");
+    }
+
+    private Map<String, Object> confirmPendingAgentAction(String conversationId, String message, UserPrincipal principal) {
+        String explicitActionId = match(message == null ? "" : message, "(agent-action-[A-Za-z0-9_-]+)");
+        Instant now = Instant.now();
+        List<Map<String, Object>> pending = store.list("agent-action").stream()
+                .filter(action -> principal.userId.equals(Jsons.text(action, "userId", "")))
+                .filter(action -> conversationId.equals(Jsons.text(action, "conversationId", "")))
+                .filter(action -> "AWAITING_CONFIRMATION".equalsIgnoreCase(Jsons.text(action, "status", "")))
+                .filter(action -> explicitActionId.isBlank() || explicitActionId.equals(Jsons.text(action, "actionId", "")))
+                .filter(action -> now.isBefore(Jsons.instant(action.get("expiresAt"), Instant.EPOCH)))
+                .sorted(Comparator.comparing((Map<String, Object> action) -> Jsons.instant(action.get("createdAt"), Instant.EPOCH)).reversed())
+                .toList();
+        if (pending.isEmpty()) return clarification("当前对话没有待确认的操作。请先让我生成带“确认执行”按钮的操作预览，不能依据普通文字预览假装执行。");
+        if (pending.size() > 1 && explicitActionId.isBlank()) {
+            String choices = pending.stream().limit(5)
+                    .map(action -> Jsons.text(action, "actionId", "") + "（" + Jsons.text(action, "summary", "待确认操作") + "）")
+                    .collect(Collectors.joining("、"));
+            return clarification("当前对话有多项待确认操作，请点击对应卡片的“确认执行”，或回复具体操作编号：" + choices);
+        }
+        Map<String, Object> action = pending.get(0);
+        String actionId = Jsons.text(action, "actionId", "");
+        return confirmAgentAction(actionId, Map.of("idempotencyKey", "agent-chat:" + actionId), principal);
     }
 
     synchronized Map<String, Object> confirmAgentAction(String actionId, Map<String, Object> input, UserPrincipal principal) {
         Map<String, Object> action = requireRecord("agent-action", actionId);
         authorizeAgentAction(action, principal);
+        redactTerminalAgentActionIfNeeded(action);
         String idempotencyKey = Jsons.text(input, "idempotencyKey", "agent-confirm:" + actionId).trim();
         if (idempotencyKey.isBlank() || idempotencyKey.length() > 160 || !idempotencyKey.matches("[A-Za-z0-9][A-Za-z0-9:._-]{0,159}")) {
             throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_IDEMPOTENCY_INVALID", "幂等键格式无效");
@@ -8888,16 +9209,31 @@ class AgriEngine {
             if (legacy != null && principal.userId.equals(Jsons.text(legacy, "userId", ""))
                     && actionId.equals(Jsons.text(legacy, "actionId", ""))) prior = legacy;
         }
-        if (prior != null) return prior;
+        if (prior != null) {
+            String priorStatus = Jsons.text(prior, "status", "").trim().toUpperCase(Locale.ROOT);
+            if (AGENT_ACTION_TERMINAL_STATUSES.contains(priorStatus) && !Jsons.bool(prior, "credentialsRedacted", false)) {
+                clearAgentActionSecrets(prior);
+                store.save("agent-action-idempotency", scopedIdempotencyKey, prior);
+                store.save("agent-action-idempotency", idempotencyKey, prior);
+            }
+            return agentActionResultView(prior, principal);
+        }
         String status = Jsons.text(action, "status", "").toUpperCase(Locale.ROOT);
         String recordedKey = Jsons.text(action, "confirmationIdempotencyKey", Jsons.text(action, "idempotencyKey", "")).trim();
         if (!recordedKey.isBlank() && !recordedKey.equals(idempotencyKey)) {
             throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_IDEMPOTENCY_MISMATCH", "该操作已经绑定其他确认请求");
         }
-        if (Set.of("SUCCEEDED", "FAILED", "PARTIAL", "TIMEOUT", "CANCELED", "EXPIRED").contains(status)) return action;
-        if ("EXECUTING".equals(status)) return action;
+        if (AGENT_ACTION_TERMINAL_STATUSES.contains(status)) {
+            return agentActionResultView(action, principal);
+        }
+        if ("EXECUTING".equals(status)) return agentActionResultView(action, principal);
         if (!"AWAITING_CONFIRMATION".equals(status)) throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_STATE_INVALID", "该操作已处理或不可再确认");
-        if (Instant.now().isAfter(Jsons.instant(action.get("expiresAt"), Instant.EPOCH))) { action.put("status", "EXPIRED"); store.save("agent-action", actionId, action); throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_EXPIRED", "操作预览已过期，请重新生成"); }
+        if (Instant.now().isAfter(Jsons.instant(action.get("expiresAt"), Instant.EPOCH))) {
+            action.put("status", "EXPIRED");
+            clearAgentActionSecrets(action);
+            store.save("agent-action", actionId, action);
+            throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_EXPIRED", "操作预览已过期，请重新生成");
+        }
         if (!store.databaseReady()) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "AGENT_PERSISTENCE_UNAVAILABLE", "共享数据存储不可用，已暂停执行；恢复后请重新生成操作预览");
         }
@@ -8905,9 +9241,16 @@ class AgriEngine {
         action.put("status", "EXECUTING"); action.put("confirmedBy", principal.userId); action.put("confirmedAt", Instant.now().toString()); store.save("agent-action", actionId, action);
         try {
             Map<String, Object> args = Jsons.map(mapper, action.get("arguments"));
-            args.put("idempotencyKey", idempotencyKey); args.put("confirmed", true);
-            if ("execute_virtual_irrigation".equals(Jsons.text(action, "toolName", ""))) args.put("agentActionId", actionId);
-            Map<String, Object> result = executeAgentAction(Jsons.text(action, "toolName", ""), args, principal);
+            boolean generatedCredential = Jsons.bool(args, "generatedCredential", false);
+            String generatedPassword = generatedCredential ? Jsons.text(args, "password", "") : "";
+            Map<String, Object> executionArgs = new LinkedHashMap<>(args);
+            executionArgs.remove("generatedCredential");
+            executionArgs.put("idempotencyKey", idempotencyKey); executionArgs.put("confirmed", true);
+            if ("execute_virtual_irrigation".equals(Jsons.text(action, "toolName", ""))) executionArgs.put("agentActionId", actionId);
+            Map<String, Object> result = new LinkedHashMap<>(executeAgentAction(Jsons.text(action, "toolName", ""), executionArgs, principal));
+            String recoveryCode = Jsons.text(result, "recoveryCode", "");
+            result.remove("recoveryCode");
+            result.remove("recoveryCodeShownOnce");
             String tool = Jsons.text(action, "toolName", "");
             String resultStatus = Jsons.text(result, "status", "");
             boolean virtualPending = "execute_virtual_irrigation".equals(tool)
@@ -8915,9 +9258,32 @@ class AgriEngine {
             action.put("status", virtualPending ? "EXECUTING" : Set.of("FAILED", "PARTIAL", "TIMEOUT").contains(resultStatus) ? resultStatus : "SUCCEEDED");
             action.put("result", result); action.put("idempotencyKey", idempotencyKey);
             if (!"EXECUTING".equals(Jsons.text(action, "status", ""))) action.put("completedAt", Instant.now().toString());
-            store.save("agent-action", actionId, action); store.save("agent-action-idempotency", scopedIdempotencyKey, action); events.publish("agent.action.completed", action); store.logEvent("agent.action.completed", action); return action;
+            boolean terminalResult = AGENT_ACTION_TERMINAL_STATUSES.contains(Jsons.text(action, "status", "").toUpperCase(Locale.ROOT));
+            if (terminalResult) clearAgentActionSecrets(action);
+            store.save("agent-action", actionId, action);
+            if (terminalResult) saveCompletedAgentActionIdempotency(actionId, action, idempotencyKey);
+            else store.save("agent-action-idempotency", scopedIdempotencyKey, action);
+            Map<String, Object> publicEvent = publicAgentAction(action);
+            events.publish("agent.action.completed", publicEvent); store.logEvent("agent.action.completed", publicEvent);
+            Map<String, Object> publicResult = agentActionResultView(action, principal);
+            if (generatedCredential && !generatedPassword.isBlank()) {
+                Map<String, Object> credential = new LinkedHashMap<>();
+                credential.put("username", Jsons.text(result, "username", Jsons.text(args, "username", "")));
+                credential.put("initialPassword", generatedPassword);
+                if (!recoveryCode.isBlank()) credential.put("recoveryCode", recoveryCode);
+                credential.put("shownOnce", true);
+                publicResult.put("oneTimeCredential", credential);
+            } else if (!recoveryCode.isBlank()) {
+                publicResult.put("oneTimeCredential", Map.of("username", Jsons.text(result, "username", ""),
+                        "recoveryCode", recoveryCode, "shownOnce", true));
+            }
+            return publicResult;
         } catch (RuntimeException error) {
-            action.put("status", "FAILED"); action.put("error", error.getMessage() == null ? "执行失败" : error.getMessage()); action.put("completedAt", Instant.now().toString()); store.save("agent-action", actionId, action); events.publish("agent.action.failed", action); throw error;
+            action.put("status", "FAILED"); action.put("error", error.getMessage() == null ? "执行失败" : error.getMessage()); action.put("completedAt", Instant.now().toString());
+            clearAgentActionSecrets(action);
+            store.save("agent-action", actionId, action);
+            saveCompletedAgentActionIdempotency(actionId, action, idempotencyKey);
+            events.publish("agent.action.failed", publicAgentAction(action)); throw error;
         }
     }
 
@@ -8939,6 +9305,13 @@ class AgriEngine {
             case "create_evidence_request" -> createWorkOrder(args, principal);
             case "execute_virtual_irrigation" -> createCommand(args, principal);
             case "update_simulation_settings" -> updatePlotSimulation(Jsons.text(args, "plotId", ""), args, principal);
+            case "create_farm_member" -> adminManagement.createFarmMember(args, principal);
+            case "update_farm_member_scope" -> adminManagement.updateFarmMemberScope(Jsons.text(args, "userId", ""), args, principal);
+            case "update_farm_member_status" -> updateFarmMemberStatus(Jsons.text(args, "userId", ""), args, principal);
+            case "delete_farm_member" -> adminManagement.deleteFarmMember(Jsons.text(args, "userId", ""), Jsons.text(args, "farmId", ""), principal);
+            case "create_user_account" -> createUserAccount(args, principal);
+            case "update_user_account_status" -> updateUserAccountStatus(Jsons.text(args, "userId", ""), args, principal);
+            case "delete_user_account" -> deleteAccount(Jsons.text(args, "userId", ""), principal);
             case "review_learning_case" -> governance.reviewLearningCase(Jsons.text(args, "caseId", ""), Jsons.text(args, "decision", ""), Jsons.text(args, "note", ""), principal);
             case "transition_strategy_candidate" -> governance.transitionStrategy(Jsons.text(args, "candidateId", ""), Jsons.text(args, "target", ""), args, principal);
             default -> throw new ApiException(HttpStatus.BAD_REQUEST, "AGENT_TOOL_NOT_ALLOWED", "不支持的 Agent 操作");
@@ -8948,7 +9321,8 @@ class AgriEngine {
     Map<String, Object> agentAction(String actionId, UserPrincipal principal) {
         Map<String, Object> action = requireRecord("agent-action", actionId);
         authorizeAgentAction(action, principal);
-        return action;
+        redactTerminalAgentActionIfNeeded(action);
+        return agentActionResultView(action, principal);
     }
 
     Map<String, Object> cancelAgentAction(String actionId, UserPrincipal principal) {
@@ -8957,10 +9331,121 @@ class AgriEngine {
         if (!"AWAITING_CONFIRMATION".equals(Jsons.text(action, "status", ""))) throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_STATE_INVALID", "该操作已处理");
         if (Instant.now().isAfter(Jsons.instant(action.get("expiresAt"), Instant.EPOCH))) {
             action.put("status", "EXPIRED");
+            clearAgentActionSecrets(action);
             store.save("agent-action", actionId, action);
             throw new ApiException(HttpStatus.CONFLICT, "AGENT_ACTION_EXPIRED", "操作预览已过期，请重新生成");
         }
-        action.put("status", "CANCELED"); action.put("canceledBy", principal.userId); action.put("canceledAt", Instant.now().toString()); store.save("agent-action", actionId, action); events.publish("agent.action.canceled", action); return action;
+        action.put("status", "CANCELED"); action.put("canceledBy", principal.userId); action.put("canceledAt", Instant.now().toString());
+        clearAgentActionSecrets(action);
+        store.save("agent-action", actionId, action);
+        events.publish("agent.action.canceled", publicAgentAction(action)); return agentActionResultView(action, principal);
+    }
+
+    private Map<String, Object> agentActionResultView(Map<String, Object> action, UserPrincipal principal) {
+        Map<String, Object> publicAction = publicAgentAction(action);
+        String plotId = Jsons.text(action, "plotId", "");
+        Map<String, Object> result = Jsons.map(mapper, action.get("result"));
+        String resultPlotId = Jsons.text(result, "plotId", "");
+        if (!resultPlotId.isBlank()) plotId = resultPlotId;
+        Map<String, Object> envelope = new LinkedHashMap<>();
+        envelope.put("intent", "AGENT_ACTION");
+        envelope.put("traceId", Jsons.text(action, "traceId", ""));
+        envelope.put("farmId", Jsons.text(action, "farmId", Jsons.text(result, "farmId", "")));
+        envelope.put("actionProposal", publicAction);
+        envelope.put("result", result);
+        publicAction.put("navigationCards", agentNavigationCards(envelope, principal, plotId));
+        publicAction.put("narrative", agentActionResultNarrative(action, result));
+        publicAction.put("role", principal.role);
+        publicAction.put("roleLabel", RolePolicy.label(principal.role));
+        return publicAction;
+    }
+
+    private void redactTerminalAgentActionIfNeeded(Map<String, Object> action) {
+        if (action == null) return;
+        String status = Jsons.text(action, "status", "").trim().toUpperCase(Locale.ROOT);
+        if (!AGENT_ACTION_TERMINAL_STATUSES.contains(status) || Jsons.bool(action, "credentialsRedacted", false)) return;
+        String actionId = Jsons.text(action, "actionId", "").trim();
+        if (actionId.isBlank()) return;
+        clearAgentActionSecrets(action);
+        store.save("agent-action", actionId, action);
+    }
+
+    private Map<String, Object> publicAgentAction(Map<String, Object> action) {
+        Map<String, Object> copy = Jsons.copy(mapper, action == null ? Map.of() : action);
+        copy.remove("userId");
+        copy.remove("confirmedBy");
+        copy.remove("canceledBy");
+        return Jsons.map(mapper, redactAgentPublicValue(copy));
+    }
+
+    /**
+     * Remove one-time credentials from durable Agent action records after the
+     * action reaches a terminal state.  The successful confirmation response
+     * captures the credential before this method is called, so the operator
+     * still receives it once while retries/history cannot recover it.
+     */
+    private void clearAgentActionSecrets(Map<String, Object> action) {
+        if (action == null || action.isEmpty()) return;
+        for (String key : List.of("password", "passwordHash", "recoveryCode", "recoveryCodeHash",
+                "authorizationCode", "initialPassword", "generatedPassword", "oneTimeCredential")) {
+            action.remove(key);
+        }
+        if (action.containsKey("arguments")) action.put("arguments", redactAgentCredentialValue(action.get("arguments")));
+        if (action.containsKey("result")) action.put("result", redactAgentCredentialValue(action.get("result")));
+        action.put("credentialsRedacted", true);
+        action.put("credentialsRedactedAt", Instant.now().toString());
+    }
+
+    private Object redactAgentCredentialValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> redacted = new LinkedHashMap<>();
+            map.forEach((key, item) -> {
+                String name = String.valueOf(key);
+                if (!AGENT_CREDENTIAL_FIELDS.contains(name.toLowerCase(Locale.ROOT))) {
+                    redacted.put(name, redactAgentCredentialValue(item));
+                }
+            });
+            return redacted;
+        }
+        if (value instanceof Collection<?> collection) {
+            return collection.stream().map(this::redactAgentCredentialValue).toList();
+        }
+        return value;
+    }
+
+    private Object redactAgentPublicValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> redacted = new LinkedHashMap<>();
+            map.forEach((key, item) -> {
+                String name = String.valueOf(key);
+                if (!AGENT_SENSITIVE_FIELDS.contains(name) && !name.startsWith("_")) {
+                    redacted.put(name, redactAgentPublicValue(item));
+                }
+            });
+            return redacted;
+        }
+        if (value instanceof Collection<?> collection) return collection.stream().map(this::redactAgentPublicValue).toList();
+        return value;
+    }
+
+    private String agentActionResultNarrative(Map<String, Object> action, Map<String, Object> result) {
+        String status = Jsons.text(action, "status", "").toUpperCase(Locale.ROOT);
+        String summary = Jsons.text(action, "summary", "本次操作");
+        if (!"SUCCEEDED".equals(status)) {
+            if ("EXECUTING".equals(status)) return summary + "已确认，正在等待设备或执行链路返回结果。";
+            String error = Jsons.text(action, "error", Jsons.text(result, "message", "执行未完成"));
+            return summary + "未完成：" + error;
+        }
+        String tool = Jsons.text(action, "toolName", "");
+        return switch (tool) {
+            case "create_plot" -> "地块已创建并写入系统：" + Jsons.text(result, "name", Jsons.text(result, "plotId", "新地块")) + "。";
+            case "create_farm_member" -> "种植农户账号已创建并写入当前农场：" + Jsons.text(result, "username", "新账号") + "。";
+            case "create_user_account" -> "系统账号已创建并写入账号列表：" + Jsons.text(result, "username", "新账号") + "。";
+            case "update_farm_member_scope" -> "农户负责地块已更新，新的授权范围已经生效。";
+            case "update_farm_member_status", "update_user_account_status" -> "账号状态已更新并立即生效。";
+            case "delete_farm_member", "delete_user_account" -> "账号或成员关系已按预览内容移除。";
+            default -> summary + "已执行完成，结果已写入系统。";
+        };
     }
 
     /**
@@ -9044,6 +9529,8 @@ class AgriEngine {
         String conversationId = resolveConversationId(input, principal, plotId, systemGlobalRead);
         List<Map<String, Object>> recentHistory = conversationMessages(principal, conversationId,
                 Math.max(0, Math.min(12, properties.getLlmHistoryMessages())));
+        boolean confirmationHandled = agentImages.isEmpty() && isAgentConfirmation(message);
+        String actionMessage = confirmationHandled ? message : agentMutationMessageWithHistory(message, recentHistory);
         String priorIntent = lastAssistantIntent(recentHistory);
         String traceId = Jsons.id("run");
         List<Map<String, Object>> tools = new ArrayList<>();
@@ -9078,7 +9565,9 @@ class AgriEngine {
         boolean deterministicOnly = false;
         // A photo is evidence for a model-assisted observation, not a safe basis
         // for silently triggering the deterministic mutation parser.
-        Map<String, Object> actionProposal = agentImages.isEmpty() ? planAgentAction(message, plotId, principal, traceId) : null;
+        Map<String, Object> actionProposal = confirmationHandled
+                ? confirmPendingAgentAction(conversationId, message, principal)
+                : agentImages.isEmpty() ? planAgentAction(actionMessage, plotId, principal, traceId) : null;
         boolean modelToolHandled = false;
         if (actionProposal == null && agentImages.isEmpty() && openAiCompatible && shouldInvokeModelToolPlanner(message)) {
             try {
@@ -9141,7 +9630,7 @@ class AgriEngine {
                 answer.put("toolPlanningFallback", true);
             }
         }
-        if (actionProposal != null && actionProposal.containsKey("actionId")) {
+        if (!confirmationHandled && actionProposal != null && actionProposal.containsKey("actionId")) {
             enrichAgentActionContext(actionProposal, conversationId, plotId, principal);
         }
         if (actionProposal != null) {
@@ -9149,10 +9638,21 @@ class AgriEngine {
             answer.put("intent", hasPreview ? "AGENT_ACTION" : "CLARIFICATION");
             if (actionProposal.containsKey("status")) answer.put("status", actionProposal.get("status"));
             if (actionProposal.containsKey("clarification")) answer.put("clarification", actionProposal.get("clarification"));
-            if (hasPreview) answer.put("actionProposal", actionProposal);
+            if (hasPreview) {
+                Map<String, Object> visibleProposal = new LinkedHashMap<>(actionProposal);
+                Object oneTimeCredential = visibleProposal.remove("oneTimeCredential");
+                answer.put("actionProposal", visibleProposal);
+                if (oneTimeCredential != null) answer.put("oneTimeCredential", oneTimeCredential);
+                if (confirmationHandled && visibleProposal.get("result") != null) answer.put("result", visibleProposal.get("result"));
+            }
             answer.put("summary", Jsons.text(actionProposal, "summary", "需要补充信息"));
             answer.put("narrative", Jsons.text(actionProposal, "clarification", Jsons.text(actionProposal, "summary", "已生成操作预览，等待确认执行。")));
             answer.put("narrativeProvenance", "DERIVED");
+            if (confirmationHandled) deterministicOnly = true;
+            if (confirmationHandled && hasPreview) {
+                answer.put("status", Jsons.text(actionProposal, "status", ""));
+                answer.put("narrative", Jsons.text(actionProposal, "narrative", "操作已按预览内容执行。"));
+            }
             if (!openAiCompatible) {
                 answer.put("adapter", "rules-agent");
                 deterministicOnly = true;
@@ -9365,6 +9865,13 @@ class AgriEngine {
             answer.put("intent", "FARMS");
             answer.put("summary", "已读取平台农场列表");
             answer.put("result", Map.of("scope", "PLATFORM", "farms", farms, "count", farms.size()));
+        } else if (principal.isSystemAdmin() && isUserAccountQuery(message)) {
+            List<Map<String, Object>> accounts = userAccounts(principal);
+            tools.add(tool("get_user_accounts", Map.of("scope", "PLATFORM"), accounts, principal));
+            answer.put("knowledgeEvidence", List.of());
+            answer.put("intent", "USER_ACCOUNTS");
+            answer.put("summary", "已读取平台账号、角色和授权范围");
+            answer.put("result", Map.of("scope", "PLATFORM", "accounts", accounts, "count", accounts.size()));
         } else if ((principal.isFarmAdmin() || principal.isSystemAdmin()) && isMemberQuery(message)) {
             String memberFarm = principal.isSystemAdmin() ? "*" : firstAccessibleFarmId(principal);
             List<Map<String, Object>> members = agentFarmMembers(principal, memberFarm);
@@ -9607,6 +10114,7 @@ class AgriEngine {
         // Keep the public response clean while retaining the raw model output in the
         // server-side audit record for troubleshooting and reproducibility.
         Map<String, Object> auditAnswer = new LinkedHashMap<>(answer);
+        auditAnswer.remove("oneTimeCredential");
         auditAnswer.put("userId", principal.userId);
         auditAnswer.put("username", principal.username);
         auditAnswer.put("accountId", principal.userId);
@@ -9618,8 +10126,8 @@ class AgriEngine {
         if (rawNarrative != null && !rawNarrative.isBlank()) auditAnswer.put("narrativeRaw", rawNarrative);
         store.save("agent-run", traceId, auditAnswer);
         saveAgentTurn(principal, conversationId, plotId, displayMessage, answer);
-        store.logEvent("agent.run", answer);
-        events.publish("agent.run.completed", answer);
+        store.logEvent("agent.run", auditAnswer);
+        events.publish("agent.run.completed", auditAnswer);
         return answer;
     }
 
@@ -10118,7 +10626,7 @@ class AgriEngine {
                 || isWorkOrderQuery(message) || isCropManualQuestion(message) || isSimulationQuestion(message)
                 || isLearningCaseQuestion(message) || isStrategyCandidateQuestion(message) || isAuditQuery(message)
                 || isInspectionQuery(message) || isFeedbackQuery(message) || isExecutionRecordQuery(message)
-                || isMemberQuery(message) || isCropPackQuery(message) || isRuleSetQuery(message)
+                || isMemberQuery(message) || isUserAccountQuery(message) || isCropPackQuery(message) || isRuleSetQuery(message)
                 || isFarmListQuestion(message) || isTelemetryQuestion(message)
                 || isRetestChecklistQuestion(message) || isIrrigationQuestion(message) || isDiagnosisQuestion(message)
                 || message.contains("预测") || message.toLowerCase(Locale.ROOT).contains("forecast")
@@ -10175,6 +10683,10 @@ class AgriEngine {
                 List<Map<String, Object>> members = agentFarmMembers(principal, farmId);
                 yield Map.of("farmId", farmId, "members", members, "count", members.size());
             }
+            case "get_user_accounts" -> {
+                List<Map<String, Object>> accounts = userAccounts(principal);
+                yield Map.of("scope", "PLATFORM", "accounts", accounts, "count", accounts.size());
+            }
             case "get_crop_packs" -> {
                 List<Map<String, Object>> packs = agentCropPacks(principal, farmId, Jsons.bool(args, "includeDrafts", false));
                 yield Map.of("farmId", farmId, "cropPacks", packs, "count", packs.size());
@@ -10219,6 +10731,7 @@ class AgriEngine {
             case "get_feedback" -> "FEEDBACK";
             case "get_execution_records" -> "EXECUTION_RECORDS";
             case "get_farm_members" -> "FARM_MEMBERS";
+            case "get_user_accounts" -> "USER_ACCOUNTS";
             case "get_crop_packs" -> "CROP_PACKS";
             case "get_rule_sets" -> "RULE_SETS";
             case "get_farms" -> "FARMS";
@@ -10308,6 +10821,10 @@ class AgriEngine {
 
     private boolean isMemberQuery(String message) {
         return containsAny(message, "农场成员", "成员列表", "农户名单", "授权范围", "成员权限", "farm members", "member list");
+    }
+
+    private boolean isUserAccountQuery(String message) {
+        return containsAny(message, "账号列表", "用户列表", "所有账号", "平台账号", "账号权限", "账号状态", "user accounts", "account list");
     }
 
     private boolean isCropPackQuery(String message) {
@@ -10779,18 +11296,22 @@ class AgriEngine {
         String role = RolePolicy.canonical(principal.role);
         String view = agentNavigationView(role, intent, toolName);
         if (view.isBlank()) return List.of();
+        Map<String, Object> args = Jsons.map(mapper, proposal.get("arguments"));
+        Map<String, Object> result = Jsons.map(mapper, proposal.get("result"));
+        if (result.isEmpty()) result = Jsons.map(mapper, answer.get("result"));
+        String resolvedPlotId = Jsons.text(result, "plotId", Jsons.text(args, "plotId", plotId == null ? "" : plotId)).trim();
         Map<String, Object> route = new LinkedHashMap<>();
         route.put("view", view);
         Map<String, Object> params = new LinkedHashMap<>();
-        String farmId = agentFarmId(answer, plotId, principal);
+        String farmId = Jsons.text(result, "farmId", Jsons.text(args, "farmId", agentFarmId(answer, resolvedPlotId, principal))).trim();
         if (!farmId.isBlank() && !"*".equals(farmId)) params.put("farmId", farmId);
-        if (plotId != null && !plotId.isBlank() && Set.of("plot-detail", "plots", "advice", "tasks", "inspections", "tools").contains(view)) {
-            params.put("plotId", plotId);
+        if (!resolvedPlotId.isBlank() && Set.of("plot-detail", "plots", "advice", "tasks", "inspections", "tools").contains(view)) {
+            params.put("plotId", resolvedPlotId);
         }
         if ("tools".equals(view)) params.put("tab", "RISK_FORECAST".equals(intent) ? "risk" : "manual");
-        Map<String, Object> args = Jsons.map(mapper, proposal.get("arguments"));
-        for (String key : List.of("deviceId", "taskId", "workOrderId", "alertId", "caseId", "candidateId", "metric", "section")) {
-            String value = Jsons.text(args, key, "").trim();
+        if ("create_user_account".equals(toolName) || "get_user_accounts".equals(toolName)) params.put("tab", "users");
+        for (String key : List.of("deviceId", "taskId", "workOrderId", "alertId", "caseId", "candidateId", "userId", "metric", "section")) {
+            String value = Jsons.text(result, key, Jsons.text(args, key, "")).trim();
             if (!value.isBlank()) params.put(key, value);
         }
         if ("transition_assigned_work_order".equals(toolName) && !params.containsKey("taskId")) {
@@ -10798,7 +11319,7 @@ class AgriEngine {
             if (!workOrderId.isBlank()) params.put("taskId", workOrderId);
         }
         route.put("params", params);
-        String plotName = plotId == null || plotId.isBlank() ? "当前范围" : Jsons.text(store.find("plot", plotId), "name", plotId);
+        String plotName = resolvedPlotId.isBlank() ? "当前范围" : Jsons.text(store.find("plot", resolvedPlotId), "name", resolvedPlotId);
         String title = switch (view) {
             case "plot-detail", "plots" -> "查看地块详情";
             case "advice", "decision-console" -> "查看诊断与处方";
@@ -10809,6 +11330,8 @@ class AgriEngine {
             case "admin-rules", "rules-strategies" -> "查看规则与策略";
             case "admin-audit" -> "查看审计记录";
             case "admin-simulator" -> "查看模拟控制";
+            case "farm-members" -> "查看农场成员";
+            case "admin-settings" -> "查看账号与权限";
             default -> "打开相关工作台";
         };
         String description = switch (view) {
@@ -10821,6 +11344,8 @@ class AgriEngine {
             case "admin-rules", "rules-strategies" -> "查看规则集、学习案例和策略候选";
             case "admin-audit" -> "查看工具调用、审批和执行审计";
             case "admin-simulator" -> "查看模拟时间、场景和运行状态";
+            case "farm-members" -> "查看刚创建或更新的农户账号及其负责地块";
+            case "admin-settings" -> "查看刚创建或更新的账号、角色和授权范围";
             default -> "打开已授权的农业工作台";
         };
         Map<String, Object> card = new LinkedHashMap<>();
@@ -10833,12 +11358,14 @@ class AgriEngine {
     private String agentNavigationView(String role, String intent, String toolName) {
         if ("AGENT_ACTION".equals(intent) && !toolName.isBlank()) {
             return switch (toolName) {
-                case "create_plot", "update_plot" -> "FARM_ADMIN".equals(role) ? "dashboard" : "";
+                case "create_plot", "update_plot" -> "FARM_ADMIN".equals(role) ? "plot-detail" : "";
                 case "set_plot_devices", "update_simulation_settings" -> "SYSTEM_ADMIN".equals(role) ? "admin-simulator" : "resource-coordination";
                 case "create_and_assign_work_order", "assign_work_order", "transition_work_order", "review_work_order", "publish_alert_verification", "close_alert" -> "FARM_ADMIN".equals(role) ? "work-orders" : "";
                 case "transition_assigned_work_order" -> "FARMER".equals(role) ? "tasks" : "";
                 case "create_inspection_record", "create_evidence_request" -> "FARMER".equals(role) ? "inspections" : "";
                 case "execute_virtual_irrigation" -> "FARMER".equals(role) ? "advice" : "decision-console";
+                case "create_farm_member", "update_farm_member_scope", "update_farm_member_status", "delete_farm_member" -> "FARM_ADMIN".equals(role) ? "farm-members" : "admin-settings";
+                case "create_user_account", "update_user_account_status", "delete_user_account" -> "SYSTEM_ADMIN".equals(role) ? "admin-settings" : "";
                 case "review_learning_case", "transition_strategy_candidate" -> "SYSTEM_ADMIN".equals(role) ? "admin-rules" : "";
                 default -> "";
             };
@@ -10877,6 +11404,7 @@ class AgriEngine {
                 case "INSPECTIONS", "EXECUTION_RECORDS" -> "admin-ops";
                 case "FEEDBACK" -> "admin-audit";
                 case "FARM_MEMBERS" -> "admin-settings";
+                case "USER_ACCOUNTS" -> "admin-settings";
                 case "FARMS" -> "admin-overview";
                 case "TELEMETRY" -> "plot-detail";
                 case "AUDIT_RECORDS" -> "admin-audit";
@@ -11029,13 +11557,59 @@ class AgriEngine {
         int from = Math.max(0, messages.size() - Math.max(1, Math.min(limit, 100)));
         List<Map<String, Object>> result = new ArrayList<>();
         for (Map<String, Object> item : messages.subList(from, messages.size())) {
-            Map<String, Object> copy = new LinkedHashMap<>(item);
+            Map<String, Object> copy = refreshHistoryActionMessage(item, principal, conversationId);
             if ("USER".equalsIgnoreCase(Jsons.text(item, "role", ""))) {
                 copy.put("content", cleanAgentHistoryUserMessage(Jsons.text(item, "content", "")));
             }
             result.add(copy);
         }
         return result;
+    }
+
+    /**
+     * Action proposals persisted in a conversation are intentionally only a
+     * render snapshot.  Re-read the owner-bound action row when history is
+     * opened so a completed create/update operation shows its actual result
+     * and route parameters (for example, the newly allocated plot/user id).
+     * If the action is a legacy row or temporarily unavailable, returning the
+     * immutable snapshot keeps history readable and avoids turning a status
+     * refresh into a conversation failure.
+     */
+    private Map<String, Object> refreshHistoryActionMessage(Map<String, Object> item,
+                                                             UserPrincipal principal,
+                                                             String conversationId) {
+        Map<String, Object> copy = new LinkedHashMap<>(item == null ? Map.of() : item);
+        if (!"ASSISTANT".equalsIgnoreCase(Jsons.text(item, "role", ""))) return copy;
+        Map<String, Object> snapshot = Jsons.map(mapper, item.get("actionProposal"));
+        String actionId = Jsons.text(snapshot, "actionId", "").trim();
+        if (actionId.isBlank() || principal == null) return copy;
+        Map<String, Object> action = store.find("agent-action", actionId);
+        if (action == null
+                || !principal.userId.equals(Jsons.text(action, "userId", ""))
+                || !conversationId.equals(Jsons.text(action, "conversationId", ""))) return copy;
+        String itemPlotId = Jsons.text(item, "plotId", "").trim();
+        String actionPlotId = Jsons.text(action, "plotId", "").trim();
+        if (!itemPlotId.isBlank() && !actionPlotId.isBlank() && !itemPlotId.equals(actionPlotId)) return copy;
+        try {
+            authorizeAgentAction(action, principal);
+            redactTerminalAgentActionIfNeeded(action);
+            Map<String, Object> latest = agentActionResultView(action, principal);
+            Object projected = publicProjection(latest);
+            copy.put("actionProposal", projected);
+            if (latest.containsKey("navigationCards")) {
+                copy.put("navigationCards", publicProjection(latest.get("navigationCards")));
+            }
+            String status = Jsons.text(latest, "status", "").trim().toUpperCase(Locale.ROOT);
+            if (AGENT_ACTION_TERMINAL_STATUSES.contains(status)) {
+                String narrative = Jsons.text(latest, "narrative", "").trim();
+                if (!narrative.isBlank()) copy.put("content", narrative);
+                if (latest.containsKey("result")) copy.put("result", publicProjection(latest.get("result")));
+            }
+        } catch (RuntimeException ignored) {
+            // Keep the stored snapshot when the action has been removed or a
+            // transient persistence/authorization check cannot be completed.
+        }
+        return copy;
     }
 
     /** Hide the private image prompt from conversation history and model context. */
@@ -12057,6 +12631,28 @@ class AgriEngine {
         }
         String candidateId = Jsons.text(args, "candidateId", "").trim();
         if (!candidateId.isBlank()) targets.add(requireAgentTarget("strategy-candidate", candidateId));
+
+        String userId = Jsons.text(args, "userId", "").trim();
+        if (!userId.isBlank()) {
+            Map<String, Object> user = store.userById(userId);
+            if (user == null) throw new ApiException(HttpStatus.NOT_FOUND, "ACCOUNT_NOT_FOUND", "账号不存在：" + userId);
+            String userRole = RolePolicy.canonical(Jsons.text(user, "role", ""));
+            if (Set.of("update_farm_member_scope", "update_farm_member_status", "delete_farm_member").contains(tool)) {
+                if (!"FARMER".equals(userRole)) {
+                    throw new ApiException(HttpStatus.FORBIDDEN, "MEMBER_ROLE_IMMUTABLE", "农场成员操作只能针对种植农户账号");
+                }
+                String farmId = Jsons.text(args, "farmId", "").trim();
+                List<String> memberFarms = Jsons.strings(user.get("farmIds"));
+                if (farmId.isBlank() || (!memberFarms.contains(farmId) && !memberFarms.contains("*"))) {
+                    throw new ApiException(HttpStatus.CONFLICT, "MEMBER_NOT_IN_FARM", "该农户不属于操作指定的农场");
+                }
+            }
+            if (Set.of("update_user_account_status", "delete_user_account").contains(tool)) {
+                if (!principal.isSystemAdmin()) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_MANAGEMENT_FORBIDDEN", "只有系统管理员可以管理全平台账号");
+                if (principal.userId.equals(userId)) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SELF_OPERATION_FORBIDDEN", "不能通过 Agent 停用或删除自己的账号");
+                if ("SYSTEM_ADMIN".equals(userRole)) throw new ApiException(HttpStatus.FORBIDDEN, "ACCOUNT_SYSTEM_ADMIN_PROTECTED", "系统管理员账号受永久保护");
+            }
+        }
 
         String caseId = Jsons.text(args, "caseId", "").trim();
         if (!caseId.isBlank()) {

@@ -12,9 +12,9 @@ Agent 可以理解自然语言、补充当前范围、读取已注册工具的�
 
 | 角色 | 数据范围 | 可查询 | 可写入（均需预览和确认） |
 |---|---|---|---|
-| `FARM_ADMIN` 农场管理员 | 授权农场的全部地块 | 地块、遥测、设备、告警、任务、诊断、预测、用水、作物手册、学习案例和策略候选 | 地块、设备绑定、创建并下发任务、分派/改派任务、取消任务、验收/退回任务、告警核查/关闭、模拟策略、虚拟灌溉 |
+| `FARM_ADMIN` 农场管理员 | 授权农场的全部地块 | 地块、遥测、设备、告警、任务、诊断、预测、用水、农场成员、作物手册、学习案例和策略候选 | 创建/启停农户、调整农户地块范围、地块、设备绑定、创建并下发任务、分派/改派任务、取消任务、验收/退回任务、告警核查/关闭、模拟策略、虚拟灌溉 |
 | `FARMER` 种植农户 | 本账号负责的地块、任务和反馈 | 本人地块状态、遥测、曲线、告警、今日任务、诊断、预测、作物手册和用水建议 | 开始/重新处理/提交本人任务、提交巡田记录、申请补证、通过安全门后发起虚拟灌溉 |
-| `SYSTEM_ADMIN` 系统管理员 | 平台治理和跨农场只读范围 | 平台服务、消息链路、跨农场风险、规则/Crop Pack、学习案例、策略候选和审计 | 按地块设置模拟策略、审核学习案例、推进或回滚策略候选；不直接修改农场业务数据 |
+| `SYSTEM_ADMIN` 系统管理员 | 平台治理和跨农场只读范围 | 平台服务、消息链路、跨农场风险、账号、规则/Crop Pack、学习案例、策略候选和审计 | 创建/启停/删除受保护范围外的平台账号、按地块设置模拟策略、审核学习案例、推进或回滚策略候选；不直接修改农场生产事实 |
 
 农场管理员的任务状态变更遵循现有工单状态机：分派使用 `assign_work_order`，取消使用 `transition_work_order`，对农户提交结果的通过/退回使用 `review_work_order`。管理员不会借用仅限农户的 `transition_assigned_work_order`。
 
@@ -41,13 +41,13 @@ Agent 可以理解自然语言、补充当前范围、读取已注册工具的�
 
 ### 只读工具
 
-`get_plot_status`、`get_risk_forecast`、`generate_irrigation_plan`、`evaluate_diagnosis`、`get_today_work_items`、`get_water_resource_status`、`get_platform_status`、`get_platform_risk_overview`、`get_rule_strategy_status`、`get_farm_overview`、`get_devices`、`get_alerts`、`get_work_orders`、`get_crop_manual`、`get_simulation_status`、`get_learning_cases`、`get_strategy_candidates`、`get_audit_records`、`get_inspections`、`get_feedback`、`get_execution_records`、`get_farm_members`、`get_crop_packs`、`get_rule_sets`、`get_farms`、`get_telemetry`。
+`get_plot_status`、`get_risk_forecast`、`generate_irrigation_plan`、`evaluate_diagnosis`、`get_today_work_items`、`get_water_resource_status`、`get_platform_status`、`get_platform_risk_overview`、`get_rule_strategy_status`、`get_farm_overview`、`get_devices`、`get_alerts`、`get_work_orders`、`get_crop_manual`、`get_simulation_status`、`get_learning_cases`、`get_strategy_candidates`、`get_audit_records`、`get_inspections`、`get_feedback`、`get_execution_records`、`get_farm_members`、`get_user_accounts`、`get_crop_packs`、`get_rule_sets`、`get_farms`、`get_telemetry`。
 
 只读工具仍会执行领域层权限检查；“只读”不等于可以跨农场或跨地块读取。
 
 ### 受控写工具
 
-`create_plot`、`update_plot`、`set_plot_devices`、`create_and_assign_work_order`、`assign_work_order`、`transition_work_order`、`review_work_order`、`publish_alert_verification`、`close_alert`、`transition_assigned_work_order`、`create_inspection_record`、`create_evidence_request`、`execute_virtual_irrigation`、`update_simulation_settings`、`review_learning_case`、`transition_strategy_candidate`。
+`create_plot`、`update_plot`、`set_plot_devices`、`create_and_assign_work_order`、`assign_work_order`、`transition_work_order`、`review_work_order`、`publish_alert_verification`、`close_alert`、`transition_assigned_work_order`、`create_inspection_record`、`create_evidence_request`、`execute_virtual_irrigation`、`update_simulation_settings`、`create_farm_member`、`update_farm_member_scope`、`update_farm_member_status`、`delete_farm_member`、`create_user_account`、`update_user_account_status`、`delete_user_account`、`review_learning_case`、`transition_strategy_candidate`。
 
 每个写工具都必须在注册表中声明角色、目标范围和必填参数。当前管理员工单 `transition_work_order` 只接受 `CANCEL`，任务暂停状态尚未在现有工单状态机中定义，不能伪装成已支持。
 
@@ -59,7 +59,15 @@ Agent 可以理解自然语言、补充当前范围、读取已注册工具的�
 - 灌溉、设备/模拟控制、任务状态、告警、学习审核和策略状态变更先保存 `AWAITING_CONFIRMATION` 预览。
 - 确认时重新检查权限、地块与农场一致性、遥测新鲜度、证据冲突、设备能力、水量/时长上限、安全门和当前状态。
 - 每次确认使用 `idempotencyKey`；重复确认返回第一次结果，不重复创建任务或命令。预览有过期时间，过期后必须重新生成。
+- 虚拟灌溉确认先进入 `EXECUTING`，前端在约 3 秒的有界窗口内查询后端 action，只有收到 ACK 后才展示 `SUCCEEDED`、`PARTIAL`、`FAILED` 或 `TIMEOUT`；超过窗口仍显示执行中，不把等待误报为失败。
+- 异步效果评价或持久化异常会把 action 收敛到 `FAILED` 并记录原因；最终状态同步回账号、action 与幂等键组合记录，重复确认不会返回陈旧的执行中快照。
 - 所有预览、确认、取消、成功、部分成功、超时和失败都写入 Agent 审计事件，并记录账号、角色、会话和目标对象。
+
+## 多轮创建和敏感信息
+
+创建地块或账号时，Agent 可以在当前 `conversationId` 内组合用户后续补充的信息。例如用户先说“创建一个地块”，再说“随机生成”，系统会补齐受支持的演示字段并生成真正的 `create_plot` 预览，而不是输出一段声称已经提交的模型文字。精确回复“确认”只会确认同账号、同会话中唯一的待确认 action；没有待确认项或存在多项候选时均拒绝猜测执行。
+
+随机账号的初始密码和恢复码只在创建成功的当前 HTTP 响应中返回一次，不进入 Agent 对话历史、运行记录或事件日志。公开 action、导航卡片和审计投影会递归移除密码、密码哈希、授权码和内部幂等键。
 
 ## 导航卡片
 
@@ -118,6 +126,8 @@ PENDING -> REJECTED        （任一硬性排除条件命中）
 - 排除案例仍可在治理/审计和反例用途列表中查询；重复评估保持幂等。
 - 三角色工具目录只显示各自白名单；越权的农场、地块、账号和会话请求被拒绝。
 - 写操作必须出现预览，确认后结果与领域记录、设备状态、ACK、遥测和页面上下文一致。
+- “创建地块 -> 随机生成 -> 确认”会写入真实地块记录并返回新地块详情卡；“创建农户 -> 随机生成 -> 确认”会写入真实账号并返回农场成员卡和一次性登录信息。
+- 虚拟灌溉的确认响应不会把 `EXECUTING` 显示成失败，最终卡片状态来自后端 ACK；异步异常会成为可审计失败而不是永久执行中。
 - 导航卡片只落到当前角色注册路由，并携带已校验的上下文参数。
 - 模型不可用时可安全降级，普通查询和既有安全控制不被学习服务阻塞。
 
