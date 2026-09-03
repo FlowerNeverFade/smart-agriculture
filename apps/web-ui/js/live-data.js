@@ -101,7 +101,15 @@ const SCENARIO_LABELS = Object.freeze({
   HEAVY_RAIN: '暴雨场景', HEAVYRAIN: '暴雨场景', STORM: '暴雨场景', RAIN: '暴雨场景',
   SENSOR_DRIFT: '传感器漂移', DEVICE_OFFLINE: '设备离线', OFFLINE: '设备离线',
   EVIDENCE_CONFLICT: '证据冲突',
-  MULTI_SCENARIO: '多场景'
+  MULTI_SCENARIO: '多场景',
+  PLOT_SCOPED: '按地块运行'
+});
+
+const SCENARIO_CODE_ALIASES = Object.freeze({
+  STORM: 'HEAVY_RAIN', HEAVYRAIN: 'HEAVY_RAIN', RAIN: 'HEAVY_RAIN',
+  OFFLINE: 'DEVICE_OFFLINE', DEVICE_OFFLINE: 'DEVICE_OFFLINE',
+  SENSOR_DRIFT: 'SENSOR_DRIFT', NORMAL_RUN: 'NORMAL',
+  HEAT_WAVE: 'DROUGHT'
 });
 
 const PRIORITY_LABELS = Object.freeze({
@@ -220,6 +228,73 @@ export function scenarioLabel(value, fallback = '未设置') {
     return count ? `多场景（${count}）` : '多场景';
   }
   return fallback;
+}
+
+function normalizedScenarioCode(value) {
+  const raw = String(value ?? '').trim();
+  if (!raw) return '';
+  const normalized = code(raw);
+  if (SCENARIO_CODE_ALIASES[normalized]) return SCENARIO_CODE_ALIASES[normalized];
+  if (SCENARIO_LABELS[normalized] && !normalized.startsWith('MULTI_SCENARIO')) return normalized;
+  // Scenario IDs may include a replay/run suffix (for example
+  // `drought-20260902-01`). Keep only the recognized scenario prefix.
+  const known = Object.keys(SCENARIO_LABELS)
+    .filter((item) => !['MULTI_SCENARIO', 'PLOT_SCOPED'].includes(item))
+    .sort((left, right) => right.length - left.length);
+  return known.find((item) => normalized.startsWith(`${item}_`)) || '';
+}
+
+/**
+ * Resolve the scenario shown in a platform overview without inventing a
+ * global value. The simulator itself is global, while strategies are stored
+ * per plot, so plot values are authoritative whenever they are available.
+ */
+export function simulationScenarioSummary({ plots = [], overviewPlots = [], simulator = {} } = {}) {
+  const scenariosByPlot = new Map();
+  let anonymousIndex = 0;
+  const collect = (items) => {
+    if (!Array.isArray(items)) return;
+    items.forEach((plot) => {
+      if (code(plot?.status) === 'INACTIVE') return;
+      const simulation = plot?.simulation || plot?.simulationConfig || {};
+      const scenario = [
+        simulation.scenario,
+        simulation.scenarioId,
+        plot?.simulationScenario,
+        plot?.scenario,
+        plot?.scenarioId
+      ].map(normalizedScenarioCode).find(Boolean);
+      if (!scenario) return;
+      const plotKey = String(plot?.plotId || plot?.id || `anonymous-${anonymousIndex++}`);
+      // `plots` is normally the normalized/authoritative list; the overview
+      // cards are a fallback when the slower /plots request has not settled.
+      if (!scenariosByPlot.has(plotKey)) scenariosByPlot.set(plotKey, scenario);
+    });
+  };
+  collect(plots);
+  collect(overviewPlots);
+
+  const scenarios = [...new Set(scenariosByPlot.values())];
+  if (scenarios.length === 1) return scenarios[0];
+  if (scenarios.length > 1) return `多场景（${scenarios.length}）`;
+
+  const globalScenario = [simulator?.scenario, simulator?.scenarioId]
+    .map(normalizedScenarioCode)
+    .find(Boolean);
+  if (globalScenario) return globalScenario;
+
+  // The status endpoint does not always include the active scenario. When
+  // plot snapshots are still loading, use the latest running simulator
+  // record as a traceable fallback instead of showing an empty overview.
+  const historyRuns = Array.isArray(simulator?.history) ? simulator.history : [];
+  const historyScenario = historyRuns
+    .find((run) => code(run?.status) === 'RUNNING' && (run?.scenario || run?.scenarioId))
+    || historyRuns.find((run) => run?.scenario || run?.scenarioId);
+  const historicalScenario = normalizedScenarioCode(historyScenario?.scenario || historyScenario?.scenarioId);
+  if (historicalScenario) return historicalScenario;
+
+  const status = code(simulator?.status);
+  return simulator?.running === true || status === 'RUNNING' ? 'PLOT_SCOPED' : '';
 }
 
 export function priorityLabel(value, fallback = '普通') {
@@ -849,8 +924,8 @@ function metricFromLatest(code, event, current = {}) {
 }
 
 export function normalizePlot(plot = {}, overviewCard = {}) {
-  const metrics = { ...(plot.metrics || {}) };
-  const history = plot.history || overviewCard.history || {};
+  const metrics = { ...(plot.metrics || {}), ...(overviewCard.metrics || {}) };
+  const history = { ...(plot.history || {}), ...(overviewCard.history || {}) };
   Object.entries(history).forEach(([code, points]) => {
     if (!Array.isArray(points) || !points.length) return;
     metrics[code] = { ...(metrics[code] || { label: code, target: '—' }), history: points };
@@ -881,8 +956,8 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     name: text(plot.name || overviewCard.name, text(plot.plotId || overviewCard.plotId, '未命名地块')),
     cropCode,
     cropName: text(plot.cropName || overviewCard.cropName, CROP_LABELS[cropCode] || cropCode || '—'),
-    stageCode: text(plot.stageCode, ''),
-    stageLabel: text(plot.stageLabel, '—'),
+    stageCode: text(plot.stageCode || overviewCard.stageCode, ''),
+    stageLabel: text(plot.stageLabel || overviewCard.stageLabel, '—'),
     facilityType,
     facilityLabel,
     cultivationStatus: text(plot.cultivationStatus || overviewCard.cultivationStatus, 'GROWING').toUpperCase(),
@@ -900,12 +975,44 @@ export function normalizePlot(plot = {}, overviewCard = {}) {
     deviceStatus: text(effectiveDevice.status || plot.deviceStatus, 'UNKNOWN').toUpperCase(),
     hardware,
     hardwareStatus: hardwareBound ? text(hardware.status, 'OFFLINE').toUpperCase() : 'NOT_BOUND',
-    healthScore: overviewCard.health?.score ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
+    healthScore: overviewCard.health?.score ?? overviewCard.healthScore ?? plot.healthScore ?? effectiveDevice.healthScore ?? null,
     health: overviewCard.health || plot.health || null,
     lastSeen: effectiveDevice.lastSeen || plot.lastSeen || null,
     sourceMode: plot.sourceMode || overviewCard.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
     dataOrigin: plot.dataOrigin || overviewCard.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
   };
+}
+
+/**
+ * Merge the lightweight /plots facts and the richer /overview cards by plot.
+ * A request can finish before the other one (or hit its UI budget), so keep
+ * the previously rendered fields for matching plots while allowing fresh
+ * facts/cards to replace them.  When both sources are unavailable the prior
+ * snapshot is retained; an explicit empty response still clears the list.
+ */
+export function mergeOverviewPlotRecords(plotFacts = [], overviewCards = [], previousPlots = []) {
+  const facts = Array.isArray(plotFacts) ? plotFacts : [];
+  const cards = Array.isArray(overviewCards) ? overviewCards : [];
+  const previous = Array.isArray(previousPlots) ? previousPlots : [];
+  const factMap = new Map(facts
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const cardMap = new Map(cards
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const previousMap = new Map(previous
+    .filter((plot) => plot && (plot.plotId || plot.id))
+    .map((plot) => [String(plot.plotId || plot.id), plot]));
+  const freshIds = new Set([...factMap.keys(), ...cardMap.keys()]);
+  const ids = freshIds.size
+    ? [...freshIds]
+    : [...previousMap.keys()];
+  return ids.map((plotId) => {
+    const fact = factMap.get(plotId) || {};
+    const card = cardMap.get(plotId) || {};
+    const prior = previousMap.get(plotId) || {};
+    return normalizePlot({ ...prior, ...fact }, card);
+  });
 }
 
 /**

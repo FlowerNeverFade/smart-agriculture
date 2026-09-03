@@ -1,5 +1,5 @@
-﻿import { api } from '../api.js?v=20260902-ai-direct-v2';
-import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260902-ai-direct-v2';
+﻿import { api } from '../api.js?v=20260902-manager-plot-order-v1';
+import { agentHistoryUserText, agentIntentLabel, agentResponseSource, agentResponseText, agentRoleLabel, normalizeAgentEvidence, normalizeAgentFacts, normalizeAgentRecommendations } from '../live-data.js?v=20260902-performance-v1';
 import { analyzeImageFiles } from './image-vision.js?v=20260902-v5911-zhcn-v1';
 import { agentRolePresentation } from '../agent-presentation.js?v=20260902-v5911-zhcn-v1';
 
