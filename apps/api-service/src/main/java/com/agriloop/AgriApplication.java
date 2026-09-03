@@ -5627,7 +5627,8 @@ class AgriEngine {
     }
 
     private void recordVirtualIrrigationEffect(String plotId, String commandId, String outcome,
-                                               double soilMoistureAfter, double actualWater) {
+                                               double soilMoistureAfter, double actualWater,
+                                               boolean suggestedIrrigation) {
         if (!Set.of("SUCCEEDED", "PARTIAL").contains(outcome)) return;
         Map<String, Object> plot = store.find("plot", plotId);
         Map<String, Object> latest = latestMetrics(plotId);
@@ -5679,7 +5680,9 @@ class AgriEngine {
         }
         if (Set.of("SUCCEEDED", "PARTIAL").contains(outcome) && actualWater > 0) {
             String balanceFarmId = Jsons.text(plot, "farmId", "farm-demo");
-            LocalDate balanceDate = LocalDate.now();
+            LocalDate balanceDate = suggestedIrrigation
+                    ? LocalDate.now(waterZone(ensureWaterProfile(balanceFarmId)))
+                    : LocalDate.now();
             Map<String, Object> balance = currentWaterBalance(balanceFarmId, balanceDate);
             balance.put("actualUsedLitres", roundLitres(Jsons.number(balance, "actualUsedLitres", 0) + actualWater));
             balance.put("usedLitres", balance.get("actualUsedLitres"));
@@ -5806,7 +5809,9 @@ class AgriEngine {
             simulationEngine.syncPlotMetrics(plotId, before, waterBefore);
             simulationEngine.applyIrrigation(plotId, actualWater, areaM2);
         }
-        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, moistureBaselineAvailable ? after : Double.NaN, actualWater);
+        boolean suggestedIrrigation = !manualOverride
+                && "farmer-advice-direct".equals(Jsons.text(command, "source", ""));
+        recordVirtualIrrigationEffect(plotId, commandId, ackStatus, moistureBaselineAvailable ? after : Double.NaN, actualWater, suggestedIrrigation);
         Map<String, Object> manualResourceUsage = settleManualIrrigationResource(command, ack, evaluation);
         if (!manualResourceUsage.isEmpty()) evaluation.put("resourceUsage", manualResourceUsage);
         store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command); events.publish("evaluation.completed", evaluation); store.logEvent("ACTION_EVALUATED", evaluation);
