@@ -186,7 +186,7 @@
         </div>
       </nav>
 
-      <main class="g-main" :class="{ 'farmer-main': isFarmer }">
+      <main class="g-main" :class="{ 'farmer-main': isFarmer, 'is-ai-view': currentView === 'admin-agent' }">
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :user-settings="userSettings" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
@@ -383,7 +383,7 @@
             <div class="admin-plot-health"><span>健康度</span><strong>{{ healthPercent(plot) === null ? '—' : healthPercent(plot) + '%' }}</strong><b><i :style="{width: (healthPercent(plot) || 0) + '%'}"></i></b></div>
             <div class="admin-plot-metrics">
               <template v-for="metric in telemetryMetrics" :key="metric.code">
-                <span v-if="!plot.monitoredMetrics?.length || plot.monitoredMetrics.includes(metric.code)"><strong>{{ plot.metrics[metric.code] || '—' }}</strong> {{ metric.label }}</span>
+                <span><strong>{{ plot.metrics[metric.code] || '—' }}</strong> {{ metric.label }}</span>
               </template>
             </div>
             <div v-if="plot.issue" class="admin-plot-issue"><app-icon name="warning"></app-icon>{{ plot.issue }}</div>
@@ -780,12 +780,13 @@
       <!-- History -->
       <div class="admin-section-head">
         <div class="admin-section-title"><app-icon name="history"></app-icon> 运行历史</div>
+        <input v-model="simSearch" type="text" class="g-input" placeholder="搜索地块 / 场景编号 / 场景类型" style="max-width:260px; margin-left:auto" aria-label="搜索运行历史">
       </div>
       <div class="admin-pagination-bar">
         <span>共 {{ simTotalRecords }} 条运行记录（按地块分组，每地块显示最新一条）</span>
       </div>
       <div class="admin-table-wrap">
-        <table class="admin-table">
+        <table class="admin-table sim-history-table">
           <thead><tr>
             <th>场景编号</th><th>场景类型</th><th>地块</th><th>开始时间</th><th>结束时间</th><th>事件数</th><th>状态</th><th>操作</th>
           </tr></thead>
@@ -806,7 +807,7 @@
                 <td>{{ plotNameOf(run.plotId) }}</td>
                 <td>{{ run.startTime }}</td>
                 <td>{{ run.endTime || '—' }}</td>
-                <td>{{ run.events }}</td>
+                <td>{{ run.events ? run.events : '—' }}</td>
                 <td><span class="status-pill" :class="run.status === 'COMPLETED' ? 'completed' : run.status === 'RUNNING' ? 'info' : 'warning'">{{ run.statusLabel || localizedStatusLabel(run.status) }}</span></td>
                 <td class="admin-action-cell">
                   <button class="g-btn text sm" @click="openDualTrack(run)"><app-icon name="compare_arrows"></app-icon> 双轨对比</button>
