@@ -1597,7 +1597,7 @@
                         </div>
                         <div ref="plot_simulation_chart_el" class="farmer-plot-simulation-echarts" role="img" :aria-label="`${plot_simulation_metric_label}历史与策略预测曲线`"></div>
                       </div>
-                      <p v-else class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的未来预测曲线' }}</p>
+                      <p v-else-if="!plot_simulation_loading && !plot_simulation_metric_loading && !plot_simulation_evaluating" class="farmer-panel-hint farmer-chart-empty">{{ plot_simulation_error || '暂无可绘制的未来预测曲线' }}</p>
                       <div v-if="(plot_simulation_loading || plot_simulation_metric_loading) && !plot_simulation_chart_available" class="farmer-chart-loading" aria-live="polite" aria-busy="true"><span class="farmer-chart-spinner" aria-hidden="true"></span><span>正在读取未来预测曲线…</span></div>
                       <div v-else-if="plot_simulation_evaluating" class="farmer-chart-loading is-overlay is-soft" aria-live="polite" aria-busy="true"><span>正在刷新预测…</span></div>
                     </div>

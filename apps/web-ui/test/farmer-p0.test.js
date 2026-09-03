@@ -270,8 +270,11 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   assert.match(source, /PLOT_SIMULATION_LINE_STYLES/);
   assert.match(source, /build_plot_simulation_legend_items/);
   assert.match(source, /legend: \{ show: false \}/);
+  assert.match(source, /if \(plot_simulation_loading\.value \|\| plot_simulation_metric_loading\.value \|\| plot_simulation_evaluating\.value\) return false/);
+  assert.match(source, /plot_simulation_dual_track\.value = null/);
   assert.match(html, /风险预测曲线图例/);
   assert.match(html, /item\.lineType/);
+  assert.match(html, /v-else-if="!plot_simulation_loading && !plot_simulation_metric_loading && !plot_simulation_evaluating"/);
   assert.match(css, /farmer-legend-swatch\.is-dotted/);
   assert.match(html, /farmer-plot-simulation-chart-stage/);
   assert.match(html, /is-overlay/);

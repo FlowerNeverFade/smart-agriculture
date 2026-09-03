@@ -1619,6 +1619,7 @@ const app = createApp({
     const plot_simulation_selected_metric = computed(() => simulation_metric_definition(plot_simulation_metric.value));
     const plot_simulation_metric_label = computed(() => plot_simulation_selected_metric.value.label);
     const plot_simulation_chart_available = computed(() => {
+      if (plot_simulation_loading.value || plot_simulation_metric_loading.value || plot_simulation_evaluating.value) return false;
       const forecast = plot_simulation_forecast.value;
       const hasHistory = Array.isArray(plot_simulation_history.value) && plot_simulation_history.value.length > 0;
       const hasForecast = forecast && String(forecast.status || '').toUpperCase() === 'AVAILABLE'
@@ -1859,6 +1860,12 @@ const app = createApp({
       }
       plot_simulation_loading.value = true;
       plot_simulation_error.value = '';
+      // Do not expose the previous plot's/static demo curve while this plot is
+      // still loading. The chart becomes available only after the request
+      // settles and the new history/forecast have been assigned below.
+      plot_simulation_history.value = [];
+      plot_simulation_forecast.value = null;
+      plot_simulation_dual_track.value = null;
       try {
         const metric = plot_simulation_metric.value;
         const [configResult, historyResult, forecastResult] = await Promise.allSettled([
@@ -1921,8 +1928,8 @@ const app = createApp({
       const requestId = ++plot_simulation_preview_request_version;
       plot_simulation_preview_dirty.value = true;
       plot_simulation_evaluating.value = true;
-      // Keep the current curve visible while the next preview is in flight.
-      void render_plot_simulation_chart();
+      // Hide the previous curve while the next preview is in flight. The
+      // chart is rendered again only after the evaluated response settles.
       plot_simulation_preview_timer = window.setTimeout(() => {
         plot_simulation_preview_timer = null;
         void evaluate_plot_simulation_preview(requestId);
@@ -1960,7 +1967,14 @@ const app = createApp({
     } = {}) => {
       const normalized = simulation_metric_definition(metric).code;
       const requestId = ++plot_simulation_metric_request_version;
-      if (!silent) plot_simulation_metric_loading.value = true;
+      if (!silent) {
+        plot_simulation_metric_loading.value = true;
+        // Prevent the previously selected metric from being mistaken for the
+        // newly selected metric while its telemetry/forecast is in flight.
+        plot_simulation_history.value = [];
+        plot_simulation_forecast.value = null;
+        plot_simulation_dual_track.value = null;
+      }
       try {
         if (historyOnly) {
           const historyResult = await Promise.allSettled([api.getTelemetry(selected_plot.value?.plotId, normalized, 120)]);
