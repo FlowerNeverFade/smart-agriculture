@@ -106,6 +106,56 @@
   margin-top: 12px;
 }
 
+.ai-chat-navigation-cards {
+  display: grid;
+  gap: 7px;
+  max-width: 74ch;
+  margin-top: 12px;
+}
+
+.ai-chat-navigation-card {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--g-primary) 24%, var(--g-border-subtle));
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--g-primary-bg) 44%, var(--g-bg-surface));
+  color: var(--g-text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+
+.ai-chat-navigation-card:hover {
+  border-color: color-mix(in srgb, var(--g-primary) 52%, var(--g-border-subtle));
+  background: color-mix(in srgb, var(--g-primary-bg) 72%, var(--g-bg-surface));
+  transform: translateY(-1px);
+}
+
+.ai-chat-navigation-card:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--g-primary) 48%, transparent);
+  outline-offset: 2px;
+}
+
+.ai-chat-navigation-card-icon {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--g-primary);
+  color: var(--g-bg-surface);
+}
+
+.ai-chat-navigation-card-icon .material-symbols-outlined { font-size: 17px; }
+.ai-chat-navigation-card-copy { display: grid; gap: 2px; min-width: 0; }
+.ai-chat-navigation-card-copy strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.ai-chat-navigation-card-copy small { overflow: hidden; color: var(--g-text-secondary); font-size: 11px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.ai-chat-navigation-card-label { color: var(--g-primary); font-size: 11px; font-weight: 700; white-space: nowrap; }
+
 .ai-chat-details-button {
   display: inline-flex;
   align-items: center;
@@ -246,4 +296,7 @@
   .ai-chat-facts { grid-template-columns: 1fr; }
   .ai-chat-answer { font-size: 13px !important; }
   .ai-chat-detail-grid { grid-template-columns: 1fr 1fr; }
+  .ai-chat-navigation-card { grid-template-columns: 28px minmax(0, 1fr); }
+  .ai-chat-navigation-card-icon { width: 28px; height: 28px; }
+  .ai-chat-navigation-card-label { display: none; }
 }

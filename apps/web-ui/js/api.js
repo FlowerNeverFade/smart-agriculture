@@ -189,6 +189,46 @@ function demoAgentToolOutput(response, name) {
     : undefined;
 }
 
+// Demo mode uses the same fixed route contract as the live backend.  Keeping
+// this small projection here means a locally persisted conversation still has
+// useful navigation cards after a reload, without allowing a message to
+// provide an arbitrary URL.
+function demoAgentNavigationCard(response = {}, role, plot = {}) {
+  const code = demoAgentRoleCode(role);
+  const intent = String(response.intent || '').toUpperCase();
+  const tool = String(response.actionProposal?.toolName || '').trim();
+  if (!intent || ['GREETING', 'CLARIFICATION', 'CAPABILITY_QUERY', 'FOLLOW_UP'].includes(intent)) return null;
+  let view = '';
+  if (intent === 'AGENT_ACTION') {
+    view = code === 'FARMER'
+      ? ({ transition_assigned_work_order: 'tasks', create_inspection_record: 'inspections', create_evidence_request: 'inspections', execute_virtual_irrigation: 'advice' }[tool] || '')
+      : code === 'FARM_ADMIN'
+        ? ({ create_plot: 'dashboard', update_plot: 'plot-detail', set_plot_devices: 'resource-coordination', create_and_assign_work_order: 'work-orders', publish_alert_verification: 'decision-console', close_alert: 'decision-console', update_simulation_settings: 'resource-coordination' }[tool] || '')
+        : ({ review_learning_case: 'admin-rules', transition_strategy_candidate: 'admin-rules', update_simulation_settings: 'admin-simulator' }[tool] || '');
+  } else if (code === 'FARMER') {
+    view = ({ PLOT_STATUS: 'plots', DEVICE_STATUS: 'plots', IRRIGATION_RECOMMENDATION: 'advice', DIAGNOSIS: 'advice', RISK_DIAGNOSIS: 'advice', ALERT_STATUS: 'advice', RISK_FORECAST: 'tools', CROP_MANUAL: 'tools', TODAY_WORK: 'tasks', WORK_ORDER_STATUS: 'tasks' }[intent] || 'assistant');
+  } else if (code === 'FARM_ADMIN') {
+    view = ({ PLOT_STATUS: 'plot-detail', DEVICE_STATUS: 'resource-coordination', SIMULATION_STATUS: 'resource-coordination', IRRIGATION_RECOMMENDATION: 'decision-console', DIAGNOSIS: 'decision-console', RISK_DIAGNOSIS: 'decision-console', RISK_FORECAST: 'decision-console', ALERT_STATUS: 'decision-console', TODAY_WORK: 'work-orders', WORK_ORDER_STATUS: 'work-orders', FARM_OVERVIEW: 'dashboard', RULE_STRATEGY_STATUS: 'rules-strategies', STRATEGY_CANDIDATES: 'rules-strategies', CROP_MANUAL: 'rules-strategies' }[intent] || 'ai-assistant');
+  } else {
+    view = ({ PLOT_STATUS: 'plot-detail', DEVICE_STATUS: 'admin-resources', SIMULATION_STATUS: 'admin-simulator', PLATFORM_STATUS: 'admin-ops', ALERT_STATUS: 'admin-ops', WORK_ORDER_STATUS: 'admin-ops', PLATFORM_OVERVIEW: 'admin-overview', FARM_OVERVIEW: 'admin-overview', RULE_STRATEGY_STATUS: 'admin-rules', LEARNING_CASES: 'admin-rules', STRATEGY_CANDIDATES: 'admin-rules', CROP_MANUAL: 'admin-rules', AUDIT_RECORDS: 'admin-audit', DIAGNOSIS: 'admin-overview', RISK_DIAGNOSIS: 'admin-overview', RISK_FORECAST: 'admin-overview' }[intent] || 'admin-agent');
+  }
+  if (!view) return null;
+  const params = {};
+  if (plot?.farmId && plot.farmId !== '*') params.farmId = String(plot.farmId);
+  if (plot?.plotId && ['plot-detail', 'plots', 'advice', 'tasks', 'inspections', 'tools'].includes(view)) params.plotId = String(plot.plotId);
+  if (view === 'tools') params.tab = intent === 'RISK_FORECAST' ? 'risk' : 'manual';
+  const title = ({ 'plot-detail': '查看地块详情', plots: '查看我的地块', advice: '查看诊断与处方', 'decision-console': '查看诊断与处方', tasks: '查看今日农务', 'work-orders': '查看任务与处理记录', tools: '查看作物手册与风险工具', 'resource-coordination': '查看设备与资源', 'admin-resources': '查看设备与资源', 'admin-overview': '查看平台总览', 'admin-ops': '查看运行与处理记录', 'admin-rules': '查看规则与策略', 'rules-strategies': '查看规则与策略', 'admin-audit': '查看审计记录', 'admin-simulator': '查看模拟控制', assistant: '打开农智助手', 'ai-assistant': '打开农智助手' })[view] || '打开相关工作台';
+  return {
+    id: `demo-nav-${response.traceId || `${view}-${Date.now().toString(36)}`}`,
+    type: 'NAVIGATION_CARD',
+    title,
+    description: plot?.name && params.plotId ? `查看 ${plot.name} 的实时数据、曲线和设备状态` : '打开已授权的农业工作台',
+    targetRole: code,
+    route: { view, params },
+    label: '前往查看'
+  };
+}
+
 function demoAgentPlotSnapshot(plot = {}) {
   const metrics = plot.metrics || {};
   const metricValue = (code, fallback = '—') => {
@@ -374,6 +414,10 @@ function decorateDemoAgentResponse(response = {}, role, plot, message = '', prev
         : '农户账号可以查看与本人任务相关的灌溉安排；配额调整和全场资源调度请联系农场管理员。';
   } else if (intent === 'FOLLOW_UP' && !suppliedNarrative) {
     payload.narrative = demoFollowUpNarrative(code, plot, facts, message, previousMessages);
+  }
+  if (!Array.isArray(payload.navigationCards) || !payload.navigationCards.length) {
+    const navigationCard = demoAgentNavigationCard(payload, code, { ...plot, plotId: payload.plotId || plot?.plotId });
+    if (navigationCard) payload.navigationCards = [navigationCard];
   }
   if (!payload.summary) payload.summary = payload.narrative || String(message || '').trim();
   return payload;
@@ -3302,7 +3346,7 @@ export class ApiService {
     };
     // Preserve the deterministic payload pieces used by the shared chat cards.
     // Older demo records simply omit these keys and remain readable.
-    ['result', 'plan', 'diagnosis', 'workItems', 'context', 'confidence', 'readiness', 'warnings', 'scenarioLabel', 'facts', 'recommendations'].forEach((key) => {
+    ['result', 'plan', 'diagnosis', 'workItems', 'context', 'confidence', 'readiness', 'warnings', 'scenarioLabel', 'facts', 'recommendations', 'navigationCards', 'degradationReason', 'vision', 'llm'].forEach((key) => {
       if (response?.[key] !== undefined && response?.[key] !== null) assistantEntry[key] = response[key];
     });
     current.messages = [...current.messages.filter((item) => item.conversationId !== conversationId), ...current.messages.filter((item) => item.conversationId === conversationId), userEntry, assistantEntry];
@@ -3315,7 +3359,8 @@ export class ApiService {
     return conversation;
   }
 
-  async getAgentHistory(conversationId = '', limit = 40) {
+  async getAgentHistory(conversationId = '', limit = 40, options = {}) {
+    const normalizedOptions = options && typeof options === 'object' ? options : {};
     if (this.sessionMode !== 'live') {
       const userId = this.user?.userId || this.user?.username || 'demo';
       const fallbackId = `conversation-${userId}`;
@@ -3335,6 +3380,10 @@ export class ApiService {
     }
     const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(Number(limit) || 40, 100))) });
     if (conversationId) params.set('conversationId', conversationId);
+    const plotId = String(normalizedOptions.plotId || '').trim();
+    const scope = String(normalizedOptions.scope || '').trim().toUpperCase();
+    if (plotId) params.set('plotId', plotId);
+    if (scope) params.set('scope', scope);
     const resp = await this._fetch(`/api/v1/agent/history?${params.toString()}`);
     if (resp?.data) return cleanAgentHistoryPayload(resp.data);
     throw new ApiError('后端返回了无效的对话历史', { code: 'AGENT_HISTORY_INVALID', payload: resp });
@@ -3345,6 +3394,7 @@ export class ApiService {
     const normalized = typeof options === 'boolean' ? { archived: options } : (options || {});
     const archived = Boolean(normalized.archived);
     const plotId = String(normalized.plotId || '').trim();
+    const scope = String(normalized.scope || '').trim().toUpperCase();
     if (this.sessionMode !== 'live') {
       const session = this._readDemoAgentSession();
       const role = demoAgentRoleCode(this.user?.role);
@@ -3363,6 +3413,7 @@ export class ApiService {
     const bounded = Math.max(1, Math.min(Number(limit) || 20, 50));
     const query = new URLSearchParams({ limit: String(bounded), archived: archived ? 'true' : 'false' });
     if (plotId) query.set('plotId', plotId);
+    if (scope) query.set('scope', scope);
     const resp = await this._fetch(`/api/v1/agent/conversations?${query}`);
     if (Array.isArray(resp?.data)) {
       return resp.data.map((item) => item && typeof item === 'object'
@@ -3448,7 +3499,13 @@ export class ApiService {
 
   async agentChat(message, plotId = 'plot-a01', conversationId = '', options = {}) {
     if (this.sessionMode === 'live') {
-      const body = { message, plotId };
+      const normalizedPlotId = String(plotId ?? '').trim();
+      const body = { message, plotId: normalizedPlotId };
+      // Keep the system administrator's platform scope explicit on the wire.
+      // An empty plotId alone is ambiguous to older servers, which historically
+      // defaulted it to plot-a01.  The backend still re-checks the role and
+      // rejects a platform scope combined with a concrete plot reference.
+      if (!normalizedPlotId && String(this.user?.role || '').toUpperCase() === 'SYSTEM_ADMIN') body.scope = 'PLATFORM';
       if (conversationId) body.conversationId = conversationId;
       // `message` may contain a private vision instruction assembled for the
       // model. Keep the user's short, readable question separate so the

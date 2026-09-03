@@ -216,10 +216,27 @@ function parse_tools_tab(hash = window.location.hash) {
   return ['risk', 'manual'].includes(tab) ? tab : 'manual';
 }
 
-function farmer_hash_for(view_id, tab = 'manual') {
+function parse_farmer_params(hash = window.location.hash) {
+  const raw = String(hash || '').replace(/^#/, '').trim();
+  const query = raw.split('?')[1] || '';
+  const params = {};
+  if (!query) return params;
+  const allowed = new Set(['farmId', 'plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId', 'metric', 'section']);
+  new URLSearchParams(query).forEach((value, key) => {
+    if (allowed.has(key) && String(value).trim()) params[key] = String(value).trim();
+  });
+  return params;
+}
+
+function farmer_hash_for(view_id, tab = 'manual', route_params = {}) {
   const view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
-  if (view === 'tools') return `#tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}`;
-  return `#${view}`;
+  const path = view === 'tools' ? `tools/${['risk', 'manual'].includes(tab) ? tab : 'manual'}` : view;
+  const allowed = new Set(['farmId', 'plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId', 'metric', 'section']);
+  const query = Object.entries(route_params || {})
+    .filter(([key, value]) => allowed.has(key) && value !== undefined && value !== null && String(value).trim())
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value).trim())}`)
+    .join('&');
+  return `#${path}${query ? `?${query}` : ''}`;
 }
 
 function crop_manual_metrics(pack, stage) {
@@ -1386,6 +1403,7 @@ const app = createApp({
 
     const current_view = ref(parse_farmer_hash());
     const tools_tab = ref(parse_tools_tab());
+    const assistant_route_params = ref(parse_farmer_params());
     const selected_plot = ref(plots.value[0] || null);
     const chart_range = ref('1d');
     const plot_stage_preview = ref(selected_plot.value?.stageCode || '');
@@ -3249,13 +3267,17 @@ const app = createApp({
     onMounted(() => window.addEventListener('keydown', handle_sidebar_keydown));
     onBeforeUnmount(() => window.removeEventListener('keydown', handle_sidebar_keydown));
 
-    const navigate = (view_id, { sync_hash = true, tab } = {}) => {
+    const navigate = (view_id, options = {}) => {
+      const { sync_hash = true, tab, ...route_params } = options || {};
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+      const target_plot = route_params.plotId ? find_plot_by_id(plots.value, route_params.plotId) : null;
+      const target_task_id = route_params.taskId || route_params.workOrderId || '';
+      const target_task = target_task_id ? tasks.value.find((task) => String(task.workOrderId || task.taskId || task.id || '') === String(target_task_id)) : null;
       current_view.value = next_view;
       close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
       if (sync_hash) {
-        const target = farmer_hash_for(next_view, tools_tab.value);
+        const target = farmer_hash_for(next_view, tools_tab.value, route_params);
         if (window.location.hash !== target) {
           window.location.hash = target.slice(1);
         }
@@ -3267,11 +3289,20 @@ const app = createApp({
       }
       if (next_view !== 'tasks') {
         selected_task.value = null;
+      } else if (target_task) {
+        selected_task.value = target_task;
       }
       if (next_view !== 'plots') {
         selected_plot.value = null;
+      } else if (target_plot) {
+        selected_plot.value = target_plot;
       } else if (!selected_plot.value) {
         selected_plot.value = plots.value[0] || null;
+      }
+      if (target_plot) {
+        advice_selected_plot.value = target_plot;
+        advice_plot.value = target_plot;
+        assistant_plot_id.value = target_plot.plotId;
       }
       if (next_view !== 'inspections') {
         show_inspection_form.value = false;
@@ -3282,8 +3313,11 @@ const app = createApp({
     const apply_farmer_hash = () => {
       const view = parse_farmer_hash();
       const tab = parse_tools_tab();
-      if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value)) return;
-      navigate(view, { sync_hash: false, tab });
+      const route_params = parse_farmer_params();
+      assistant_route_params.value = route_params;
+      const has_context = Object.keys(route_params).some((key) => ['plotId', 'taskId', 'workOrderId', 'alertId', 'conversationId'].includes(key));
+      if (view === current_view.value && (view !== 'tools' || tab === tools_tab.value) && !has_context) return;
+      navigate(view, { sync_hash: false, tab, ...route_params });
     };
 
     const toggle_sidebar = () => { is_sidebar_open.value = !is_sidebar_open.value; };
@@ -4349,6 +4383,15 @@ const app = createApp({
     const open_plot = (plot) => {
       navigate('plots');
       selected_plot.value = plot;
+    };
+
+    // Shared Agent chat can emit a plot-detail destination.  Farmer routes
+    // keep the same card contract, but land on the farmer's own plot view so
+    // the card cannot open an admin-only page.
+    const open_agent_plot_detail = ({ plotId } = {}) => {
+      const plot = find_plot_by_id(plots.value, plotId);
+      if (plot) open_plot(plot);
+      else navigate('plots');
     };
 
     const open_tools = () => {
@@ -6632,6 +6675,7 @@ const app = createApp({
       assistant_action_hint,
       assistant_tool_label,
       assistant_source_label_for,
+      assistant_route_params,
       assistant_action_arguments,
       assistant_action_expiry_label,
       assistant_action_result,
@@ -6734,6 +6778,7 @@ const app = createApp({
       delete_task,
       delete_all_completed_tasks,
       open_plot,
+      open_agent_plot_detail,
       open_tools,
       load_irrigation_plan,
       toggle_automatic_watering,
