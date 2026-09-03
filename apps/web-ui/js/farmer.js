@@ -17,6 +17,7 @@ import {
   buildFarmerProfile,
   dueLabel,
   displayText,
+  mergeOverviewPlotRecords,
   mergePlotTelemetryWindow,
   mergeFarmerWorkOrders,
   metricLabel,
@@ -31,7 +32,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-ai-direct-v2';
+} from './live-data.js?v=20260902-performance-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -871,6 +872,7 @@ function metric_chart(plot, code, range_id = '1d', stage_override = null) {
     stageLabel: stage_override?.label || plot?.stageLabel || crop_stage_for(plot)?.label || '当前阶段',
     quality: {
       status: String(quality.status || metric.status || 'UNKNOWN').toUpperCase(),
+      statusLabel: metricStatusLabel(quality.status || metric.status || 'UNKNOWN'),
       freshnessLabel: Number.isFinite(freshnessMs) ? (freshnessMs < 60000 ? '1 分钟内' : `${Math.round(freshnessMs / 60000)} 分钟`) : '不可用',
       completenessLabel: Number.isFinite(completeness) ? `${Math.round(completeness * 100)}%` : '不可用',
       confidenceLabel: Number.isFinite(confidence) ? `${Math.round(confidence * 100)}%` : '不可用',
@@ -1446,7 +1448,7 @@ const app = createApp({
           chart_range.value,
           plot_stage_preview_item.value
         );
-        if (!chart) return { ...spec, unavailable: true, current_label: 'UNAVAILABLE', target: '无可用数据', stageLabel: plot_stage_preview_item.value?.label || selected_plot.value?.stageLabel || '当前阶段', quality: { status: 'UNAVAILABLE', freshnessLabel: '不可用', completenessLabel: '不可用', confidenceLabel: '不可用' } };
+        if (!chart) return { ...spec, unavailable: true, current_label: 'UNAVAILABLE', target: '无可用数据', stageLabel: plot_stage_preview_item.value?.label || selected_plot.value?.stageLabel || '当前阶段', quality: { status: 'UNAVAILABLE', statusLabel: '不可用', freshnessLabel: '不可用', completenessLabel: '不可用', confidenceLabel: '不可用' } };
         if (spec.code !== 'SOIL_MOISTURE' || !selected_plot.value) return chart;
         const status = resolve_moisture_band_status(selected_plot.value);
         const is_risk = status === 'WARN' || status === 'ALERT';
@@ -1535,8 +1537,8 @@ const app = createApp({
       temperatureBias: { label: '温度偏移', unit: '°C', min: -15, max: 15, step: .5, help: '相对标准环境的偏移' },
       humidityBias: { label: '湿度偏移', unit: '%RH', min: -40, max: 40, step: 1, help: '相对标准环境的偏移' },
       rainfallRate: { label: '降雨强度', unit: 'mm/h', min: 0, max: 120, step: 1, help: '场景平均降雨强度' },
-      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .1, help: '每模拟小时的自然失水/增湿' },
-      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .1, help: '仅作用于传感器读数' },
+      soilMoistureTrendPerHour: { label: '土壤变化速率', unit: '%/h', min: -12, max: 12, step: .01, help: '每模拟小时的自然失水/增湿' },
+      driftRatePerHour: { label: '漂移速率', unit: '%/h', min: 0, max: 10, step: .01, help: '仅作用于传感器读数' },
       offlineRatio: { label: '离线比例', unit: '%', min: 0, max: 1, step: .01, help: '设备周期内断连比例' },
       riskThreshold: { label: '干旱阈值', unit: '%', min: 1, max: 99, step: .5, help: '低于此值触发缺水风险' },
       waterloggingThreshold: { label: '积水阈值', unit: '%', min: 40, max: 99, step: .5, help: '高于此值触发积水风险' },
@@ -3253,8 +3255,15 @@ const app = createApp({
     onMounted(() => window.addEventListener('keydown', handle_sidebar_keydown));
     onBeforeUnmount(() => window.removeEventListener('keydown', handle_sidebar_keydown));
 
+    const reset_farmer_main_scroll = () => {
+      if (typeof document === 'undefined') return;
+      const main = document.querySelector('#farmer_app .farmer-main');
+      if (main) main.scrollTop = 0;
+    };
+
     const navigate = (view_id, { sync_hash = true, tab } = {}) => {
       const next_view = FARMER_VIEWS.includes(view_id) ? view_id : 'dashboard';
+      const view_changed = current_view.value !== next_view;
       current_view.value = next_view;
       close_sidebar_on_mobile();
       if (next_view === 'tools' && tab) tools_tab.value = parse_tools_tab(`#tools/${tab}`);
@@ -3281,6 +3290,10 @@ const app = createApp({
         show_inspection_form.value = false;
         show_evidence_form.value = false;
       }
+      // All farmer routes render inside one scroll container. Reset it after
+      // the hash update so browser anchor handling cannot restore the old
+      // route's scroll position.
+      if (view_changed) reset_farmer_main_scroll();
     };
 
     const apply_farmer_hash = () => {
@@ -3838,7 +3851,7 @@ const app = createApp({
         return false;
       }
       const farms = results[0].status === 'fulfilled' ? results[0].value || [] : [];
-      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || plots.value || [] : plots.value || [];
+      const rawPlots = results[1].status === 'fulfilled' ? results[1].value || [] : [];
       const overview = results[2].status === 'fulfilled' ? results[2].value || {} : {};
       const rawWorkOrders = mergeFarmerWorkOrders(
         results[3].status === 'fulfilled' ? results[3].value || [] : tasks.value || [],
@@ -3847,13 +3860,17 @@ const app = createApp({
       const rawAlerts = results[5].status === 'fulfilled' ? results[5].value || [] : [];
       const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
       const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
-      const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
-      let normalizedPlots = rawPlots
+      const previousPlots = results[1].status === 'fulfilled' && results[2].status === 'fulfilled'
+        ? []
+        : (plots.value || []);
+      const mergedPlotRecords = mergeOverviewPlotRecords(rawPlots, overview?.plots || [], previousPlots);
+      const buildNormalizedPlots = (records) => (records || [])
         .map((plot) => {
-          const normalized = normalizePlot(plot, cards.get(String(plot.plotId)) || {});
+          const normalized = normalizePlot(plot, {});
           return { ...normalized, healthScore: compute_plot_health_score(normalized) };
         })
         .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+      let normalizedPlots = buildNormalizedPlots(mergedPlotRecords);
       normalizedPlots = replace_plots_in_order(normalizedPlots, { commitOrder: !plot_drag_state.value.active });
       const plotMap = new Map(normalizedPlots.map((plot) => [String(plot.plotId), plot]));
       const normalizedTasks = rawWorkOrders.map((work) => normalizeFarmerTask(work, plotMap));
@@ -3898,6 +3915,26 @@ const app = createApp({
       if (!evidence_form.value.plot_id || !plotMap.has(evidence_form.value.plot_id)) evidence_form.value.plot_id = normalizedPlots[0]?.plotId || '';
       data_updated_label.value = '刚刚';
       if (showProgress) set_workspace_progress(86, '正在完成首屏…');
+      // If /overview or /plots exceeded the first-paint budget, enrich the
+      // already visible cards when that individual request eventually settles.
+      const applyLatePlotResponse = (records, overviewData) => {
+        if (version !== workspace_request_version || !is_formal_session) return;
+        const next = buildNormalizedPlots(mergeOverviewPlotRecords(
+          Array.isArray(records) ? records : plots.value,
+          overviewData?.plots || [],
+          plots.value
+        ));
+        const ordered = replace_plots_in_order(next, { commitOrder: false });
+        replace_ref_array(plots, ordered);
+        selected_plot.value = ordered.find((plot) => plot.plotId === selected_plot.value?.plotId) || ordered[0] || null;
+        advice_selected_plot.value = ordered.find((plot) => plot.plotId === advice_selected_plot.value?.plotId) || ordered[0] || null;
+      };
+      if (results[1]?.status === 'timeout') {
+        Promise.resolve(jobs[1]).then((value) => applyLatePlotResponse(value, overview)).catch(() => {});
+      }
+      if (results[2]?.status === 'timeout') {
+        Promise.resolve(jobs[2]).then((value) => applyLatePlotResponse(plots.value, value)).catch(() => {});
+      }
       return true;
     };
 
@@ -3956,9 +3993,16 @@ const app = createApp({
         crop_pack_catalog = Array.isArray(packs) ? packs : [];
         const farmId = session_user?.farmIds?.find((id) => id !== '*') || farms[0]?.farmId || '';
         const selectedFarm = farms.find((item) => item.farmId === farmId) || farms[0] || {};
-        const cards = new Map((overview?.plots || []).map((card) => [String(card.plotId), card]));
+        // Only discard the existing snapshot when both plot facts and the
+        // overview completed. A transient empty/failed response must not
+        // make the farmer workspace lose its last usable plot cards.
+        const previousPlots = plotsResult.status === 'fulfilled'
+          && overviewResult.status === 'fulfilled'
+          ? []
+          : (plots.value || []);
+        const mergedPlotRecords = mergeOverviewPlotRecords(rawPlots, overview?.plots || [], previousPlots);
         const batchMap = new Map((batches || []).map((batch) => [String(batch.plotId), batch]));
-        let normalizedPlots = (rawPlots || [])
+        let normalizedPlots = (mergedPlotRecords || [])
           .map((plot) => {
             const batch = batchMap.get(String(plot.plotId)) || {};
             const normalized = normalizePlot({
@@ -3966,7 +4010,7 @@ const app = createApp({
               stageCode: plot.stageCode || batch.stageCode,
               stageLabel: plot.stageLabel || batch.stageLabel,
               cropPackVersion: plot.cropPackVersion || batch.cropPackVersion
-            }, cards.get(String(plot.plotId)) || {});
+            }, {});
             return { ...normalized, healthScore: compute_plot_health_score(normalized) };
           })
           .filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');

@@ -91,3 +91,22 @@ test('工作台固定使用系统默认字体、主登录页保留仿宋并保�
   assert.match(loginStyle, /font-family:\s*"Times New Roman",\s*FangSong,\s*STFangsong,\s*"FangSong_GB2312",\s*"仿宋",\s*serif/);
   assert.match(login, /assets\/brand\/agriloop-logo\.png/);
 });
+
+test('三角色界面回归修复保持中文、键盘可达和精度一致', () => {
+  const farmerHtml = readFileSync(join(webRoot, 'farmer.html'), 'utf8');
+  const farmerScript = readFileSync(join(webRoot, 'js', 'farmer.js'), 'utf8');
+  const adminScript = readFileSync(join(webRoot, 'js', 'app.js'), 'utf8');
+  const sysadminHtml = readFileSync(join(webRoot, 'sysadmin.html'), 'utf8');
+  const sysadminScript = readFileSync(join(webRoot, 'js', 'sysadmin.js'), 'utf8');
+
+  assert.match(farmerHtml, /<button v-if="!nav\.is_footer" type="button"[\s\S]*?:aria-current=/);
+  assert.match(farmerHtml, /<button v-if="nav\.is_footer" type="button"[\s\S]*?:aria-current=/);
+  assert.match(farmerHtml, /chart\.quality\.statusLabel/);
+  assert.doesNotMatch(farmerHtml, /\{\{\s*chart\.quality\.status\s*\}\}/);
+  assert.match(farmerScript, /statusLabel:\s*metricStatusLabel\(quality\.status \|\| metric\.status \|\| 'UNKNOWN'\)/);
+  assert.match(farmerScript, /soilMoistureTrendPerHour:[^\n]*step:\s*\.01/);
+  assert.match(adminScript, /soilMoistureTrendPerHour:[^\n]*step:\s*\.01/);
+  assert.match(sysadminHtml, /admin-account-create-modal" role="dialog" aria-modal="true" aria-labelledby="createUserDialogTitle"/);
+  assert.match(sysadminHtml, /aria-label="关闭创建用户窗口"/);
+  assert.match(sysadminScript, /handleCreateUserDialogKeydown/);
+});

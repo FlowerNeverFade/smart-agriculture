@@ -92,6 +92,27 @@ paths:
         '403': {$ref: '#/components/responses/Forbidden'}
         '409': {description: 其他设备已更新顺序，需重新读取}
         '503': {description: 数据库不可用，写入未保存}
+  /api/v1/users/me/preferences/farm-admin-workspace:
+    get:
+      tags: [farm]
+      description: 返回当前农场管理员在指定授权农场的地块排列顺序；配置按账号与农场隔离，新增或停用地块会稳定合并。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQueryRequired'}
+      responses:
+        '200': {description: 当前农场管理员工作台地块顺序}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [farm]
+      description: 保存当前农场管理员在指定授权农场的地块排列顺序；使用 expectedRevision 防止多设备静默覆盖。
+      parameters:
+        - {$ref: '#/components/parameters/FarmIdQueryRequired'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/FarmAdminWorkspacePreferenceUpdateRequest'}}}}
+      responses:
+        '200': {description: 地块顺序已保存}
+        '400': {description: 地块顺序格式或数量无效}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '409': {description: 其他设备已更新顺序，需重新读取}
+        '503': {description: 数据库不可用，写入未保存}
   /api/v1/system/status:
     get: {tags: [management], responses: {'200': {description: 依赖状态}}}
   /api/v1/system/ai-mode:
@@ -861,6 +882,22 @@ components:
         revision: {type: integer, minimum: 0}
         updatedAt: {type: string, format: date-time, nullable: true}
     FarmerWorkspacePreferenceUpdateRequest:
+      type: object
+      required: [plotOrder, expectedRevision]
+      properties:
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        expectedRevision: {type: integer, minimum: 0}
+    FarmAdminWorkspacePreference:
+      type: object
+      required: [userId, farmId, scope, plotOrder, revision]
+      properties:
+        userId: {type: string}
+        farmId: {type: string}
+        scope: {type: string, enum: [FARM_ADMIN_WORKSPACE]}
+        plotOrder: {type: array, items: {type: string}, maxItems: 500}
+        revision: {type: integer, minimum: 0}
+        updatedAt: {type: string, format: date-time, nullable: true}
+    FarmAdminWorkspacePreferenceUpdateRequest:
       type: object
       required: [plotOrder, expectedRevision]
       properties:

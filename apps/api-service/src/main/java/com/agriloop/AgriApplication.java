@@ -786,49 +786,103 @@ class AgriStore {
      * 20-plot dashboard needlessly parse hundreds of thousands of records.
      * A null result asks the engine to use the bounded in-memory fallback.
      */
-    Map<String, Map<String, Object>> latestMetricWindow(String plotId, Instant latestFrom, Instant to,
-                                                        Instant activeRealFrom, Instant qualityFrom) {
+    Map<String, Map<String, Map<String, Object>>> latestMetricWindows(Collection<String> plotIds,
+                                                                        Instant latestFrom, Instant to,
+                                                                        Instant activeRealFrom, Instant qualityFrom) {
         if (!databaseReady || !postgres) return null;
-        String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
+        List<String> ids = new ArrayList<>(new LinkedHashSet<>(plotIds == null ? List.of() : plotIds.stream()
+                .filter(Objects::nonNull)
+                .map(String::valueOf)
+                .filter(id -> !id.isBlank())
+                .toList()));
+        if (ids.isEmpty()) return Map.of();
         try {
-            List<Map<String, Object>> newest = jdbc.query(
-                    "WITH metrics(metric) AS (VALUES "
-                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
-                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
-                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
-                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
-                            + "WHERE plot_id=? AND metric=m.metric AND event_ts>=? AND event_ts<=? "
-                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
-                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(latestFrom), TimestampParser.sql(to));
-            List<Map<String, Object>> activeReal = jdbc.query(
-                    "WITH metrics(metric) AS (VALUES "
-                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
-                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
-                            + "SELECT t." + columns.replace(",", ",t.") + " FROM metrics m "
-                            + "CROSS JOIN LATERAL (SELECT " + columns + " FROM telemetry "
-                            + "WHERE plot_id=? AND metric=m.metric AND source_mode='REAL' AND event_ts>=? AND event_ts<=? "
-                            + "ORDER BY event_ts DESC,event_id DESC LIMIT 1) t",
-                    (rs, rowNum) -> readTelemetryRow(rs), plotId, TimestampParser.sql(activeRealFrom), TimestampParser.sql(to));
-            Map<String, Long> validCounts = new HashMap<>();
-            List<Map.Entry<String, Long>> countRows = jdbc.query(
-                    "WITH metrics(metric) AS (VALUES "
-                            + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
-                            + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) "
-                            + "SELECT m.metric,COALESCE(window.valid_count,0) AS valid_count FROM metrics m "
-                            + "LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE quality_status<>'BAD') AS valid_count "
-                            + "FROM (SELECT quality_status FROM telemetry WHERE plot_id=? AND metric=m.metric "
-                            + "AND event_ts>=? AND event_ts<=? ORDER BY event_ts DESC,event_id DESC LIMIT 120) recent) window ON TRUE",
-                    (rs, rowNum) -> Map.entry(rs.getString("metric"), rs.getLong("valid_count")),
-                    plotId, TimestampParser.sql(qualityFrom), TimestampParser.sql(to));
-            countRows.forEach(entry -> validCounts.put(entry.getKey(), entry.getValue()));
-            Map<String, Map<String, Object>> result = new LinkedHashMap<>();
-            for (Map<String, Object> event : newest) result.put(Jsons.text(event, "metric", ""), event);
-            // A fresh hardware reading is authoritative even when a simulator
-            // sample arrives a few milliseconds later.
-            for (Map<String, Object> event : activeReal) result.put(Jsons.text(event, "metric", ""), event);
-            result.forEach((metric, event) -> event.put("_validSamples", validCounts.getOrDefault(metric, 0L)));
+            Map<String, Map<String, Map<String, Object>>> result = new LinkedHashMap<>();
+            String plotValues = String.join(",", Collections.nCopies(ids.size(), "(?)"));
+            String columns = "event_id,farm_id,plot_id,device_id,metric,metric_value,unit,event_ts,"
+                    + "quality_status,quality_json,scenario_id,branch_id,source_mode,provenance,data_origin";
+            String pairs = "(VALUES " + plotValues + ") p(plot_id) CROSS JOIN (VALUES "
+                    + "('SOIL_MOISTURE'),('AIR_TEMPERATURE'),('AIR_HUMIDITY'),('LIGHT'),('CO2'),('PH'),"
+                    + "('WATER_LEVEL'),('RAINFALL'),('NITROGEN'),('PHOSPHORUS'),('POTASSIUM')) m(metric)";
+            // Keep each probe bounded by the composite index.  The previous
+            // DISTINCT ON query sorted every matching row in a 48-hour window,
+            // which became several seconds once the telemetry table grew past
+            // six million records.
+            String latestSql = "SELECT p.plot_id,m.metric,l.* FROM " + pairs
+                    + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
+                    + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 1) l ON TRUE";
+            List<Object> latestArgs = new ArrayList<>(ids);
+            latestArgs.add(TimestampParser.sql(latestFrom));
+            latestArgs.add(TimestampParser.sql(to));
+            jdbc.query(latestSql, (rs, rowNum) -> {
+                Map<String, Object> event = readTelemetryRow(rs);
+                String plotId = Jsons.text(event, "plotId", "");
+                String metric = Jsons.text(event, "metric", "");
+                if (!plotId.isBlank() && !metric.isBlank()) {
+                    result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
+                }
+                return event;
+            }, latestArgs.toArray());
+
+            // A fresh REAL sample wins over simulation regardless of which
+            // source produced the newest event.  This is intentionally a
+            // separate indexed probe so a physical device never gets hidden
+            // by a high-frequency simulator stream.
+            String realSql = "SELECT p.plot_id,m.metric,l.* FROM " + pairs
+                    + " JOIN LATERAL (SELECT " + columns + " FROM telemetry t "
+                    + "WHERE t.plot_id=p.plot_id AND t.metric=m.metric AND t.source_mode='REAL' "
+                    + "AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 1) l ON TRUE";
+            List<Object> realArgs = new ArrayList<>(ids);
+            realArgs.add(TimestampParser.sql(activeRealFrom));
+            realArgs.add(TimestampParser.sql(to));
+            try {
+                jdbc.query(realSql, (rs, rowNum) -> {
+                    Map<String, Object> event = readTelemetryRow(rs);
+                    String plotId = Jsons.text(event, "plotId", "");
+                    String metric = Jsons.text(event, "metric", "");
+                    if (!plotId.isBlank() && !metric.isBlank()) {
+                        result.computeIfAbsent(plotId, ignored -> new LinkedHashMap<>()).put(metric, event);
+                    }
+                    return event;
+                }, realArgs.toArray());
+            } catch (Exception ignored) {
+                // The latest indexed sample is still a valid overview even if
+                // the optional REAL-source arbitration query is unavailable.
+            }
+
+            String qualitySql = "SELECT p.plot_id,p.metric,COALESCE(recent.valid_samples,0) AS valid_samples FROM " + pairs
+                    + " LEFT JOIN LATERAL (SELECT COUNT(*) FILTER (WHERE sample.quality_status<>'BAD') AS valid_samples "
+                    + "FROM (SELECT t.quality_status FROM telemetry t WHERE t.plot_id=p.plot_id "
+                    + "AND t.metric=m.metric AND t.event_ts>=? AND t.event_ts<=? "
+                    + "ORDER BY t.event_ts DESC,t.event_id DESC LIMIT 120) sample) recent ON TRUE";
+            List<Object> qualityArgs = new ArrayList<>(ids);
+            qualityArgs.add(TimestampParser.sql(qualityFrom));
+            qualityArgs.add(TimestampParser.sql(to));
+            try {
+                jdbc.query(qualitySql, (rs, rowNum) -> {
+                    String plotId = rs.getString("plot_id");
+                    String metric = rs.getString("metric");
+                    Map<String, Object> event = result.getOrDefault(plotId, Map.of()).get(metric);
+                    if (event != null) event.put("_validSamples", rs.getLong("valid_samples"));
+                    return event;
+                }, qualityArgs.toArray());
+            } catch (Exception ignored) {
+                // Completeness is advisory; retain the latest values and use
+                // a zero count when the optional quality window is unavailable.
+            }
+            result.values().forEach(byMetric -> byMetric.values().forEach(event -> event.putIfAbsent("_validSamples", 0L)));
             return result;
         } catch (Exception ignored) { return null; }
+    }
+
+    Map<String, Map<String, Object>> latestMetricWindow(String plotId, Instant latestFrom, Instant to,
+                                                        Instant activeRealFrom, Instant qualityFrom) {
+        Map<String, Map<String, Map<String, Object>>> windows = latestMetricWindows(
+                List.of(plotId), latestFrom, to, activeRealFrom, qualityFrom);
+        if (windows == null) return null;
+        return windows.getOrDefault(plotId, new LinkedHashMap<>());
     }
 
     void logEvent(String type, Map<String, Object> payload) {
@@ -1585,6 +1639,7 @@ class AgriEngine {
     private static final Set<String> SELF_REGISTRATION_ROLES = Set.of("FARMER", "FARM_ADMIN");
     private static final String FARMER_WORKSPACE_PREFERENCE_TYPE = "user-preference";
     private static final String FARMER_WORKSPACE_PREFERENCE_SCOPE = "FARMER_WORKSPACE";
+    private static final String FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE = "FARM_ADMIN_WORKSPACE";
     private static final int FARMER_WORKSPACE_MAX_PLOTS = 500;
     private static final Set<String> WORK_ORDER_STATUSES = Set.of("OPEN", "ASSIGNED", "IN_PROGRESS", "SUBMITTED", "REJECTED", "DONE", "CANCELLED");
     private static final Set<String> TERMINAL_WORK_ORDER_STATUSES = Set.of("DONE", "CANCELLED");
@@ -1665,6 +1720,12 @@ class AgriEngine {
     private final AtomicLong redisPublished = new AtomicLong();
     private final AtomicLong redisFailures = new AtomicLong();
     private final Object simulationConfigLock = new Object();
+    // Scenario metadata is identical for every plot.  Building it inside
+    // each overview card used to resolve the crop context five times per
+    // card, including repeated crop-batch reads, which made a large farm
+    // overview spend seconds on data that never changes per request.
+    private volatile List<Map<String, Object>> simulationScenarioCatalogCache;
+    private volatile Map<String, Map<String, Object>> simulationParameterLimitsCache;
     private final Object resourcePlanLock = new Object();
     private static final Set<String> RESOURCE_PLAN_STATUSES = Set.of("DRAFT", "CONFIRMED", "RUNNING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED", "EXPIRED");
     private static final Set<String> RESOURCE_ALLOCATION_TERMINAL = Set.of("COMPLETED", "PARTIAL", "FAILED", "BLOCKED", "FALLBACK_REQUIRED", "CANCELLED");
@@ -1949,12 +2010,24 @@ class AgriEngine {
     }
 
     List<Map<String, Object>> simulationScenarioCatalog() {
-        return List.of(
+        List<Map<String, Object>> cached = simulationScenarioCatalogCache;
+        if (cached == null) {
+            synchronized (this) {
+                cached = simulationScenarioCatalogCache;
+                if (cached == null) {
+                    cached = List.of(
                 simulationScenario("NORMAL", "☀️", "正常运行", "标准环境参数运行", "#1e8e3e"),
                 simulationScenario("DROUGHT", "🏜️", "干旱场景", "持续高温、低湿和土壤失水", "#d97706"),
                 simulationScenario("HEAVY_RAIN", "🌧️", "暴雨场景", "强降雨、低温和土壤快速增湿", "#2563eb"),
                 simulationScenario("SENSOR_DRIFT", "📡", "传感器漂移", "物理环境正常，读数随时间偏移", "#7c3aed"),
                 simulationScenario("DEVICE_OFFLINE", "🔌", "设备离线", "按比例模拟采集设备间歇断连", "#6b7280"));
+                    simulationScenarioCatalogCache = cached;
+                }
+            }
+        }
+        // Return detached maps so a controller or test cannot mutate the
+        // process-wide metadata cache through a response object.
+        return cached.stream().map(item -> Jsons.copy(mapper, item)).toList();
     }
 
     private Map<String, Object> simulationScenario(String code, String emoji, String label, String description, String color) {
@@ -1975,8 +2048,18 @@ class AgriEngine {
         Map<String, Object> record = simulationRecord(plotId);
         Map<String, Object> view = Jsons.copy(mapper, record);
         view.put("scenarioCatalog", simulationScenarioCatalog());
-        Map<String, Object> limits = new LinkedHashMap<>();
-        SIMULATION_PARAMETER_LIMITS.forEach((key, value) -> limits.put(key, Map.of("min", value[0], "max", value[1])));
+        Map<String, Map<String, Object>> limits = simulationParameterLimitsCache;
+        if (limits == null) {
+            synchronized (this) {
+                limits = simulationParameterLimitsCache;
+                if (limits == null) {
+                    Map<String, Map<String, Object>> built = new LinkedHashMap<>();
+                    SIMULATION_PARAMETER_LIMITS.forEach((key, value) -> built.put(key, Map.of("min", value[0], "max", value[1])));
+                    limits = Map.copyOf(built);
+                    simulationParameterLimitsCache = limits;
+                }
+            }
+        }
         view.put("parameterLimits", limits);
         view.put("hardware", hardwareBindingForPlot(plotId));
         view.put("simulatorDevice", simulatorDeviceForPlot(plotId));
@@ -2198,8 +2281,13 @@ class AgriEngine {
     }
 
     private Map<String, Object> hardwareBindingForPlot(String plotId) {
-        List<Map<String, Object>> hardware = store.list("device").stream()
+        return hardwareBindingForDevices(store.list("device").stream()
                 .filter(device -> plotId.equals(Jsons.text(device, "plotId", "")))
+                .toList());
+    }
+
+    private Map<String, Object> hardwareBindingForDevices(Collection<Map<String, Object>> devices) {
+        List<Map<String, Object>> hardware = (devices == null ? List.<Map<String, Object>>of() : devices).stream()
                 .filter(device -> isHardwareDevice(device))
                 .sorted(Comparator.comparing((Map<String, Object> device) -> Jsons.instant(device.get("lastSeen"), Instant.EPOCH)).reversed())
                 .toList();
@@ -2590,6 +2678,120 @@ class AgriEngine {
         return result;
     }
 
+    synchronized Map<String, Object> farmAdminWorkspacePreference(String farmId, UserPrincipal principal) {
+        String selectedFarmId = requireFarmAdminWorkspaceFarm(farmId, principal);
+        return farmAdminWorkspacePreferenceView(principal, selectedFarmId,
+                store.find(FARMER_WORKSPACE_PREFERENCE_TYPE, farmAdminWorkspacePreferenceId(principal, selectedFarmId)));
+    }
+
+    synchronized Map<String, Object> updateFarmAdminWorkspacePreference(Map<String, Object> input, String farmId,
+                                                                          UserPrincipal principal) {
+        String selectedFarmId = requireFarmAdminWorkspaceFarm(farmId, principal);
+        Map<String, Object> current = store.find(FARMER_WORKSPACE_PREFERENCE_TYPE,
+                farmAdminWorkspacePreferenceId(principal, selectedFarmId));
+        long currentRevision = current == null ? 0 : Jsons.whole(current, "revision", 0);
+        Map<String, Object> request = input == null ? Map.of() : input;
+        if (!(request.get("plotOrder") instanceof Collection<?>)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID", "plotOrder 必须是数组");
+        }
+        long expectedRevision = requiredFarmerWorkspaceRevision(request);
+        if (expectedRevision != currentRevision) {
+            throw new ApiException(HttpStatus.CONFLICT, "FARM_ADMIN_WORKSPACE_PREFERENCE_CONFLICT", "管理员地块顺序已在其他设备更新，请刷新后重试");
+        }
+
+        List<Map<String, Object>> availablePlots = activeFarmAdminPlots(selectedFarmId, principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<String> requestedOrder = normalizePreferenceOrder(request.get("plotOrder"));
+        if (requestedOrder.size() > FARMER_WORKSPACE_MAX_PLOTS) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "FARM_ADMIN_WORKSPACE_PREFERENCE_INVALID", "地块顺序数量超过上限");
+        }
+
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        for (String plotId : requestedOrder) {
+            if (availableIds.contains(plotId)) {
+                order.add(plotId);
+                continue;
+            }
+            Map<String, Object> plot = store.find("plot", plotId);
+            if (plot != null && (!selectedFarmId.equals(Jsons.text(plot, "farmId", "")) || !canAccessPlot(principal, plotId))) {
+                throw new ApiException(HttpStatus.FORBIDDEN, "PLOT_FORBIDDEN", "无权设置该地块顺序");
+            }
+        }
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Instant now = Instant.now();
+        Map<String, Object> saved = new LinkedHashMap<>();
+        saved.put("preferenceId", farmAdminWorkspacePreferenceId(principal, selectedFarmId));
+        saved.put("userId", principal.userId);
+        saved.put("farmId", selectedFarmId);
+        saved.put("scope", FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE);
+        saved.put("plotOrder", new ArrayList<>(order));
+        saved.put("revision", currentRevision + 1);
+        saved.put("updatedAt", now.toString());
+        saved.put("updatedBy", principal.userId);
+        store.saveDurably(FARMER_WORKSPACE_PREFERENCE_TYPE, farmAdminWorkspacePreferenceId(principal, selectedFarmId), saved,
+                "FARM_ADMIN_WORKSPACE_PREFERENCE_PERSISTENCE_UNAVAILABLE", "管理员地块顺序数据库不可用，当前仅可查看", "管理员地块顺序保存失败");
+        return farmAdminWorkspacePreferenceView(principal, selectedFarmId, saved);
+    }
+
+    private String requireFarmAdminWorkspaceFarm(String farmId, UserPrincipal principal) {
+        if (principal == null || !principal.isFarmAdmin()) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_ADMIN_WORKSPACE_PREFERENCE_FORBIDDEN", "只有农场管理员可以设置农场地块顺序");
+        }
+        String selectedFarmId = String.valueOf(farmId == null ? "" : farmId).trim();
+        if (selectedFarmId.isBlank()) {
+            selectedFarmId = principal.farmIds.stream().filter(id -> !"*".equals(id)).findFirst().orElse("");
+        }
+        if (selectedFarmId.isBlank() || !principal.canAccessFarm(selectedFarmId)) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "当前账号没有该农场权限");
+        }
+        return selectedFarmId;
+    }
+
+    private String farmAdminWorkspacePreferenceId(UserPrincipal principal, String farmId) {
+        return principal.userId + ":" + FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE + ":" + farmId;
+    }
+
+    private List<Map<String, Object>> activeFarmAdminPlots(String farmId, UserPrincipal principal) {
+        return store.list("plot").stream()
+                .filter(plot -> farmId.equals(Jsons.text(plot, "farmId", "")))
+                .filter(plot -> canAccessPlot(principal, Jsons.text(plot, "plotId", "")))
+                .sorted(Comparator.comparing(plot -> Jsons.text(plot, "plotId", "")))
+                .toList();
+    }
+
+    private Map<String, Object> farmAdminWorkspacePreferenceView(UserPrincipal principal, String farmId,
+                                                                  Map<String, Object> stored) {
+        List<Map<String, Object>> availablePlots = activeFarmAdminPlots(farmId, principal);
+        Set<String> availableIds = availablePlots.stream()
+                .map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+        LinkedHashSet<String> order = new LinkedHashSet<>();
+        normalizePreferenceOrder(stored == null ? null : stored.get("plotOrder")).forEach(id -> {
+            if (availableIds.contains(id)) order.add(id);
+        });
+        availablePlots.forEach(plot -> {
+            String plotId = Jsons.text(plot, "plotId", "");
+            if (!plotId.isBlank()) order.add(plotId);
+        });
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("userId", principal.userId);
+        result.put("farmId", farmId);
+        result.put("scope", FARM_ADMIN_WORKSPACE_PREFERENCE_SCOPE);
+        result.put("plotOrder", new ArrayList<>(order));
+        result.put("revision", stored == null ? 0 : Jsons.whole(stored, "revision", 0));
+        result.put("updatedAt", stored == null ? null : stored.get("updatedAt"));
+        return result;
+    }
+
     Map<String, Object> overview(String farmId, UserPrincipal principal) {
         if (principal != null && farmId != null && !principal.canAccessFarm(farmId)) {
             throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
@@ -2599,16 +2801,45 @@ class AgriEngine {
                 .filter(plot -> !"INACTIVE".equalsIgnoreCase(Jsons.text(plot, "status", "ACTIVE")))
                 .filter(plot -> principal == null || canAccessPlot(principal, Jsons.text(plot, "plotId", "")))
                 .toList();
+        List<Map<String, Object>> alertRecords = store.list("alert");
+        Map<String, List<Map<String, Object>>> alertsByPlot = new HashMap<>();
+        alertRecords.forEach(alert -> alertsByPlot
+                .computeIfAbsent(Jsons.text(alert, "plotId", ""), ignored -> new ArrayList<>())
+                .add(alert));
+        List<Map<String, Object>> workOrderRecords = store.list("work-order");
+        Map<String, List<Map<String, Object>>> workOrdersByPlot = new HashMap<>();
+        workOrderRecords.forEach(order -> workOrdersByPlot
+                .computeIfAbsent(Jsons.text(order, "plotId", ""), ignored -> new ArrayList<>())
+                .add(order));
+        Map<String, List<Map<String, Object>>> devicesByPlot = new HashMap<>();
+        store.list("device").forEach(device -> devicesByPlot
+                .computeIfAbsent(Jsons.text(device, "plotId", ""), ignored -> new ArrayList<>())
+                .add(device));
+        Map<String, List<Map<String, Object>>> batchesByPlot = new HashMap<>();
+        store.list("crop-batch").forEach(batch -> batchesByPlot
+                .computeIfAbsent(Jsons.text(batch, "plotId", ""), ignored -> new ArrayList<>())
+                .add(batch));
+        List<String> plotIds = plots.stream().map(plot -> Jsons.text(plot, "plotId", ""))
+                .filter(id -> !id.isBlank()).toList();
+        Instant now = Instant.now();
+        Map<String, Map<String, Map<String, Object>>> metricWindows = store.latestMetricWindows(
+                plotIds,
+                now.minus(48, ChronoUnit.HOURS),
+                now.plusSeconds(1),
+                now.minus(Math.max(1, properties.getRealSourceTimeoutSeconds()), ChronoUnit.SECONDS),
+                now.minus(30, ChronoUnit.MINUTES));
         List<Map<String, Object>> cards = new ArrayList<>();
         int activeAlerts = 0, pendingTasks = 0;
         for (Map<String, Object> plot : plots) {
             String plotId = Jsons.text(plot, "plotId", "");
-            Map<String, Object> latest = latestMetrics(plotId);
-            List<Map<String, Object>> alerts = store.list("alert").stream().filter(a -> plotId.equals(Jsons.text(a, "plotId", "")) &&
+            Map<String, Object> latest = metricWindows == null
+                    ? latestMetrics(plotId)
+                    : new LinkedHashMap<>(metricWindows.getOrDefault(plotId, Map.of()));
+            List<Map<String, Object>> alerts = alertsByPlot.getOrDefault(plotId, List.of()).stream().filter(a ->
                     !Set.of("RESOLVED", "CLOSED").contains(Jsons.text(a, "status", ""))).toList();
             activeAlerts += alerts.size();
-            pendingTasks += store.list("work-order").stream().filter(w -> plotId.equals(Jsons.text(w, "plotId", "")) &&
-                    !Set.of("DONE", "CANCELLED").contains(Jsons.text(w, "status", ""))).toList().size();
+            pendingTasks += workOrdersByPlot.getOrDefault(plotId, List.of()).stream().filter(w ->
+                    !Set.of("DONE", "CANCELLED").contains(Jsons.text(w, "status", ""))).count();
             Map<String, Object> card = new LinkedHashMap<>(); card.put("plotId", plotId); card.put("name", plot.get("name"));
             card.put("cropCode", plot.get("cropCode")); card.put("riskLevel", plot.get("riskLevel")); card.put("latest", latest); card.put("alerts", alerts.size());
             String facilityType = PlotFacility.forPlot(plot);
@@ -2621,14 +2852,18 @@ class AgriEngine {
             card.put("lastOperationSummary", Jsons.text(plot, "lastOperationSummary", ""));
             card.put("operationRevision", Jsons.whole(plot, "operationRevision", 0));
             card.put("operationHistory", plot.getOrDefault("operationHistory", List.of()));
-            Map<String, Object> device = deviceForPlot(plotId); card.put("device", device);
-            Map<String, Object> simulation = plotSimulationView(plotId);
+            List<Map<String, Object>> plotDevices = devicesByPlot.getOrDefault(plotId, List.of());
+            Map<String, Object> device = selectPreferredDevice(plotDevices); card.put("device", device);
+            // The overview only needs the active scenario and hardware
+            // binding. The full simulation editor catalog is loaded on the
+            // plot detail page, so avoid rebuilding it for every card.
+            Map<String, Object> simulation = simulationRecord(plotId);
             card.put("simulation", Map.of(
                     "scenario", simulation.get("scenario"),
                     "parameters", simulation.get("parameters"),
                     "revision", simulation.get("revision")));
-            card.put("hardware", simulation.get("hardware"));
-            Map<String, Object> cropContext = plotCropContext(plotId);
+            card.put("hardware", hardwareBindingForDevices(plotDevices));
+            Map<String, Object> cropContext = plotCropContext(plotId, batchesByPlot);
             Map<String, Object> health = cropPackCatalog.scoreHealth(cropContext, latest, device, Jsons.text(plot, "riskLevel", "UNKNOWN"));
             card.put("stageCode", cropContext.get("stageCode"));
             card.put("stageLabel", cropContext.get("stageLabel"));
@@ -2740,10 +2975,17 @@ class AgriEngine {
     }
 
     private Map<String, Object> plotCropContext(String plotId) {
+        return plotCropContext(plotId, null);
+    }
+
+    private Map<String, Object> plotCropContext(String plotId,
+                                                 Map<String, List<Map<String, Object>>> batchesByPlot) {
         Map<String, Object> plot = store.find("plot", plotId);
         Map<String, Object> plotMap = plot == null ? Map.of() : plot;
-        Map<String, Object> batch = store.list("crop-batch").stream()
-                .filter(b -> plotId.equals(Jsons.text(b, "plotId", "")))
+        Collection<Map<String, Object>> batches = batchesByPlot == null
+                ? store.list("crop-batch")
+                : batchesByPlot.getOrDefault(plotId, List.of());
+        Map<String, Object> batch = batches.stream()
                 .findFirst().orElse(Map.of());
         String crop = Jsons.text(plotMap, "cropCode", Jsons.text(batch, "cropCode", "tomato"));
         String version = Jsons.text(batch, "cropPackVersion", Jsons.text(plotMap, "cropPackVersion", ""));
@@ -3423,9 +3665,8 @@ class AgriEngine {
         return store.telemetry(plotId, metric == null ? null : metric.toUpperCase(Locale.ROOT), f, t, limit);
     }
 
-    private Map<String, Object> deviceForPlot(String plotId) {
-        List<Map<String, Object>> candidates = store.list("device").stream()
-                .filter(d -> plotId.equals(Jsons.text(d, "plotId", "")))
+    private Map<String, Object> selectPreferredDevice(Collection<Map<String, Object>> devices) {
+        List<Map<String, Object>> candidates = (devices == null ? List.<Map<String, Object>>of() : devices).stream()
                 .map(d -> Jsons.copy(mapper, d)).collect(Collectors.toCollection(ArrayList::new));
         // A plot can briefly have an old device record and a newly bound or
         // reconnected device record. A bound REAL device is authoritative even
@@ -3441,6 +3682,12 @@ class AgriEngine {
                     .compareTo(Jsons.instant(Jsons.text(left, "lastSeen", ""), Instant.EPOCH));
         });
         return candidates.isEmpty() ? new LinkedHashMap<>() : candidates.get(0);
+    }
+
+    private Map<String, Object> deviceForPlot(String plotId) {
+        return selectPreferredDevice(store.list("device").stream()
+                .filter(d -> plotId.equals(Jsons.text(d, "plotId", "")))
+                .toList());
     }
 
     private boolean isHardwareDevice(Map<String, Object> device) {
@@ -10090,6 +10337,19 @@ class AgriController {
     ResponseEntity<?> updateFarmerWorkspacePreference(@RequestBody(required = false) Map<String, Object> body,
                                                       Authentication authentication) {
         return ok(engine.updateFarmerWorkspacePreference(body == null ? Map.of() : body, principal(authentication)));
+    }
+
+    @GetMapping("/users/me/preferences/farm-admin-workspace")
+    ResponseEntity<?> farmAdminWorkspacePreference(@RequestParam(required = false) String farmId,
+                                                   Authentication authentication) {
+        return ok(engine.farmAdminWorkspacePreference(farmId, principal(authentication)));
+    }
+
+    @PutMapping("/users/me/preferences/farm-admin-workspace")
+    ResponseEntity<?> updateFarmAdminWorkspacePreference(@RequestParam(required = false) String farmId,
+                                                         @RequestBody(required = false) Map<String, Object> body,
+                                                         Authentication authentication) {
+        return ok(engine.updateFarmAdminWorkspacePreference(body == null ? Map.of() : body, farmId, principal(authentication)));
     }
 
     @GetMapping("/auth/roles")

@@ -374,6 +374,23 @@ test('farmer message center shows unread dots and marks only opened messages as 
   assert.match(css, /\.farmer-message-unread-dot\s*\{[\s\S]*?background:\s*var\(--g-danger/);
 });
 
+test('farmer navigation resets the shared main scroll position for each logical page', async () => {
+  const source = await readFile(new URL('../js/farmer.js', import.meta.url), 'utf8');
+  const helperStart = source.indexOf('const reset_farmer_main_scroll =');
+  const navigateStart = source.indexOf('const navigate =', helperStart);
+  assert.ok(helperStart >= 0 && navigateStart > helperStart, 'farmer scroll reset helper should precede navigation');
+  const helper = source.slice(helperStart, navigateStart);
+  assert.match(helper, /querySelector\(['"]#farmer_app \.farmer-main['"]\)/);
+  assert.match(helper, /main\.scrollTop\s*=\s*0/);
+  const navigate = source.slice(navigateStart, source.indexOf('const apply_farmer_hash', navigateStart));
+  assert.match(navigate, /const view_changed\s*=\s*current_view\.value\s*!==\s*next_view;/);
+  assert.match(navigate, /current_view\.value\s*=\s*next_view;[\s\S]*?if \(view_changed\) reset_farmer_main_scroll\(\);/);
+  assert.ok(
+    navigate.lastIndexOf('if (view_changed) reset_farmer_main_scroll();') > navigate.indexOf('window.location.hash ='),
+    'farmer scroll reset should run after hash route updates'
+  );
+});
+
 test('farmer can read plot simulation strategy and forecast curve', async () => {
   const service = new ApiService();
   service.saveSession({ mode: 'demo', user: { userId: 'demo-farmer', username: 'farmer', role: 'FARMER', permissions: ['plots:read'] } });
@@ -467,4 +484,19 @@ test('farmer assistant is a primary route with drawer history and safe action af
   assert.match(answerRule, /word-break:\s*normal/);
   assert.match(api, /agriloop-workspace-session/);
   assert.match(api, /_demoSaveWorkspaceState/);
+});
+
+test('role shells constrain overflow and desktop farmer collapse releases the sidebar column', async () => {
+  const [sharedCss, farmerCss, farmerHtml] = await Promise.all([
+    readFile(new URL('../css/style.css', import.meta.url), 'utf8'),
+    readFile(new URL('../css/farmer.css', import.meta.url), 'utf8'),
+    readFile(new URL('../farmer.html', import.meta.url), 'utf8')
+  ]);
+
+  assert.match(sharedCss, /html\s*\{\s*overflow:\s*clip/);
+  assert.match(sharedCss, /\.g-body\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0[\s\S]*?overflow:\s*clip/);
+  assert.match(sharedCss, /\.g-main\s*\{[\s\S]*?min-width:\s*0[\s\S]*?min-height:\s*0/);
+  assert.match(farmerCss, /@media\s*\(min-width:\s*761px\)[\s\S]*?#farmer_app \.farmer-sidebar\.collapsed\s*\{[\s\S]*?width:\s*0\s*!important[\s\S]*?pointer-events:\s*none/);
+  assert.match(farmerCss, /#farmer_app \.farmer-sidebar\.collapsed \+ \.farmer-main\s*\{[\s\S]*?flex:\s*1 1 0%[\s\S]*?max-width:\s*none/);
+  assert.match(farmerHtml, /css\/farmer\.css\?v=20260902-message-read-v3/);
 });

@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-ai-direct-v2';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-manager-plot-order-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
@@ -6,15 +6,15 @@ import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
-import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-v5911-zhcn-v1';
+import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
 import {
   agentResponseSource,
   agentResponseText,
@@ -27,6 +27,7 @@ import {
   mapCropPack,
   mapStrategyCandidate,
   mapTimelineRecord,
+  mergeOverviewPlotRecords,
   normalizePlot,
   relativeTime,
   alertStatusLabel,
@@ -39,6 +40,7 @@ import {
   provenanceLabel,
   resourceTypeLabel,
   scenarioLabel,
+  simulationScenarioSummary,
   serviceNameLabel,
   serviceStatusLabel,
   modeLabel,
@@ -46,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-ai-direct-v2';
+} from './live-data.js?v=20260902-performance-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();
@@ -446,19 +448,11 @@ function adminOverviewFromLive({ overview, plots, systemStatus, simulator, alert
   const simulatorSettings = simulator.settings && typeof simulator.settings === 'object' ? simulator.settings : simulator;
   const sampleIntervalSeconds = Number(simulator.sampleIntervalSeconds ?? simulatorSettings.sampleIntervalSeconds ?? 20);
   const timeScale = Number(simulator.timeScale ?? simulatorSettings.timeScale ?? DEFAULT_SIMULATION_TIME_SCALE);
-  const scenarios = [...new Set((plots || overview.plots || [])
-    .map((plot) => plot?.simulation?.scenario || plot?.simulation?.scenarioId || plot?.scenario)
-    .filter(Boolean)
-    .map((scenario) => String(scenario).toUpperCase()))];
-  // 当前场景兜底链：simulator.status → plots 的 simulation → 运行历史最新 RUNNING（或最新一条）。
-  // 后端 simulator/status 不返回场景字段（只有 running/采样/流速/事件数），运行历史里
-  // RUNNING 记录的 scenarioId 是模拟器正在执行的场景，避免 Live 下显示“未设置”。
-  const historyRuns = Array.isArray(simulator.history) ? simulator.history : [];
-  const runningHistoryScenario = historyRuns
-    .find((run) => liveStatusValue(run.status, '') === 'RUNNING' && (run.scenario || run.scenarioId))
-    ?.scenario || historyRuns.find((run) => liveStatusValue(run.status, '') === 'RUNNING')?.scenarioId
-    || historyRuns[0]?.scenario || historyRuns[0]?.scenarioId || '';
-  const scenario = simulator.scenario || simulator.scenarioId || (scenarios.length === 1 ? scenarios[0] : scenarios.length > 1 ? `多场景（${scenarios.length}）` : '') || runningHistoryScenario || '';
+  const scenario = simulationScenarioSummary({
+    plots,
+    overviewPlots: overview.plots,
+    simulator
+  });
   return {
     uptime: formatUptime(systemStatus.uptimeSeconds ?? overview.uptimeSeconds ?? -1) || (systemStatus.mode ? '运行中' : '—'),
     apiVersion: systemStatus.apiVersion || overview.apiVersion || '—',
@@ -663,7 +657,9 @@ const AdminOverviewView = {
         const numeric = Number(plot.healthScore);
         if (Number.isFinite(numeric)) return Math.round(numeric <= 1 ? numeric * 100 : numeric);
       }
-      if (props.state.sessionMode === 'live') return 0;
+      // A live card without a health result is still loading (or its source
+      // timed out). Do not turn that unknown state into a misleading 0%.
+      if (props.state.sessionMode === 'live') return null;
       if (plot.status === 'HEALTHY') return 92;
       if (plot.status === 'WARNING') return 64;
       if (plot.status === 'CRITICAL') return 28;
@@ -884,8 +880,10 @@ const AdminSimulatorView = {
     const plots = computed(() => props.state.allPlots || props.state.plots || []);
     // 场景名规范化：与后端 canonicalSimulationScenario 一致（STORM/HEAVYRAIN → HEAVY_RAIN）
     const canonicalScenario = (scenario) => {
-      const s = String(scenario || 'NORMAL').toUpperCase().replace('-', '_');
-      return s === 'STORM' || s === 'HEAVYRAIN' ? 'HEAVY_RAIN' : s;
+      const s = String(scenario || 'NORMAL').trim().toUpperCase().replaceAll('-', '_');
+      if (s === 'STORM' || s === 'HEAVYRAIN') return 'HEAVY_RAIN';
+      if (s === 'OFFLINE') return 'DEVICE_OFFLINE';
+      return PLOT_SIMULATION_SCENARIOS.some((item) => item.code === s) ? s : 'NORMAL';
     };
 
     watch(plots, (newPlots) => {
@@ -894,13 +892,18 @@ const AdminSimulatorView = {
         const existing = plotScenarios.value.find(ex => ex.plotId === p.plotId);
         const persistedScenario = props.state.sessionMode !== 'live' ? (demoScenarios[p.plotId] || '') : '';
         const configuredScenario = canonicalScenario(persistedScenario || p.simulation?.scenario || p.simulation?.scenarioId || p.scenario || 'NORMAL');
+        const currentScenario = existing
+          ? canonicalScenario(existing.currentScenario || existing.scenario || configuredScenario)
+          : configuredScenario;
         return {
           plotId: p.plotId,
           name: p.name || p.plotName || p.plotId,
           cropName: p.cropName || p.cropCode || '未知作物',
-          scenario: existing ? existing.scenario : configuredScenario,
+          currentScenario,
           // 初始场景值：保存时只提交有变更的地块
-          originalScenario: existing ? existing.originalScenario : configuredScenario,
+          originalScenario: existing?.originalScenario || currentScenario,
+          // 空白表示不注入，避免打开页面就把正常场景误认为待应用变更
+          injectionScenario: existing?.injectionScenario || '',
           enabled: existing ? existing.enabled : (p.simulation?.enabled !== false)
         };
       });
@@ -911,19 +914,18 @@ const AdminSimulatorView = {
     const filteredPlotScenarios = computed(() => {
       const list = plotScenarios.value || [];
       if (scenarioFilter.value === 'all') return list;
-      return list.filter(plot => plot.scenario === scenarioFilter.value);
+      return list.filter(plot => plot.currentScenario === scenarioFilter.value);
     });
 
     const globalScenario = computed({
       get: () => {
-        if (!plotScenarios.value || plotScenarios.value.length === 0) return '';
-        const first = plotScenarios.value[0].scenario;
-        return plotScenarios.value.every(p => p.scenario === first) ? first : '';
+        const scoped = filteredPlotScenarios.value || [];
+        if (scoped.length === 0) return '';
+        const first = scoped[0].injectionScenario || '';
+        return scoped.every(p => (p.injectionScenario || '') === first) ? first : '';
       },
       set: (val) => {
-        if (val) {
-          plotScenarios.value.forEach(p => p.scenario = val);
-        }
+        filteredPlotScenarios.value.forEach(p => p.injectionScenario = val || '');
       }
     });
     const adminDualTrackModal = ref(false);
@@ -940,10 +942,15 @@ const AdminSimulatorView = {
       const interval = Number.isFinite(rawInterval) ? Math.max(5, Math.min(60, Math.round(rawInterval))) : 20;
       const scale = Number.isFinite(rawScale) ? Math.max(1, Math.min(288, rawScale)) : DEFAULT_SIMULATION_TIME_SCALE;
       const statusCode = String(status.status || '').toUpperCase();
+      const scenario = simulationScenarioSummary({
+        plots: props.state.allPlots || props.state.plots,
+        overviewPlots: props.state.overview?.plots,
+        simulator: status
+      });
       props.state.adminOverview.simulator = {
         ...previous,
         running: statusCode ? statusCode === 'RUNNING' : status.running === true,
-        scenario: status.scenario || status.scenarioId || '',
+        scenario: scenario || previous.scenario || '',
         eventsEmitted: Number(status.eventsEmitted ?? status.eventCount ?? previous.eventsEmitted ?? 0),
         sampleIntervalSeconds: interval,
         timeScale: scale
@@ -991,18 +998,24 @@ const AdminSimulatorView = {
       if (simBusy.value) return;
       // 批量应用只针对当前筛选显示的地块，且只提交场景有变更的
       const targets = (filteredPlotScenarios.value || []).filter((plot) => plot && plot.plotId);
-      const changed = targets.filter((plot) => canonicalScenario(plot.scenario) !== canonicalScenario(plot.originalScenario));
       if (targets.length === 0) { toast('当前筛选下没有可保存的地块场景配置', 'error'); return; }
+      const pending = targets.filter((plot) => String(plot.injectionScenario || '').trim());
+      pending.filter((plot) => canonicalScenario(plot.injectionScenario) === canonicalScenario(plot.currentScenario))
+        .forEach((plot) => { plot.injectionScenario = ''; });
+      const changed = pending.filter((plot) => String(plot.injectionScenario || '').trim());
       if (changed.length === 0) { toast('当前筛选下的地块场景均无变更', 'info'); return; }
       simBusy.value = true;
       let updated = 0;
       const failures = [];
       try {
         for (const plot of changed) {
-          const scenario = canonicalScenario(plot.scenario);
+          const scenario = canonicalScenario(plot.injectionScenario);
           try {
-            await api.updatePlotSimulation(plot.plotId, { scenario });
-            plot.originalScenario = scenario;
+            const saved = await api.updatePlotSimulation(plot.plotId, { scenario });
+            const appliedScenario = canonicalScenario(saved?.scenario || scenario);
+            plot.currentScenario = appliedScenario;
+            plot.originalScenario = appliedScenario;
+            plot.injectionScenario = '';
             updated += 1;
           } catch (error) {
             failures.push(`${plot.name || plot.plotId}: ${error.message || '保存失败'}`);
@@ -1024,7 +1037,7 @@ const AdminSimulatorView = {
       simBusy.value = true;
       try {
         const nextEnabled = !target.enabled;
-        await api.updatePlotSimulation(target.plotId, { scenario: target.scenario, enabled: nextEnabled });
+        await api.updatePlotSimulation(target.plotId, { scenario: target.currentScenario, enabled: nextEnabled });
         target.enabled = nextEnabled;
         toast(`${target.name || target.plotId} 模拟${nextEnabled ? '已启动' : '已停止'}`);
       } catch (error) {
@@ -1127,6 +1140,9 @@ const AdminSimulatorView = {
       { id: 'SENSOR_DRIFT', icon: '📡', label: '传感器漂移', desc: '读数逐步偏移' },
       { id: 'DEVICE_OFFLINE', icon: '🔌', label: '设备离线', desc: '部分设备断连' }
     ];
+    const scenarioInjectionOptions = scenarios.map((scenario) => scenario.id === 'NORMAL'
+      ? { ...scenario, label: '恢复正常', desc: '解除异常注入，恢复标准环境' }
+      : scenario);
 
     watch(() => props.state.simulatorStatus, (status) => {
       if (status && typeof status === 'object') syncSimulator(status);
@@ -1175,7 +1191,7 @@ const AdminSimulatorView = {
     };
 
     return {
-      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioFilter, filteredPlotScenarios,
+      simRunning, simBusy, sampleInterval, timeScale, plotScenarios, globalScenario, scenarios, scenarioInjectionOptions, scenarioFilter, filteredPlotScenarios,
       adminDualTrackModal, selectedDualTrackScenario, openDualTrack,
       adminReplayModal, replayEvents, selectedReplayScenario, openReplay, toggleSimulator, saveSimulatorSettings, commitSampleInterval, commitTimeScale, applyPlotScenarios, togglePlotSimulation,
       simPageSize, simPageSizeOptions, simPage, simJumpInput, simTotalRecords, simTotalPages, simPageRecords,
@@ -1477,6 +1493,8 @@ const AdminSettingsView = {
     const roleFilter = ref('all');
     const logFilter = ref('all');
     const showCreateUser = ref(false);
+    const createUserDialog = ref(null);
+    let createUserTrigger = null;
     const newUser = ref({ username: '', password: '', role: 'FARMER', farmId: 'farm-demo', plotIds: [], authorizationCode: '' });
     const createdRecovery = ref(null);
     const userActionBusy = ref(false);
@@ -1494,14 +1512,48 @@ const AdminSettingsView = {
         farmId: accountFarms.value[0]?.farmId || 'farm-demo', plotIds: [], authorizationCode: ''
       };
     };
-    const openCreateUser = () => {
+    const createUserFocusableSelector = 'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [href], [tabindex]:not([tabindex="-1"])';
+    const openCreateUser = async (event) => {
+      createUserTrigger = event?.currentTarget || document.activeElement;
       resetUserDraft();
       showCreateUser.value = true;
+      await nextTick();
+      createUserDialog.value?.querySelector(createUserFocusableSelector)?.focus();
     };
-    const closeCreateUser = () => {
+    const closeCreateUser = async () => {
       if (userActionBusy.value) return;
+      const trigger = createUserTrigger;
       showCreateUser.value = false;
       resetUserDraft();
+      createUserTrigger = null;
+      await nextTick();
+      if (trigger?.isConnected) trigger.focus();
+    };
+    const handleCreateUserDialogKeydown = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        closeCreateUser();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const dialog = createUserDialog.value;
+      const focusable = Array.from(dialog?.querySelectorAll(createUserFocusableSelector) || [])
+        .filter(element => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog?.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     watch(() => newUser.value.role, (role) => {
       newUser.value.plotIds = [];
@@ -1739,10 +1791,10 @@ const AdminSettingsView = {
     const userPage = usePagination(filteredUsers);
     const logPage = usePagination(filteredLogs);
     return {
-      activeTab, roleFilter, logFilter, showCreateUser, newUser, createdRecovery, userActionBusy,
+      activeTab, roleFilter, logFilter, showCreateUser, createUserDialog, newUser, createdRecovery, userActionBusy,
       accountFarms, availableAccountPlots, pendingUserAction, draftAiMode, filteredUsers, filteredLogs,
       logFilterOptions, auditActionLabel,
-      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, createUser, copyCreatedRecovery,
+      permissionMatrix, formatPerm, openCreateUser, closeCreateUser, handleCreateUserDialogKeydown, createUser, copyCreatedRecovery,
       deleteUser, toggleUser, confirmUserAction, saveAiMode, localizedStatusLabel, displayText,
       isCurrentUser, isProtectedAccount,
       aiStatus, aiStatusText, aiStatusClass, degradeNote,
@@ -2191,49 +2243,82 @@ const app = createApp({
             .flatMap((result) => result.value || []));
       }
       const entries = Object.entries(jobs);
+      const partialResults = {};
+      const applySnapshot = (results) => {
+        if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
+        const previousPlots = fulfilled('overview') && fulfilled('plots')
+          ? []
+          : (state.value.allPlots || state.value.plots || []);
+        const plotsReadSucceeded = fulfilled('plots');
+        const fetchedFacts = fulfilled('plots') && Array.isArray(results.plots.value) ? results.plots.value : [];
+        const refreshedDevices = fulfilled('devices') ? results.devices.value : state.value.devices;
+        if (fulfilled('overview')) state.value.overview = overview;
+        if (hasFarmPlotRefresh(results)) {
+          const fetchedIds = new Set(fetchedFacts.map(item => String(item?.plotId || item?.id || '')));
+          const now = Date.now();
+          const pending = [...pendingFarmPlots.entries()].filter(([, entry]) => entry?.farmId === farmId);
+          pending.forEach(([plotId, entry]) => {
+            if ((plotsReadSucceeded && fetchedIds.has(String(plotId))) || Number(entry?.expiresAt || 0) <= now) pendingFarmPlots.delete(plotId);
+          });
+          const pendingFacts = pending
+            .filter(([plotId]) => pendingFarmPlots.has(plotId) && !fetchedIds.has(String(plotId)))
+            .map(([, entry]) => entry.plot);
+          const merged = mergeFarmPlots(
+            [...fetchedFacts, ...pendingFacts],
+            overview?.plots || [],
+            refreshedDevices || [],
+            previousPlots
+          );
+          state.value.allPlots = merged;
+          state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
+        }
+        if (fulfilled('workOrders')) state.value.workOrders = results.workOrders.value || [];
+        if (fulfilled('alerts')) state.value.alerts = results.alerts.value || [];
+        if (fulfilled('devices')) state.value.devices = results.devices.value || [];
+        if (fulfilled('members')) state.value.farmMembers = results.members.value || [];
+        if (fulfilled('batches')) state.value.cropBatches = results.batches.value || [];
+        if (fulfilled('ledgers')) state.value.valueLedgers = results.ledgers.value || [];
+        if (fulfilled('cropPacks')) {
+          state.value.cropPacks = results.cropPacks.value || [];
+          state.value.cropPackDetails = state.value.cropPacks;
+        }
+        if (fulfilled('adminLearningCases')) state.value.adminLearningCases = results.adminLearningCases.value || [];
+        if (fulfilled('simulator')) state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
+        if (fulfilled('inspections')) {
+          state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
+        }
+        state.value.feedItems = buildLiveFeedItems({
+          alerts: state.value.alerts,
+          workOrders: state.value.workOrders,
+          inspections: state.value.inspections,
+          plots: state.value.allPlots
+        });
+        if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
+      };
+      entries.forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+          applySnapshot(partialResults);
+        });
+      });
       const settled = await Promise.all(entries.map(async ([key, promise]) => [
         key,
         await settleWithinBudget(promise, budgetMs)
       ]));
-      if (!isLatestFarmResponse(version, contextRequestVersion, farmId, state.value.adminContext.farmId)) return;
       const results = Object.fromEntries(settled);
+      Object.assign(partialResults, results);
+      applySnapshot(partialResults);
       const failed = [];
       const timedOut = [];
       Object.entries(results).forEach(([key, result]) => {
         if (result.status === 'rejected') failed.push(`${key}: ${result.reason?.message || '读取失败'}`);
         if (result.status === 'timeout') timedOut.push(key);
       });
-      const overview = results.overview?.status === 'fulfilled' ? results.overview.value : state.value.overview;
-      const facts = results.plots?.status === 'fulfilled' ? results.plots.value : state.value.allPlots;
-      if (results.overview?.status === 'fulfilled') state.value.overview = overview || {};
-      if (hasFarmPlotRefresh(results)) {
-        const refreshedDevices = results.devices?.status === 'fulfilled' ? results.devices.value : state.value.devices;
-        const merged = mergeFarmPlots(Array.isArray(facts) ? facts : [], overview?.plots || [], refreshedDevices || []);
-        state.value.allPlots = merged;
-        state.value.plots = merged.filter(plot => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
-      }
-      if (results.workOrders?.status === 'fulfilled') state.value.workOrders = results.workOrders.value || [];
-      if (results.alerts?.status === 'fulfilled') state.value.alerts = results.alerts.value || [];
-      if (results.devices?.status === 'fulfilled') state.value.devices = results.devices.value || [];
-      if (results.members?.status === 'fulfilled') state.value.farmMembers = results.members.value || [];
-      if (results.batches?.status === 'fulfilled') state.value.cropBatches = results.batches.value || [];
-      if (results.ledgers?.status === 'fulfilled') state.value.valueLedgers = results.ledgers.value || [];
-      if (results.cropPacks?.status === 'fulfilled') {
-        state.value.cropPacks = results.cropPacks.value || [];
-        state.value.cropPackDetails = state.value.cropPacks;
-      }
-      if (results.adminLearningCases?.status === 'fulfilled') state.value.adminLearningCases = results.adminLearningCases.value || [];
-      if (results.simulator?.status === 'fulfilled') state.value.simulatorStatus = results.simulator.value || state.value.simulatorStatus;
-      if (results.inspections?.status === 'fulfilled') {
-        state.value.inspections = Array.from(new Map((results.inspections.value || []).map((record) => [record.inspectionId, record])).values());
-      }
-      state.value.feedItems = buildLiveFeedItems({
-        alerts: state.value.alerts,
-        workOrders: state.value.workOrders,
-        inspections: state.value.inspections,
-        plots: state.value.allPlots
-      });
-      if (selectedPlotId.value && !state.value.allPlots.some(plot => plot.plotId === selectedPlotId.value)) selectedPlotId.value = '';
       if (failed.length && announceErrors) showToast(`部分正式数据读取失败：${failed.join('；')}`, 'error');
       return { timedOut: timedOut.length > 0, failed: failed.length > 0 };
     };
@@ -2264,67 +2349,110 @@ const app = createApp({
           return { ...(status || {}), requestLatencyMs: Math.round(performance.now() - startedAt) };
         })()
       };
-      const settled = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
-        key,
-        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
-      ])).then(Object.fromEntries);
-      const applied = settled.then((results) => {
+      // Keep one mutable snapshot so fast responses can paint immediately and
+      // slower overview cards can enrich the same plots when they arrive.
+      const partialResults = {};
+      const applySnapshot = (results) => {
         if (version !== systemRequestVersion || state.value.currentUser?.role !== 'SYSTEM_ADMIN') return;
-        const failures = Object.entries(results)
-          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
-          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
-        const farms = results.farms?.status === 'fulfilled' ? (results.farms.value || []) : state.value.farms;
-        const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : (state.value.overview || {});
+        const fulfilled = (key) => results[key]?.status === 'fulfilled';
+        const farms = fulfilled('farms') ? (results.farms.value || []) : (state.value.farms || []);
+        const overview = fulfilled('overview') ? (results.overview.value || {}) : (state.value.overview || {});
         const cards = Array.isArray(overview.plots) ? overview.plots : [];
-        const cardMap = new Map(cards.map((card) => [String(card.plotId), card]));
-        const rawPlots = results.plots?.status === 'fulfilled'
-          ? (results.plots.value || [])
+        const rawPlots = fulfilled('plots') ? (results.plots.value || []) : [];
+        const previousPlots = fulfilled('plots') && fulfilled('overview')
+          ? []
           : (state.value.allPlots || state.value.plots || []);
-        const plots = (rawPlots.length ? rawPlots : cards).map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+        const plots = mergeOverviewPlotRecords(rawPlots, cards, previousPlots);
         const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
         const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
-        const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : state.value.workOrders;
-        const alerts = results.alerts?.status === 'fulfilled' ? (results.alerts.value || []) : state.value.alerts;
-        const simulator = results.simulator?.status === 'fulfilled' ? results.simulator.value : state.value.simulatorStatus;
-        const systemStatus = results.systemStatus?.status === 'fulfilled' ? results.systemStatus.value : {};
+        const workOrders = fulfilled('workOrders') ? (results.workOrders.value || []) : (state.value.workOrders || []);
+        const alerts = fulfilled('alerts') ? (results.alerts.value || []) : (state.value.alerts || []);
+        const simulator = fulfilled('simulator') ? results.simulator.value : (state.value.simulatorStatus || {});
+        const systemStatus = fulfilled('systemStatus') ? (results.systemStatus.value || {}) : {};
         const cardDevices = cards.map((card) => card?.device && ({
           ...card.device,
           farmId: card.device.farmId || plots.find((plot) => String(plot.plotId) === String(card.plotId))?.farmId || '',
           plotId: card.device.plotId || card.plotId
         })).filter(Boolean);
         const devices = cardDevices.length ? cardDevices : (state.value.devices || []);
-        state.value.farms = farms;
-        state.value.overview = overview;
+        state.value.farms = fulfilled('farms') ? farms : state.value.farms;
+        state.value.overview = fulfilled('overview') ? overview : state.value.overview;
         state.value.plots = plots.filter((plot) => String(plot.status || 'ACTIVE').toUpperCase() !== 'INACTIVE');
         state.value.allPlots = plots;
-        state.value.workOrders = workOrders || [];
-        state.value.alerts = alerts || [];
+        state.value.workOrders = fulfilled('workOrders') ? workOrders : state.value.workOrders;
+        state.value.alerts = fulfilled('alerts') ? alerts : state.value.alerts;
         state.value.devices = devices;
         state.value.adminGlobalPlots = plots.map((plot) => mapAdminPlot(plot, farmMap));
         state.value.adminDevices = devices.map((device) => mapAdminDevice(device, plotMap));
-        state.value.adminAlerts = (alerts || []).map((alert) => mapAdminAlert(alert, plotMap));
-        state.value.simulatorStatus = simulator || state.value.simulatorStatus;
-        state.value.adminOverview = adminOverviewFromLive({
-            overview,
-            plots: typeof plots !== "undefined" ? plots : state.value.allPlots,
-            systemStatus,
-          simulator: simulator || {},
-          alerts: alerts || [],
+        state.value.adminAlerts = alerts.map((alert) => mapAdminAlert(alert, plotMap));
+        state.value.simulatorStatus = fulfilled('simulator') ? simulator : state.value.simulatorStatus;
+        const recentEvents = alerts.slice(0, 8).map((alert, index) => ({
+          id: `alert:${alert.alertId || alert.id || index}`,
+          category: 'alert', icon: 'warning',
+          title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
+          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
+        }));
+        const nextOverview = adminOverviewFromLive({
+          overview,
+          plots,
+          systemStatus,
+          simulator,
+          alerts,
           devices,
-          recentEvents: (alerts || []).slice(0, 8).map((alert, index) => ({
-            id: `alert:${alert.alertId || alert.id || index}`,
-            category: 'alert', icon: 'warning',
-            title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
-            time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
-            traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
-          }))
+          recentEvents
         });
+        // Partial application must not erase service health or SSE events that
+        // were already visible while the status/alert request is still pending.
+        if (!fulfilled('systemStatus') && state.value.adminOverview?.services) {
+          nextOverview.services = state.value.adminOverview.services;
+          nextOverview.uptime = state.value.adminOverview.uptime || nextOverview.uptime;
+          nextOverview.apiVersion = state.value.adminOverview.apiVersion || nextOverview.apiVersion;
+        }
+        if (!fulfilled('alerts') && !fulfilled('overview') && state.value.adminOverview?.recentEvents?.length) {
+          nextOverview.recentEvents = state.value.adminOverview.recentEvents;
+        }
+        state.value.adminOverview = { ...state.value.adminOverview, ...nextOverview };
         state.value.feedItems = buildLiveFeedItems({ alerts: state.value.alerts, workOrders: state.value.workOrders, inspections: state.value.inspections, plots: state.value.allPlots });
+      };
+
+      // Attach handlers to the original requests as well as the budgeted
+      // wrappers.  A request that misses the 2.2s first-paint budget can still
+      // fill in metrics and health later without waiting for all other jobs.
+      Object.entries(jobs).forEach(([key, promise]) => {
+        Promise.resolve(promise).then((value) => {
+          partialResults[key] = { status: 'fulfilled', value };
+          applySnapshot(partialResults);
+        }).catch((reason) => {
+          partialResults[key] = { status: 'rejected', reason };
+        });
+      });
+      const budgeted = Promise.all(Object.entries(jobs).map(async ([key, promise]) => [
+        key,
+        await settleWithinBudget(promise, CORE_REQUEST_BUDGET_MS)
+      ])).then(Object.fromEntries);
+      const applied = budgeted.then((results) => {
+        Object.assign(partialResults, results);
+        applySnapshot(partialResults);
+        const failures = Object.entries(results)
+          .filter(([, result]) => ['rejected', 'timeout'].includes(result.status))
+          .map(([key, result]) => `${key}: ${result.reason?.message || '读取失败'}`);
         if (failures.length && announceErrors && failures.length === Object.keys(jobs).length) {
           showToast(`平台核心数据暂不可用：${failures.join('；')}`, 'error');
         }
+        return results;
       });
-      return { visible: waitForBootstrapBudget(applied), settled: applied };
+      const settled = Promise.all(Object.entries(jobs).map(([key, promise]) =>
+        Promise.resolve(promise).then(
+          (value) => [key, { status: 'fulfilled', value }],
+          (reason) => [key, { status: 'rejected', reason }]
+        )
+      )).then((entries) => {
+        Object.assign(partialResults, Object.fromEntries(entries));
+        applySnapshot(partialResults);
+        return Object.fromEntries(entries);
+      });
+      return { visible: waitForBootstrapBudget(applied), settled };
     };
 
     const refreshSystemAdminData = async ({ announceErrors = true } = {}) => {
@@ -2364,8 +2492,10 @@ const app = createApp({
       const rawPlots = results.plots?.status === 'fulfilled' ? (results.plots.value || []) : [];
       const overview = results.overview?.status === 'fulfilled' ? (results.overview.value || {}) : {};
       const overviewCards = Array.isArray(overview.plots) ? overview.plots : [];
-      const cardMap = new Map(overviewCards.map((card) => [String(card.plotId), card]));
-      const plots = rawPlots.map((plot) => normalizePlot(plot, cardMap.get(String(plot.plotId)) || {}));
+      const previousPlots = results.plots?.status === 'fulfilled' && results.overview?.status === 'fulfilled'
+        ? []
+        : (state.value.allPlots || state.value.plots || []);
+      const plots = mergeOverviewPlotRecords(rawPlots, overviewCards, previousPlots);
       const plotMap = new Map(plots.map((plot) => [String(plot.plotId), plot]));
       const farmMap = new Map(farms.map((farm) => [String(farm.farmId), farm]));
       const workOrders = results.workOrders?.status === 'fulfilled' ? (results.workOrders.value || []) : [];
