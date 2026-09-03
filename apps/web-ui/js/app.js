@@ -700,6 +700,50 @@ const DashboardView = {
       return String(card?.dataset?.plotCard || '');
     };
     let plotDragHandle = null;
+    let plotDragPreview = null;
+    let plotDragPreviewLayer = null;
+    const removePlotDragPreview = () => {
+      plotDragPreviewLayer?.remove();
+      plotDragPreview = null;
+      plotDragPreviewLayer = null;
+    };
+    const createPlotDragPreview = (sourceCard) => {
+      removePlotDragPreview();
+      if (!sourceCard?.cloneNode) return;
+      const rect = sourceCard.getBoundingClientRect();
+      const appRoot = document.querySelector('#app');
+      const layer = document.createElement('div');
+      layer.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-layer`;
+      layer.setAttribute('aria-hidden', 'true');
+      const preview = sourceCard.cloneNode(true);
+      preview.classList.remove('is-dragging', 'is-drop-target', 'has-open-menu');
+      preview.classList.add('manager-plot-drag-preview');
+      preview.removeAttribute('role');
+      preview.removeAttribute('tabindex');
+      preview.removeAttribute('aria-label');
+      preview.removeAttribute('aria-describedby');
+      preview.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
+      preview.querySelectorAll('.manager-plot-menu').forEach((element) => element.remove());
+      preview.querySelectorAll('button, [tabindex]').forEach((element) => {
+        element.setAttribute('tabindex', '-1');
+        element.setAttribute('aria-hidden', 'true');
+      });
+      preview.style.left = `${Math.round(rect.left)}px`;
+      preview.style.top = `${Math.round(rect.top)}px`;
+      preview.style.width = `${Math.round(rect.width)}px`;
+      preview.style.height = `${Math.round(rect.height)}px`;
+      preview.style.setProperty('--manager-plot-preview-x', '0px');
+      preview.style.setProperty('--manager-plot-preview-y', '0px');
+      layer.appendChild(preview);
+      document.body.appendChild(layer);
+      plotDragPreview = preview;
+      plotDragPreviewLayer = layer;
+    };
+    const movePlotDragPreview = (offsetX, offsetY) => {
+      if (!plotDragPreview) return;
+      plotDragPreview.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      plotDragPreview.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+    };
     const removePlotDragListeners = () => {
       window.removeEventListener('pointermove', handlePlotPointerMove);
       window.removeEventListener('pointerup', handlePlotPointerUp);
@@ -711,16 +755,20 @@ const DashboardView = {
         try { plotDragHandle.releasePointerCapture?.(plotDragState.value.pointerId); } catch { /* already released */ }
       }
       plotDragHandle = null;
+      removePlotDragPreview();
       resetPlotDragState();
     };
     function handlePlotPointerMove(event) {
       if (!plotDragState.value.active || plotDragState.value.pointerId !== event.pointerId) return;
       event.preventDefault();
+      const offsetX = event.clientX - plotDragState.value.originX;
+      const offsetY = event.clientY - plotDragState.value.originY;
+      movePlotDragPreview(offsetX, offsetY);
       plotDragState.value = {
         ...plotDragState.value,
         targetPlotId: plotTargetAtPoint(event.clientX, event.clientY),
-        offsetX: event.clientX - plotDragState.value.originX,
-        offsetY: event.clientY - plotDragState.value.originY
+        offsetX,
+        offsetY
       };
     }
     function handlePlotPointerUp(event) {
@@ -754,16 +802,10 @@ const DashboardView = {
         offsetY: 0
       };
       plotDragHandle?.setPointerCapture?.(event.pointerId);
+      createPlotDragPreview(plotDragHandle?.closest?.('[data-plot-card]'));
       window.addEventListener('pointermove', handlePlotPointerMove, { passive: false });
       window.addEventListener('pointerup', handlePlotPointerUp);
       window.addEventListener('pointercancel', cancelPlotReorder);
-    };
-    const plotDragStyle = (plot) => {
-      if (!plotDragState.value.active || plotDragState.value.sourcePlotId !== String(plot?.plotId || '')) return null;
-      return {
-        '--manager-plot-drag-x': `${Math.round(plotDragState.value.offsetX)}px`,
-        '--manager-plot-drag-y': `${Math.round(plotDragState.value.offsetY)}px`
-      };
     };
     const handlePlotOrderKeydown = (event, plot) => {
       const currentOrder = plotIdsOf(visiblePlots.value);
@@ -1019,7 +1061,6 @@ const DashboardView = {
       plotDragState,
       startPlotReorder,
       cancelPlotReorder,
-      plotDragStyle,
       handlePlotOrderKeydown,
       devices,
       deviceOptions,

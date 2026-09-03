@@ -3031,13 +3031,32 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
 .role-farm-admin .manager-plot-drag-handle .ph { font-size: 16px; }
 .role-farm-admin .manager-plot-grid.is-reordering { user-select: none; }
 .role-farm-admin article.manager-plot-card.is-dragging {
-  z-index: 3;
-  opacity: .96;
-  transform: translate3d(var(--manager-plot-drag-x, 0), var(--manager-plot-drag-y, 0), 0) translateY(-7px) rotate(.25deg) scale(1.018);
-  border-color: color-mix(in srgb, var(--g-primary) 48%, var(--g-border));
-  box-shadow: 0 24px 44px rgba(29, 64, 47, .2), 0 8px 18px rgba(29, 64, 47, .14), 0 0 0 2px color-mix(in srgb, var(--g-primary) 16%, transparent);
+  opacity: .28;
+  transform: none;
+  border-color: color-mix(in srgb, var(--g-primary) 44%, var(--g-border));
+  border-style: dashed;
+  box-shadow: none;
   cursor: grabbing;
+}
+.manager-plot-drag-layer {
+  position: fixed;
+  z-index: 10000;
+  inset: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.manager-plot-drag-layer article.manager-plot-card.manager-plot-drag-preview {
+  position: fixed;
+  z-index: 1;
+  margin: 0;
+  opacity: .98;
+  transform: translate3d(var(--manager-plot-preview-x, 0), var(--manager-plot-preview-y, 0), 0) translateY(-9px) rotate(.3deg) scale(1.018);
+  border-color: color-mix(in srgb, var(--g-primary) 54%, var(--g-border));
+  box-shadow: 0 28px 56px rgba(29, 64, 47, .24), 0 10px 22px rgba(29, 64, 47, .16), 0 0 0 2px color-mix(in srgb, var(--g-primary) 18%, transparent);
+  cursor: grabbing;
+  pointer-events: none;
   will-change: transform;
+  transition: opacity 120ms ease, box-shadow 160ms ease;
 }
 .role-farm-admin article.manager-plot-card.is-drop-target {
   border-color: var(--g-primary) !important;
@@ -3051,8 +3070,9 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .role-farm-admin article.manager-plot-card.is-dragging {
-    transform: translate3d(var(--manager-plot-drag-x, 0), var(--manager-plot-drag-y, 0), 0);
+  .manager-plot-drag-layer article.manager-plot-card.manager-plot-drag-preview {
+    transform: translate3d(var(--manager-plot-preview-x, 0), var(--manager-plot-preview-y, 0), 0);
+    transition: none;
   }
   .role-farm-admin article.manager-plot-card.is-drop-target { animation: none; }
 }

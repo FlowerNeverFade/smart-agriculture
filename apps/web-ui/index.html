@@ -18,7 +18,7 @@
   <link rel="stylesheet" href="css/modules/admin-resource-planning.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-management.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/admin-market.css?v=20260902-v5911-zhcn-v1">
-  <link rel="stylesheet" href="css/modules/admin.css?v=20260903-v5917-admin-plot-order-v1">
+  <link rel="stylesheet" href="css/modules/admin.css?v=20260903-v5918-plot-drag-preview-v1">
   <link rel="stylesheet" href="css/modules/ai-chat-shared.css?v=20260902-v5911-zhcn-v1">
   <link rel="stylesheet" href="css/modules/workspace-settings-shared.css?v=20260902-v5911-zhcn-v1">
 
@@ -273,7 +273,6 @@
                    'is-drop-target': plotDragState.active && plotDragState.targetPlotId === plot.plotId
                  }]"
                  role="button" tabindex="0" :data-plot-card="plot.plotId"
-                 :style="plotDragStyle(plot)"
                  :aria-label="`查看${plot.name}二维详情`"
                  @click="openPlotDetail(plot, $event)"
                  @keydown.enter.prevent="openPlotDetail(plot, $event)"
@@ -1232,7 +1231,7 @@
     </div>
   </template>
 
-  <script type="module" src="js/app.js?v=20260903-v5917-admin-plot-order-v1"></script>
+  <script type="module" src="js/app.js?v=20260903-v5918-plot-drag-preview-v1"></script>
 
   <!-- ============== ADMIN TEMPLATES ============== -->
 

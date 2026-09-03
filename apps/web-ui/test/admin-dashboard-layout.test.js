@@ -32,7 +32,8 @@ test('farm overview summary keeps responsive wrapping and refreshes both style a
     /@media \(max-width:\s*520px\)[\s\S]*?\.manager-summary-strip,\s*#app\.role-farm-admin \.manager-summary-strip\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\);\s*\}/
   );
   assert.match(indexSource, /css\/style\.css\?v=20260903-v5917-admin-plot-order-v1/);
-  assert.match(indexSource, /css\/modules\/admin\.css\?v=20260903-v5917-admin-plot-order-v1/);
+  assert.match(indexSource, /css\/modules\/admin\.css\?v=20260903-v5918-plot-drag-preview-v1/);
+  assert.match(indexSource, /js\/app\.js\?v=20260903-v5918-plot-drag-preview-v1/);
 });
 
 test('farm overview uses compact three-column plot cards on wide screens', () => {
@@ -46,11 +47,13 @@ test('farm overview plot cards expose pointer and keyboard reordering without re
   assert.match(indexSource, /class="manager-plot-drag-handle"/);
   assert.match(indexSource, /@pointerdown\.stop="startPlotReorder\(\$event, plot\)"/);
   assert.match(indexSource, /@keydown="handlePlotOrderKeydown\(\$event, plot\)"/);
-  assert.match(indexSource, /:style="plotDragStyle\(plot\)"/);
   assert.match(indexSource, /@click="openPlotDetail\(plot, \$event\)"/);
   assert.match(appSource, /managerPlotOrderStorageKey/);
   assert.match(appSource, /window\.localStorage\.setItem\(plotOrderKey\.value/);
-  assert.match(appSource, /offsetX:\s*event\.clientX\s*-\s*plotDragState\.value\.originX/);
-  assert.match(adminStyleSource, /\.manager-plot-card\.is-dragging\s*\{[^}]*translate3d\(var\(--manager-plot-drag-x[^}]*box-shadow:/s);
+  assert.match(appSource, /createPlotDragPreview\(plotDragHandle\?\.closest\?\.\('\[data-plot-card\]'\)\)/);
+  assert.match(appSource, /movePlotDragPreview\(offsetX, offsetY\)/);
+  assert.match(appSource, /document\.body\.appendChild\(layer\)/);
+  assert.match(adminStyleSource, /\.manager-plot-drag-layer\s*\{[^}]*position:\s*fixed;[^}]*pointer-events:\s*none;/s);
+  assert.match(adminStyleSource, /\.manager-plot-drag-preview\s*\{[^}]*position:\s*fixed;[^}]*translate3d\(var\(--manager-plot-preview-x[^}]*box-shadow:/s);
   assert.match(adminStyleSource, /\.manager-plot-card\.is-drop-target\s*\{[^}]*animation:\s*manager-plot-drop-pulse/s);
 });
