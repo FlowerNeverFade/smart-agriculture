@@ -3044,6 +3044,14 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   inset: 0;
   pointer-events: none;
   overflow: visible;
+  background: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+.manager-plot-drag-context {
+  display: contents;
 }
 .manager-plot-drag-layer article.manager-plot-card.manager-plot-drag-preview {
   position: fixed;
@@ -3058,9 +3066,37 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   will-change: transform;
   transition: opacity 120ms ease, box-shadow 160ms ease;
 }
+.manager-plot-drag-target-badge {
+  position: fixed;
+  z-index: 2;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 7px 12px;
+  transform: translate3d(var(--manager-plot-preview-x, 0), var(--manager-plot-preview-y, 0), 0) translate(-50%, -16px) translateY(-100%);
+  border: 1px solid color-mix(in srgb, var(--g-text-secondary) 42%, transparent);
+  border-radius: 999px;
+  background: rgba(40, 51, 46, .9);
+  color: #fff;
+  box-shadow: 0 8px 22px rgba(22, 42, 32, .2);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  text-align: center;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+.manager-plot-drag-target-badge.has-target {
+  border-color: color-mix(in srgb, var(--g-primary) 68%, white);
+  background: color-mix(in srgb, var(--g-primary) 92%, #173f2d);
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--g-primary) 28%, transparent);
+}
 .role-farm-admin article.manager-plot-card.is-drop-target {
+  position: relative;
   border-color: var(--g-primary) !important;
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--g-primary) 20%, transparent), var(--admin-glass-shadow-raised) !important;
+  outline: 3px solid color-mix(in srgb, var(--g-primary) 34%, transparent);
+  outline-offset: 3px;
+  background: color-mix(in srgb, var(--g-primary-bg) 28%, var(--g-bg-surface));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--g-primary) 20%, transparent), var(--admin-glass-shadow-raised) !important;
   animation: manager-plot-drop-pulse .72s ease-in-out infinite alternate;
 }
 
@@ -3073,6 +3109,9 @@ html[data-surface-style="glass-soft"] .role-system-admin :is(.g-card, .admin-met
   .manager-plot-drag-layer article.manager-plot-card.manager-plot-drag-preview {
     transform: translate3d(var(--manager-plot-preview-x, 0), var(--manager-plot-preview-y, 0), 0);
     transition: none;
+  }
+  .manager-plot-drag-target-badge {
+    transform: translate3d(var(--manager-plot-preview-x, 0), var(--manager-plot-preview-y, 0), 0) translate(-50%, -16px) translateY(-100%);
   }
   .role-farm-admin article.manager-plot-card.is-drop-target { animation: none; }
 }

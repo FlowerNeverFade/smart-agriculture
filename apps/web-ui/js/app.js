@@ -702,10 +702,12 @@ const DashboardView = {
     let plotDragHandle = null;
     let plotDragPreview = null;
     let plotDragPreviewLayer = null;
+    let plotDragTargetBadge = null;
     const removePlotDragPreview = () => {
       plotDragPreviewLayer?.remove();
       plotDragPreview = null;
       plotDragPreviewLayer = null;
+      plotDragTargetBadge = null;
     };
     const createPlotDragPreview = (sourceCard) => {
       removePlotDragPreview();
@@ -713,11 +715,14 @@ const DashboardView = {
       const rect = sourceCard.getBoundingClientRect();
       const appRoot = document.querySelector('#app');
       const layer = document.createElement('div');
-      layer.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-layer`;
+      layer.className = 'manager-plot-drag-layer';
       layer.setAttribute('aria-hidden', 'true');
+      const previewContext = document.createElement('div');
+      previewContext.className = `${appRoot?.className || 'role-farm-admin'} manager-plot-drag-context`;
       const preview = sourceCard.cloneNode(true);
       preview.classList.remove('is-dragging', 'is-drop-target', 'has-open-menu');
       preview.classList.add('manager-plot-drag-preview');
+      preview.removeAttribute('data-plot-card');
       preview.removeAttribute('role');
       preview.removeAttribute('tabindex');
       preview.removeAttribute('aria-label');
@@ -734,15 +739,30 @@ const DashboardView = {
       preview.style.height = `${Math.round(rect.height)}px`;
       preview.style.setProperty('--manager-plot-preview-x', '0px');
       preview.style.setProperty('--manager-plot-preview-y', '0px');
-      layer.appendChild(preview);
+      const targetBadge = document.createElement('div');
+      targetBadge.className = 'manager-plot-drag-target-badge';
+      targetBadge.textContent = '拖到另一块地上';
+      targetBadge.style.left = `${Math.round(rect.left + (rect.width / 2))}px`;
+      targetBadge.style.top = `${Math.round(rect.top)}px`;
+      targetBadge.style.setProperty('--manager-plot-preview-x', '0px');
+      targetBadge.style.setProperty('--manager-plot-preview-y', '0px');
+      previewContext.appendChild(preview);
+      layer.appendChild(previewContext);
+      layer.appendChild(targetBadge);
       document.body.appendChild(layer);
       plotDragPreview = preview;
       plotDragPreviewLayer = layer;
+      plotDragTargetBadge = targetBadge;
     };
-    const movePlotDragPreview = (offsetX, offsetY) => {
+    const movePlotDragPreview = (offsetX, offsetY, targetName = '') => {
       if (!plotDragPreview) return;
       plotDragPreview.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
       plotDragPreview.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      if (!plotDragTargetBadge) return;
+      plotDragTargetBadge.style.setProperty('--manager-plot-preview-x', `${Math.round(offsetX)}px`);
+      plotDragTargetBadge.style.setProperty('--manager-plot-preview-y', `${Math.round(offsetY)}px`);
+      plotDragTargetBadge.textContent = targetName ? `放到「${targetName}」的位置` : '拖到另一块地上';
+      plotDragTargetBadge.classList.toggle('has-target', Boolean(targetName));
     };
     const removePlotDragListeners = () => {
       window.removeEventListener('pointermove', handlePlotPointerMove);
@@ -763,10 +783,12 @@ const DashboardView = {
       event.preventDefault();
       const offsetX = event.clientX - plotDragState.value.originX;
       const offsetY = event.clientY - plotDragState.value.originY;
-      movePlotDragPreview(offsetX, offsetY);
+      const targetPlotId = plotTargetAtPoint(event.clientX, event.clientY);
+      const targetPlot = visiblePlots.value.find((plot) => String(plot?.plotId || '') === targetPlotId);
+      movePlotDragPreview(offsetX, offsetY, targetPlot?.name || '');
       plotDragState.value = {
         ...plotDragState.value,
-        targetPlotId: plotTargetAtPoint(event.clientX, event.clientY),
+        targetPlotId,
         offsetX,
         offsetY
       };
