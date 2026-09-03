@@ -19,30 +19,33 @@ class LightBoostPersistenceTest {
 
     @Test
     void boostStateSurvivesTicksAndLiftsLightTelemetry() {
-        simulationEngine.applyLighting("plot-a01", 6000, 8 * 3600L);
+        double floor = 6000;
+        simulationEngine.applyLighting("plot-a01", floor, 8 * 3600L);
         SimulationEngine.PlotState before = simulationEngine.plotState("plot-a01");
-        assertThat(before.activeLightBoost).isEqualTo(6000.0);
+        assertThat(before.lightBoostFloor).isEqualTo(floor);
         assertThat(before.lightBoostUntil).isAfter(Instant.now());
 
         for (int i = 0; i < 3; i++) {
             simulationEngine.tickOnce();
             SimulationEngine.PlotState state = simulationEngine.plotState("plot-a01");
-            assertThat(state.activeLightBoost).as("tick %d boost", i).isEqualTo(6000.0);
+            assertThat(state.lightBoostFloor).as("tick %d floor", i).isEqualTo(floor);
             assertThat(state.lightBoostUntil).as("tick %d until", i).isAfter(Instant.now());
             Map<String, Object> light = lightReading();
             double value = Jsons.number(light, "value", -1);
-            assertThat(value).as("tick %d light value", i).isGreaterThanOrEqualTo(5000.0);
+            // 补光期间光照 = max(自然日光, 补光下限)，任何时段都不应低于补光下限（容噪声）
+            assertThat(value).as("tick %d light value", i).isGreaterThanOrEqualTo(floor * 0.8);
             assertThat(Jsons.text(light, "ts", "")).as("tick %d light ts", i).isNotBlank();
         }
     }
 
     @Test
     void boostSurvivesSimulationConfigChangeThatRebuildsPlotState() {
-        simulationEngine.applyLighting("plot-a01", 6000, 8 * 3600L);
+        double floor = 6000;
+        simulationEngine.applyLighting("plot-a01", floor, 8 * 3600L);
         simulationEngine.updateSettings(Map.of("timeScale", 200.0));
         simulationEngine.tickOnce();
         SimulationEngine.PlotState state = simulationEngine.plotState("plot-a01");
-        assertThat(state.activeLightBoost).as("boost after config change").isEqualTo(6000.0);
+        assertThat(state.lightBoostFloor).as("floor after config change").isEqualTo(floor);
         assertThat(state.lightBoostUntil).as("until after config change").isAfter(Instant.now());
     }
 

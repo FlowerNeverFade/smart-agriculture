@@ -256,12 +256,12 @@ class SimulationEngine {
         }
     }
 
-    /** Apply a supplemental lighting boost that persists across samples for the given duration. */
-    void applyLighting(String plotId, double boostLux, long durationSeconds) {
-        if (plotId == null || plotId.isBlank() || boostLux <= 0 || durationSeconds <= 0) return;
+    /** Apply a supplemental lighting floor that persists across samples for the given duration. */
+    void applyLighting(String plotId, double floorLux, long durationSeconds) {
+        if (plotId == null || plotId.isBlank() || floorLux <= 0 || durationSeconds <= 0) return;
         synchronized (lock) {
             PlotState state = states.computeIfAbsent(plotId, id -> initialState(id, rng));
-            state.activeLightBoost = boostLux;
+            state.lightBoostFloor = floorLux;
             state.lightBoostUntil = Instant.now().plusSeconds(durationSeconds);
         }
     }
@@ -403,9 +403,11 @@ class SimulationEngine {
             case "LIGHT" -> {
                 double cloud = "heavy-rain".equals(normalized) ? 0.35 : "drought".equals(normalized) ? 1.12 : 1.0;
                 value = 45.0 + daylightFraction(ts) * 47_000.0 * cloud * PlotFacility.lightTransmission(facilityType);
-                if (state.activeLightBoost > 0 && state.lightBoostUntil != null
+                if (state.lightBoostFloor > 0 && state.lightBoostUntil != null
                         && Instant.now().isBefore(state.lightBoostUntil)) {
-                    value += state.activeLightBoost;
+                    // 补光语义：保证光照不低于补光目标并保持平稳，
+                    // 不与日光弧线复合叠加，避免补光后出现缓慢爬坡。
+                    value = Math.max(value, state.lightBoostFloor);
                 }
             }
             case "CO2" -> value = state.co2;
@@ -513,7 +515,7 @@ class SimulationEngine {
                 }
                 PlotState previous = states.get(plotId);
                 if (previous != null) {
-                    created.activeLightBoost = previous.activeLightBoost;
+                    created.lightBoostFloor = previous.lightBoostFloor;
                     created.lightBoostUntil = previous.lightBoostUntil;
                 }
                 states.put(plotId, created);
@@ -785,7 +787,7 @@ class SimulationEngine {
         double ph;
         double water;
         double scenarioSteps;
-        double activeLightBoost;
+        double lightBoostFloor;
         Instant lightBoostUntil;
 
         PlotState copy() {
@@ -797,7 +799,7 @@ class SimulationEngine {
             copy.ph = ph;
             copy.water = water;
             copy.scenarioSteps = scenarioSteps;
-            copy.activeLightBoost = activeLightBoost;
+            copy.lightBoostFloor = lightBoostFloor;
             copy.lightBoostUntil = lightBoostUntil;
             return copy;
         }

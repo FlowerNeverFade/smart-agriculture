@@ -5529,7 +5529,7 @@ class AgriEngine {
         evaluation.put("lightPhase", command.get("lightPhase")); evaluation.put("lightPhaseLabel", command.get("lightPhaseLabel")); evaluation.put("sourceMode", "SIMULATION");
         evaluation.put("evidenceWindow", Map.of("beforeMinutes", 10, "afterMinutes", 10)); evaluation.put("createdAt", Instant.now().toString());
         if (success) {
-            simulationEngine.applyLighting(plotId, actual, Jsons.whole(command, "durationSeconds", 0));
+            simulationEngine.applyLighting(plotId, after, Jsons.whole(command, "durationSeconds", 0));
             recordVirtualLightEffect(plotId, commandId, ackStatus, after);
         }
         command.put("evaluation", evaluation); store.save("evaluation", Jsons.text(evaluation, "evaluationId", ""), evaluation); store.save("command", commandId, command);
