@@ -1,0 +1,12 @@
+{
+  "product": "AgriLoop",
+  "displayName": "农智闭环",
+  "version": "0.1.0",
+  "target": "linux-x86_64",
+  "apiArtifact": "api/api-service-0.1.0.jar",
+  "webArtifact": "web/",
+  "databaseMigrations": "db/migrations/",
+  "demoSeed": "db/demo-seed.sql",
+  "aiDefault": "rules-only",
+  "buildTime": "__BUILD_TIME__"
+}

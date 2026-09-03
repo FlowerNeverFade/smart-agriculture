@@ -1121,12 +1121,15 @@ class AgriApplicationTest {
     }
 
     @Test
-    void offlineDemoCanExecuteVirtualLightingAndKeepsDeviceOffline() throws Exception {
-        UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
-        engine.ingest(Map.ofEntries(
+   void offlineDemoCanExecuteVirtualLightingAndKeepsDeviceOffline() throws Exception {
+       UserPrincipal farmer = new UserPrincipal("user-farmer", "farmer", "FARMER", List.of("farm-demo"), List.of("plot-a01"));
+        ZoneId lightZone = ZoneId.of("Asia/Shanghai");
+        Instant daytime = LocalDate.now(lightZone).atTime(12, 0).atZone(lightZone).toInstant();
+        if (daytime.isAfter(Instant.now())) daytime = daytime.minus(1, ChronoUnit.DAYS);
+       engine.ingest(Map.ofEntries(
                 Map.entry("eventId", "light-baseline-" + System.nanoTime()), Map.entry("farmId", "farm-demo"), Map.entry("plotId", "plot-a01"),
                 Map.entry("deviceId", "mock-plot-a01"), Map.entry("metric", "LIGHT"), Map.entry("value", 1000.0), Map.entry("unit", "lux"),
-                Map.entry("ts", Instant.now().toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
+                Map.entry("ts", daytime.toString()), Map.entry("sourceMode", "SIMULATION"), Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "SIMULATOR"),
                 Map.entry("scenarioId", "normal"), Map.entry("quality", Map.of("status", "GOOD"))));
         List<Map<String, Object>> originals = store.list("device").stream()
                 .filter(device -> "plot-a01".equals(Jsons.text(device, "plotId", "")))
@@ -1144,7 +1147,7 @@ class AgriApplicationTest {
         try {
             Map<String, Object> command = engine.virtualLighting(Map.of(
                     "plotId", "plot-a01", "idempotencyKey", "test-lighting-" + System.nanoTime(), "confirmed", true,
-                    "allowOfflineDemo", true, "boostLux", 6000, "durationSeconds", 8 * 60 * 60), farmer);
+                    "allowOfflineDemo", true, "force", true, "boostLux", 6000, "durationSeconds", 8 * 60 * 60), farmer);
             assertThat(command).containsEntry("type", "LIGHT_BOOST").containsEntry("offlineDemoOverride", true);
             assertThat(command).containsEntry("durationSeconds", 8 * 60 * 60L);
             Thread.sleep(1200);

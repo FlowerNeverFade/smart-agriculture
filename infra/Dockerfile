@@ -7,6 +7,9 @@ RUN chmod +x gradlew && ./gradlew :apps:api-service:bootJar --no-daemon
 
 FROM eclipse-temurin:17-jre
 WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=build /workspace/apps/api-service/build/libs/api-service-*.jar /app/app.jar
 EXPOSE 8080
 ENTRYPOINT ["java", "-XX:+UseG1GC", "-jar", "/app/app.jar"]

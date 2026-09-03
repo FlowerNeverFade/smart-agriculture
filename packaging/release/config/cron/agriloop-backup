@@ -1,0 +1,1 @@
+17 3 * * * root /srv/agriloop/current/bin/backup.sh --root /srv/agriloop >>/srv/agriloop/shared/logs/backup.log 2>&1

@@ -1,51 +1,42 @@
-/** Measure plant vertical extent (screen rows containing plant pixels) for normal vs drought.
- *  Usage: node scripts/height-check.mjs <plotId>
+/**
+ * Check stable dimensions of the current plot card and detail chart.
+ * Usage: node scripts/height-check.mjs <plotId> [base-url]
  */
 import { chromium } from '../.tools/node_modules/playwright-core/index.mjs';
 
-const plotId = process.argv[2] || 'plot-b01';
-const url = `http://localhost:3000/index.html?dbg3d=1#view=scenario-replay&plotId=${plotId}`;
+const plotId = process.argv[2] || 'plot-a01';
+const baseUrl = (process.argv[3] || process.env.WEB_URL || 'http://127.0.0.1:3000').replace(/\/$/, '');
 const errors = [];
-
-const browser = await chromium.launch({
-  channel: 'chrome', headless: true,
-  args: ['--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--disable-gpu-sandbox'],
-});
-const page = await browser.newPage({ viewport: { width: 900, height: 760 } });
+const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 await page.addInitScript(() => {
-  localStorage.setItem('agriloop_session_mode', 'demo');
-  localStorage.setItem('agriloop_user', JSON.stringify({ username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员', avatar: '👑' }));
+  sessionStorage.setItem('agriloop_session_mode', 'demo');
+  sessionStorage.setItem('agriloop_user', JSON.stringify({ username: 'admin', role: 'FARM_ADMIN', roleLabel: '农场管理员' }));
 });
-page.on('pageerror', (e) => errors.push(`PAGEERROR: ${e.message}`));
+page.on('pageerror', (error) => errors.push(`PAGEERROR: ${error.message}`));
 
-await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
-await page.evaluate(async () => {
-  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
-  for (let i = 0; i < 80; i++) {
-    const c = document.querySelector('[data-role="pot-canvas"]');
-    if (c && c.style.display === 'block') return;
-    await wait(100);
-  }
-});
-await page.waitForTimeout(1500);
-
-const grab = async () => await page.evaluate(() => {
-  const c = document.querySelector('[data-role="pot-canvas"]');
-  return c ? c.toDataURL('image/png') : null;
-});
-
-const measure = async (label) => {
-  const fb = await grab();
-  if (!fb) { console.log(`${label}: NO FB`); return; }
-  const { writeFileSync } = await import('node:fs');
-  writeFileSync(`artifacts/height-${label}.png`, Buffer.from(String(fb).split(',')[1], 'base64'));
-};
-
-await measure('normal');
-// click drought button
-const btn = await page.$('.sr-scenario-btn[data-scenario="DROUGHT"]');
-if (btn) { await btn.click(); await page.waitForTimeout(5000); }
-await measure('drought');
-
-console.log(JSON.stringify({ errors }, null, 2));
-await browser.close();
+try {
+  await page.goto(`${baseUrl}/index.html#view=dashboard`, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+  const card = page.locator(`[data-plot-card="${plotId}"], [data-plot-card]`).first();
+  await card.waitFor({ state: 'visible', timeout: 15_000 });
+  const cardBefore = await card.boundingBox();
+  await card.click();
+  await page.waitForSelector('.plot-detail-dialog', { timeout: 15_000 });
+  const detail = await page.locator('.plot-detail-dialog').boundingBox();
+  const chart = await page.locator('.plot-simulation-chart').boundingBox();
+  const result = {
+    plotId,
+    cardHeight: Math.round(cardBefore?.height || 0),
+    dialogHeight: Math.round(detail?.height || 0),
+    chartWidth: Math.round(chart?.width || 0),
+    chartHeight: Math.round(chart?.height || 0),
+    errors
+  };
+  console.log(JSON.stringify(result, null, 2));
+  if (result.cardHeight < 120 || result.dialogHeight < 300 || result.chartWidth < 200 || result.chartHeight < 120 || errors.length) process.exitCode = 1;
+} catch (error) {
+  console.error(`height check failed: ${error.message}`);
+  process.exitCode = 1;
+} finally {
+  await browser.close();
+}

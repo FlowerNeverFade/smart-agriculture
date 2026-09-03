@@ -9,6 +9,7 @@ services:
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - agriloop_pg:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 5s
@@ -21,6 +22,7 @@ services:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     volumes:
       - agriloop_redis:/data
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -32,9 +34,10 @@ services:
     ports:
       - "127.0.0.1:${MQTT_PORT:-1883}:1883"
     volumes:
-      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ../mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - agriloop_mqtt:/mosquitto/data
       - agriloop_mqtt_log:/mosquitto/log
+    restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "mosquitto_sub -h localhost -t '$$SYS/broker/uptime' -C 1 -W 2 >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -43,8 +46,8 @@ services:
 
   api:
     build:
-      context: ..
-      dockerfile: infra/Dockerfile
+      context: ../..
+      dockerfile: config/docker/Api.Dockerfile
     environment:
       SPRING_PROFILES_ACTIVE: simulation
       APP_MODE: simulation
@@ -63,6 +66,7 @@ services:
       MANAGEMENT_HEALTH_REDIS_ENABLED: "true"
     ports:
       - "127.0.0.1:${API_PORT:-8080}:8080"
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,7 +89,7 @@ services:
       PGUSER: ${POSTGRES_USER:-agri}
       PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
-      - ../database/demo-seed.sql:/seed/demo-seed.sql:ro
+      - ../../db/demo-seed.sql:/seed/demo-seed.sql:ro
     depends_on:
       api:
         condition: service_healthy
@@ -95,10 +99,11 @@ services:
 
   web:
     build:
-      context: ..
-      dockerfile: infra/Web.Dockerfile
+      context: ../..
+      dockerfile: config/docker/Web.Dockerfile
     ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:80"
+      - "${WEB_BIND_ADDRESS:-127.0.0.1}:${WEB_PORT:-3000}:80"
+    restart: unless-stopped
     depends_on:
       seed:
         condition: service_completed_successfully

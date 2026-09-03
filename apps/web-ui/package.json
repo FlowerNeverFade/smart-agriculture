@@ -5,7 +5,8 @@
   "description": "农智闭环静态网页界面与登录体验",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "build": "vite build"
   },
   "dependencies": {
     "three": "0.180.0"

@@ -3,13 +3,22 @@ import { fileURLToPath } from 'node:url';
 import { cp } from 'node:fs/promises';
 
 const webRoot = fileURLToPath(new URL('.', import.meta.url));
+const runtimeVendorEntries = [
+  'vue.global.prod.js',
+  'echarts.min.js',
+  'phosphor',
+  'material-symbols',
+  'README.md'
+];
 
 export default defineConfig({
   base: './',
   plugins: [{
     name: 'copy-local-runtime-vendor',
     async closeBundle() {
-      await cp(`${webRoot}vendor`, `${webRoot}dist/vendor`, { recursive: true });
+      for (const entry of runtimeVendorEntries) {
+        await cp(`${webRoot}vendor/${entry}`, `${webRoot}dist/vendor/${entry}`, { recursive: true });
+      }
     }
   }],
   assetsInclude: ['**/*.glb'],
