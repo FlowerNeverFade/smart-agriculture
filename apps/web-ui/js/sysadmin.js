@@ -6,12 +6,12 @@ import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-agent-main-merge-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260902-v5911-zhcn-v1';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-v5923-work-order-zhcn-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260903-v5923-work-order-zhcn-v1';
 import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260902-v5916-inspection-detail-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260903-v5923-work-order-zhcn-v1';
 import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
@@ -48,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260903-v5922-plot-health-v1';
+} from './live-data.js?v=20260903-v5923-work-order-zhcn-v1';
 
 // 角色守卫：sysadmin.html 仅服务系统管理员，其余身份重定向到各自入口
 const guardSession = api.readSession();

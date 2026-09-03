@@ -203,8 +203,8 @@
                   <button v-for="item in today_priorities" :key="item.id" type="button" class="farmer-priority-item" :class="'tone-' + item.urgencyTone" @click="open_priority_item(item)">
                     <span class="farmer-priority-icon"><span class="material-symbols-outlined">{{ item.icon }}</span></span>
                     <span class="farmer-priority-content">
-                      <strong>{{ item.title }}</strong>
-                      <span>{{ item.reason }}</span>
+                      <strong>{{ displayText(item.title) }}</strong>
+                      <span>{{ displayText(item.reason) }}</span>
                       <small><b :class="'is-' + item.urgencyTone">{{ item.urgency }}</b> · {{ item.dueLabel }}</small>
                     </span>
                     <span class="farmer-priority-action">{{ item.actionLabel }}<span class="material-symbols-outlined">arrow_forward</span></span>
@@ -302,7 +302,7 @@
                 </div>
                 <div class="farmer-device-main">
                   <app-icon :name="device_attention.needsAction ? 'build_circle' : 'verified'"></app-icon>
-                  <div><strong>{{ device_attention.title }}</strong><p>{{ device_attention.detail }}</p></div>
+                  <div><strong>{{ displayText(device_attention.title) }}</strong><p>{{ displayText(device_attention.detail) }}</p></div>
                 </div>
                 <ol class="farmer-device-flow" aria-label="设备处理流程">
                   <li v-for="step in device_attention.steps" :key="step.label" :class="step.state"><span></span><small>{{ step.label }}</small></li>
@@ -1376,7 +1376,7 @@
 
                     <div v-if="selected_task.plotEffect?.summary" class="farmer-detail-section">
                       <h4>完成后的地块影响</h4>
-                      <p>{{ selected_task.plotEffect.summary }}</p>
+                      <p>{{ displayText(selected_task.plotEffect.summary) }}</p>
                     </div>
 
                     <div class="farmer-detail-section">
@@ -1753,7 +1753,7 @@
             <div class="farmer-detail-header">
               <div>
                 <span class="farmer-section-kicker">{{ suggestion_kind_label }}</span>
-                <h3 id="suggestion-flow-title">{{ active_suggestion && active_suggestion.title }}</h3>
+                <h3 id="suggestion-flow-title">{{ displayText(active_suggestion && active_suggestion.title) }}</h3>
                 <p class="farmer-detail-meta">{{ suggestion_plot ? suggestion_plot.name + ' · ' + suggestion_plot.cropName + ' · ' + suggestion_plot.stageLabel : '请核对关联地块' }}</p>
               </div>
               <button type="button" class="g-btn icon-only farmer-btn-light" @click="close_suggestion_flow" title="关闭"><span class="material-symbols-outlined">close</span></button>
@@ -1769,7 +1769,7 @@
             <section v-if="suggestion_flow_stage === 'VIEW'" class="farmer-suggestion-stage">
               <div class="farmer-suggestion-explanation">
                 <span class="material-symbols-outlined">info</span>
-                <div><strong>先看清楚再操作</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
+                <div><strong>先看清楚再操作</strong><p>{{ displayText(active_suggestion && active_suggestion.reason) }}</p></div>
               </div>
               <div class="farmer-suggestion-facts">
                 <div><small>涉及地块</small><strong>{{ suggestion_plot ? suggestion_plot.name : '—' }}</strong></div>
@@ -1796,7 +1796,7 @@
               </div>
               <div v-else class="farmer-suggestion-explanation">
                 <span class="material-symbols-outlined">fact_check</span>
-                <div><strong>确认现场处理</strong><p>{{ active_suggestion && active_suggestion.reason }}</p></div>
+                <div><strong>确认现场处理</strong><p>{{ displayText(active_suggestion && active_suggestion.reason) }}</p></div>
               </div>
               <div v-if="suggestion_emergency_notice" class="farmer-suggestion-emergency" role="status"><span class="material-symbols-outlined">emergency</span><div><strong>低湿度 · 自动浇水条件</strong><p>{{ suggestion_emergency_notice }}</p></div></div>
               <div v-if="suggestion_advisory_notice" class="farmer-suggestion-advisory" role="status"><span class="material-symbols-outlined">info</span><div><strong>证据提示（不阻断执行）</strong><p>{{ suggestion_advisory_notice }}</p></div></div>
@@ -1984,6 +1984,6 @@
     </div>
   </div>
 
-  <script type="module" src="js/farmer.js?v=20260903-v5922-plot-health-v1"></script>
+  <script type="module" src="js/farmer.js?v=20260903-v5923-work-order-zhcn-v1"></script>
 </body>
 </html>

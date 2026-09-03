@@ -33,7 +33,7 @@ import {
   sourceLabel,
   statusLabel as genericStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260903-v5922-plot-health-v1';
+} from './live-data.js?v=20260903-v5923-work-order-zhcn-v1';
 
 const { createApp, ref, computed, onMounted, onBeforeUnmount, watch, nextTick, provide } = Vue;
 
@@ -2830,7 +2830,7 @@ const app = createApp({
     });
 
     const device_attention = computed(() => {
-      const deviceTasks = tasks.value.filter((task) => /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(`${task.title || ''}${task.reason || ''}`));
+      const deviceTasks = tasks.value.filter((task) => /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(displayText(`${task.title || ''}${task.reason || ''}`, '')));
       const task = deviceTasks.find((item) => item.status !== 'DONE') || deviceTasks[0] || null;
       const offlinePlot = plots.value.find((plot) => String(plot.deviceStatus).toUpperCase() !== 'ONLINE');
       const needsAction = Boolean(offlinePlot || (task && task.status !== 'DONE'));
@@ -2914,7 +2914,7 @@ const app = createApp({
         const due = Date.parse(task.due_iso || '');
         const overdue = Number.isFinite(due) && due < now;
         const dueSoon = Number.isFinite(due) && due >= now && due - now <= 6 * 60 * 60 * 1000;
-        const deviceTask = /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(`${task.title || ''}${task.reason || ''}`);
+        const deviceTask = /设备|流量计|水泵|阀门|通信|心跳|巡检/.test(displayText(`${task.title || ''}${task.reason || ''}`, ''));
         const plot = find_plot_by_id(plots.value, task.plot_id);
         const score = (deviceTask ? 108 : (taskPriorityScore[String(task.priority || 'MEDIUM').toUpperCase()] || 40))
           + (overdue ? 34 : (dueSoon ? 16 : 0));
@@ -5074,7 +5074,7 @@ const app = createApp({
           }
           suggestion_flow_stage.value = 'RESULT';
           suggestion_recovery_status.value = '任务已开始，完成后填写结果。';
-          show_toast(`已确认任务：${task.title}`);
+          show_toast(`已确认任务：${displayText(task.title, '未命名任务')}`);
         } else {
           suggestion_flow_stage.value = 'RESULT';
           suggestion_recovery_status.value = active.kind === 'DEVICE' ? '已确认设备处理，完成检查后填写结果。' : '已确认风险处理，完成巡田或复测后填写结果。';
@@ -6207,12 +6207,12 @@ const app = createApp({
           patch_task_state(task, { ...(saved || {}), status: saved?.status || 'IN_PROGRESS' });
           close_task();
           await load_live_workspace({ announce: false });
-          show_toast(`已开始执行：${task.title}`);
+          show_toast(`已开始执行：${displayText(task.title, '未命名任务')}`);
         } catch (error) { show_toast(error.message || '开始任务失败', 'error'); }
         return;
       }
       patch_task_state(task, { status: 'IN_PROGRESS' });
-      show_toast(`已开始执行：${task.title}`);
+      show_toast(`已开始执行：${displayText(task.title, '未命名任务')}`);
       close_task();
     };
 
@@ -6223,12 +6223,12 @@ const app = createApp({
           patch_task_state(task, { ...(saved || {}), status: saved?.status || 'SUBMITTED' });
           close_task();
           await load_live_workspace({ announce: false });
-          show_toast(`已提交完成：${task.title}，等待管理员验收`);
+          show_toast(`已提交完成：${displayText(task.title, '未命名任务')}，等待管理员验收`);
         } catch (error) { show_toast(error.message || '提交任务失败', 'error'); }
         return;
       }
       patch_task_state(task, { status: 'DONE' });
-      show_toast(`已提交完成：${task.title}`);
+      show_toast(`已提交完成：${displayText(task.title, '未命名任务')}`);
       close_task();
     };
 
@@ -6282,7 +6282,7 @@ const app = createApp({
     const delete_task = async (task) => {
       if (cleanup_busy.value || !task) return;
       const workOrderId = task.workOrderId || task.id;
-      const title = String(task.title || '该任务').trim() || '该任务';
+      const title = displayText(task.title, '该任务');
       if (!window.confirm(`确定删除已完成任务「${title}」？`)) return;
       cleanup_busy.value = true;
       try {

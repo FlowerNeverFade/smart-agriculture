@@ -24,12 +24,14 @@ const {
   isFarmerIssueReport,
   isReworkOrder,
   overdueRecoveryDueAt,
+  workOrderDisplayText,
   workOrderLane
 } = await import('../js/work-order-lifecycle.js');
 
 const lifecycleSource = readFileSync(new URL('../js/work-order-lifecycle.js', import.meta.url), 'utf8');
 const lifecycleCss = readFileSync(new URL('../css/modules/work-order-lifecycle.css', import.meta.url), 'utf8');
 const managementSource = readFileSync(new URL('../js/modules/admin-work-management.js', import.meta.url), 'utf8');
+const decisionSource = readFileSync(new URL('../js/modules/admin-decision.js', import.meta.url), 'utf8');
 
 const future = '2026-08-28T08:00:00.000Z';
 const past = '2026-08-26T08:00:00.000Z';
@@ -164,6 +166,26 @@ test('农户问题上报作为管理员可识别的关联工单展示', () => {
   assert.match(WorkOrderLifecycleView.template, /issueDescription/);
 });
 
+test('历史任务枚举在卡片、详情和操作记录中统一显示中文', () => {
+  assert.equal(
+    workOrderDisplayText('任务异常：决策补充检查：MORE_DIAGNOSIS_EVIDENCE'),
+    '任务异常：决策补充检查：补充诊断证据'
+  );
+  assert.equal(
+    workOrderDisplayText('农户上报：当前就绪状态为 HUMAN_REVIEW'),
+    '农户上报：当前就绪状态为等待人工复核'
+  );
+  assert.match(WorkOrderLifecycleView.template, /workOrderDisplayText\(activeOrder\.title/);
+  assert.match(WorkOrderLifecycleView.template, /workOrderDisplayText\(activeOrder\.reason/);
+  assert.match(WorkOrderLifecycleView.template, /workOrderDisplayText\(entry\.note\)/);
+});
+
+test('新建决策补证任务使用共享中文证据和就绪状态文案', () => {
+  assert.match(decisionSource, /decisionEvidenceLabel\(item/);
+  assert.match(decisionSource, /reason: `当前就绪状态：\$\{decisionReadinessLabel\(readiness\.value\.status\)\}`/);
+  assert.doesNotMatch(decisionSource, /当前就绪状态为 \$\{readiness\.value\.status\}/);
+});
+
 test('管理员任务页独立展示补证申请并支持巡田记录展开全部', () => {
   assert.match(WorkOrderLifecycleView.template, /补证申请/);
   assert.match(WorkOrderLifecycleView.template, /独立于任务状态筛选/);
@@ -230,6 +252,7 @@ test('农场管理员三个区域使用视口自适应固定窗口和独立滚�
 test('农务任务与主应用复用同一 API 数据实例并定时刷新逾期分区', () => {
   const appSource = readFileSync(new URL('../js/app.js', import.meta.url), 'utf8');
   assert.match(lifecycleSource, /from '\.\/api\.js\?v=20260902-manager-plot-order-v1'/);
+  assert.match(lifecycleSource, /from '\.\/live-data\.js\?v=20260903-v5923-work-order-zhcn-v1'/);
   assert.match(appSource, /from '\.\/api\.js\?v=20260902-manager-plot-order-v1'/);
   assert.match(managementSource, /from '\.\.\/api\.js\?v=20260902-manager-plot-order-v1'/);
   assert.match(lifecycleSource, /setInterval\(\(\) => \{ lifecycleNow\.value = Date\.now\(\); \}, 30000\)/);

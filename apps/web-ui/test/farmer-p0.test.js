@@ -248,6 +248,16 @@ test('farmer page keeps P0 evidence and exposes risk prediction under more tools
   for (const marker of ['阶段目标预览', '完整率', '支持证据', '反对证据', '缺失证据', '回答依据与执行记录', '工具调用记录', '查看建议并执行', '人工浇灌', '无需灌溉原因', '农户不能自行填写执行成功', '常规处方需要人工复核', '具体问题', '提交给农场管理员', '问题已提交给农场管理员']) {
     assert.match(farmerSurface, new RegExp(marker));
   }
+  for (const binding of [
+    'displayText(item.title)',
+    'displayText(item.reason)',
+    'displayText(device_attention.title)',
+    'displayText(device_attention.detail)',
+    'displayText(active_suggestion && active_suggestion.title)',
+    'displayText(active_suggestion && active_suggestion.reason)'
+  ]) {
+    assert.ok(html.includes(binding), `farmer task surface should localize ${binding}`);
+  }
   // 我的地块不再内置风险预测卡片；风险预测仅保留在更多工具页。
   assert.doesNotMatch(html, /地块模拟策略/);
   assert.equal((html.match(/farmer-plot-simulation-panel/g) || []).length, 1);
