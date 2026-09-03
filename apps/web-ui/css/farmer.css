@@ -2403,6 +2403,15 @@
   height: 0;
   border-top: 2px dashed var(--legend-color, var(--g-warning));
 }
+.farmer-legend-swatch.is-dotted::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 0;
+  border-top: 2px dotted var(--legend-color, var(--g-text-secondary));
+}
 .farmer-legend-swatch.is-band {
   border-radius: 2px;
   background: color-mix(in srgb, var(--legend-color, var(--g-success)) 28%, transparent);
@@ -2643,6 +2652,8 @@
 }
 .farmer-plot-simulation-chart-canvas { min-width: 0; }
 .farmer-plot-simulation-echarts { width: 100%; height: 220px; }
+.farmer-plot-simulation-legend { margin: 0 0 5px; padding: 6px 8px; gap: 7px 14px; font-size: 11px; }
+.farmer-plot-simulation-legend .farmer-chart-legend-item { gap: 5px; }
 .farmer-plot-simulation-chart-stage > .farmer-chart-loading.is-overlay {
   position: absolute;
   inset: 0;
@@ -4254,7 +4265,9 @@ html[data-surface-style="glass-soft"] #farmer_app :is(
 }
 /* Keep the desktop farmer shell in sync with the global navigation toggle.
    The compact sidebar rule above has ID-level specificity, so explicitly
-   release its reserved column when the sidebar is collapsed. */
+   release its reserved column when the sidebar is collapsed. Apply the
+   zero-width state only on desktop; mobile keeps its slide-out drawer width
+   from the responsive rules below. */
 @media (min-width: 761px) {
   #farmer_app .farmer-sidebar.collapsed {
     flex: 0 0 0;

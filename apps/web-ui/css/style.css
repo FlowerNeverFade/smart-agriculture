@@ -79,8 +79,9 @@
 [v-cloak] { display: none !important; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
-/* The role shell owns scrolling. Clip the document itself so changing a
-   focused appearance control cannot shift the viewport. */
+/* Keep the fixed-height application shell from becoming a second scroll
+   container. `overflow:hidden` still lets focus/scrollIntoView change the
+   root scroll offset; clip prevents that offset from moving the whole page. */
 html { overflow: clip; }
 body {
   font-family: var(--g-font-family);
@@ -125,6 +126,10 @@ body {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  /* `hidden` still allows scrollIntoView() to mutate scrollTop. The settings
+     switch can be near the bottom of a long page, so clip the shell itself
+     and leave scrolling exclusively to .g-main. This prevents the whole
+     workspace from jumping when a focused control changes root styles. */
   overflow: hidden;
   overflow: clip;
 }

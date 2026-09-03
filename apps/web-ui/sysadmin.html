@@ -235,7 +235,7 @@
   </div>
 
   <!-- Dashboard Template -->
-<script type="module" src="js/sysadmin.js?v=20260903-agent-main-merge-v1"></script>
+<script type="module" src="js/sysadmin.js?v=20260903-v5922-source-fix-merge"></script>
 
 
   <!-- ============== ADMIN TEMPLATES ============== -->
@@ -253,7 +253,7 @@
         </div>
         <div class="admin-metric-card" @click="$emit('navigate','admin-ops',{tab:'devices'})">
           <div class="admin-metric-icon" :class="state.adminOverview.devices.offline > 0 ? 'orange' : 'green'"><app-icon name="sensors"></app-icon></div>
-          <div class="admin-metric-info"><div class="admin-metric-label">设备在线</div><div class="admin-metric-value">{{ state.adminOverview.devices.online }} / {{ state.adminOverview.devices.total }}</div><div class="admin-metric-sub">离线 {{ state.adminOverview.devices.offline }}</div></div>
+          <div class="admin-metric-info"><div class="admin-metric-label">设备在线</div><div class="admin-metric-value">{{ state.adminOverview.devices.total > 0 ? state.adminOverview.devices.online + ' / ' + state.adminOverview.devices.total : '—' }}</div><div class="admin-metric-sub">{{ state.adminOverview.devices.total > 0 ? '离线 ' + state.adminOverview.devices.offline : '统计加载中' }}</div></div>
         </div>
         <div class="admin-metric-card">
           <div class="admin-metric-icon green"><app-icon name="schedule"></app-icon></div>
@@ -497,7 +497,7 @@
               <tr v-for="a in alertPageRecords" :key="a.id">
                 <td style="white-space:nowrap">{{ a.time }}</td>
                 <td><span class="status-pill" :class="a.level === 'CRITICAL' ? 'down' : a.level === 'WARNING' ? 'warning' : 'info'">{{ a.levelLabel || levelLabel(a.level) }}</span></td>
-                <td>{{ a.sourceLabel || localizedSourceLabel(a.source) }}</td>
+                <td>{{ a.sourceLabel || (typeof localizedSourceLabel === 'function' ? localizedSourceLabel(a.source) : a.source) }}</td>
                 <td>{{ displayText(a.summary) }}</td>
                 <td><span class="status-pill" :class="a.status === 'OPEN' ? 'warning' : a.status === 'ACK' ? 'info' : 'completed'">{{ a.statusLabel || alertStatusLabel(a.status) }}</span></td>
                 <td><span style="color:var(--g-muted);font-size:12px">—</span></td>
@@ -553,7 +553,7 @@
 
       <section class="resource-panel">
         <div class="panel-heading"><div><span class="resource-eyebrow">计划版本</span><h3>跨农场配水计划</h3></div><small>{{ plans.length }} 个版本</small></div>
-        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>农场 / 日期</th><th>计划编号</th><th>版本</th><th>申请 / 分配 / 缺口</th><th>状态</th><th>来源</th></tr></thead><tbody><tr v-for="plan in plans" :key="plan.resourcePlanId"><td><strong>{{ farmName(plan.farmId) }}</strong><small>{{ plan.businessDate }}</small></td><td class="system-resource-id">{{ plan.resourcePlanId }}</td><td>v{{ plan.revision || 1 }}</td><td>{{ Number(plan.totalRequestedLitres || 0).toFixed(1) }} / {{ Number(plan.totalAllocatedLitres || 0).toFixed(1) }} / {{ Number(plan.totalUnmetLitres || 0).toFixed(1) }} L</td><td><span class="request-status" :class="String(plan.status || '').toLowerCase()">{{ planStatusLabel(plan.status) }}</span></td><td>{{ localizedSourceLabel(plan.provenance || 'DERIVED') }} · {{ plan.algorithmVersion || '—' }}</td></tr><tr v-if="!plans.length"><td colspan="6" class="rp-empty">当前范围没有配水计划。</td></tr></tbody></table></div>
+        <div class="admin-table-wrap"><table class="admin-table"><thead><tr><th>农场 / 日期</th><th>计划编号</th><th>版本</th><th>申请 / 分配 / 缺口</th><th>状态</th><th>来源</th></tr></thead><tbody><tr v-for="plan in plans" :key="plan.resourcePlanId"><td><strong>{{ farmName(plan.farmId) }}</strong><small>{{ plan.businessDate }}</small></td><td class="system-resource-id">{{ plan.resourcePlanId }}</td><td>v{{ plan.revision || 1 }}</td><td>{{ Number(plan.totalRequestedLitres || 0).toFixed(1) }} / {{ Number(plan.totalAllocatedLitres || 0).toFixed(1) }} / {{ Number(plan.totalUnmetLitres || 0).toFixed(1) }} L</td><td><span class="request-status" :class="String(plan.status || '').toLowerCase()">{{ planStatusLabel(plan.status) }}</span></td><td>{{ (typeof localizedSourceLabel === 'function' ? localizedSourceLabel(plan.provenance || 'DERIVED') : (plan.provenance || 'DERIVED')) }} · {{ plan.algorithmVersion || '—' }}</td></tr><tr v-if="!plans.length"><td colspan="6" class="rp-empty">当前范围没有配水计划。</td></tr></tbody></table></div>
       </section>
 
       <section class="resource-panel">

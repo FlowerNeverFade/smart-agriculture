@@ -14,7 +14,7 @@ import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20
 import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
 import { AdminRulesStrategiesView } from './modules/admin-rules-strategies.js?v=20260902-v5911-zhcn-v1';
-import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260902-performance-v1';
+import { ADMIN_PLOT_METRIC_CODES, adminCropEmoji, adminCropKey, adminHealthTone, adminMetricLabel, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5922-plot-health-v1';
 import { plotOrderIds, reconcilePlotOrder } from './plot-display.js?v=20260903-v5919-main-merge-v1';
 import {
   agentResponseSource,
@@ -48,7 +48,7 @@ import {
   sourceLabel as localizedSourceLabel,
   statusLabel as localizedStatusLabel,
   workStatusLabel
-} from './live-data.js?v=20260902-performance-v1';
+} from './live-data.js?v=20260903-v5922-plot-health-v1';
 
 // index.html serves the farm manager and farmer workspaces. Keep the system
 // administrator on the dedicated entry so its platform-level navigation and
@@ -448,7 +448,7 @@ function mergeOverviewPlots(plots) {
       metrics,
       deviceId: plot.device?.deviceId || plot.deviceId || null,
       deviceStatus: plot.device?.status || plot.deviceStatus || 'UNKNOWN',
-      healthScore: plot.device?.healthScore ?? plot.healthScore ?? null,
+      healthScore: plot.health?.score ?? plot.healthScore ?? null,
       lastSeen: plot.device?.lastSeen || plot.lastSeen || null
     };
   });
@@ -2774,7 +2774,7 @@ const AdminResourcesView = {
     const requestStatusLabel = status => ({ SUBMITTED: '待纳入计划', IN_REVIEW: '方案编制中', PENDING_ACK: '待农户确认', ACKNOWLEDGED: '农户已确认', CONFLICT_REPORTED: '冲突待复核', COMPLETED: '已完成', CANCELLED: '已撤回' }[String(status || '').toUpperCase()] || '待处理');
     const planStatusLabel = status => ({ DRAFT: '草案', CONFIRMED: '已确认', RUNNING: '执行中', COMPLETED: '已完成', PARTIAL: '部分完成', FAILED: '失败', CANCELLED: '已取消', EXPIRED: '已过期' }[String(status || '').toUpperCase()] || '未知');
     const timeLabel = value => { const date = new Date(value || 0); return Number.isNaN(date.getTime()) || date.getTime() <= 0 ? '—' : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }); };
-    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel };
+    return { farmFilter, statusFilter, farms, profiles, plans, requests, selectedProfiles, totals, farmName, plotName, requestStatusLabel, planStatusLabel, timeLabel, localizedSourceLabel };
   }
 };
 

@@ -505,7 +505,13 @@ export function mergeFarmPlots(plotFacts = [], overviewCards = [], devices = [],
       operationHistory: Array.isArray(fact.operationHistory) ? fact.operationHistory : (Array.isArray(card.operationHistory) ? card.operationHistory : (Array.isArray(prior.operationHistory) ? prior.operationHistory : [])),
       deviceId: device?.deviceId || card.deviceId || fact.deviceId || prior.deviceId || null,
       deviceStatus: device?.status || card.deviceStatus || fact.deviceStatus || prior.deviceStatus || (hasBoundDevice ? 'OFFLINE' : 'UNKNOWN'),
-      healthScore: device?.healthScore ?? card.healthScore ?? fact.healthScore ?? prior.healthScore ?? null,
+      healthScore: card.health?.score
+        ?? card.healthScore
+        ?? fact.health?.score
+        ?? fact.healthScore
+        ?? prior.health?.score
+        ?? prior.healthScore
+        ?? null,
       lastSeen,
       sourceMode: fact.sourceMode || card.sourceMode || prior.sourceMode || Object.values(metrics).find(metric => metric?.sourceMode)?.sourceMode || 'SIMULATION',
       dataOrigin: fact.dataOrigin || card.dataOrigin || prior.dataOrigin || Object.values(metrics).find(metric => metric?.dataOrigin)?.dataOrigin || 'BACKEND'
