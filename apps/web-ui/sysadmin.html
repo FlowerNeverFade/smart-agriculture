@@ -186,7 +186,7 @@
         </div>
       </nav>
 
-      <main class="g-main" :class="{ 'farmer-main': isFarmer }">
+      <main class="g-main" :class="{ 'farmer-main': isFarmer, 'is-ai-view': currentView === 'admin-agent' }">
         <transition name="fade" mode="out-in">
           <component :is="currentViewComponent" :state="state" :user-settings="userSettings" :route-params="routeParams"
                      @navigate="navigate" @open-plot-detail="openPlotDetail"
