@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260902-manager-plot-order-v1';
+import { api } from './api.js?v=20260904-alert-hardware-v1';
 import { managerSummaryTarget, normalizeWorkSummaryScope, workOrderMatchesSummaryScope } from './admin-state.js?v=20260902-performance-v1';
 import { roleCan } from './roles.js?v=20260902-v5911-zhcn-v1';
 import { displayText } from './live-data.js?v=20260903-v5923-work-order-zhcn-v1';
@@ -400,7 +400,7 @@ export const WorkOrderLifecycleView = {
       try {
         const saved = await operation();
         publishUpdate(saved);
-        toast(successMessage);
+        toast(typeof successMessage === 'function' ? successMessage(saved) : successMessage);
         return saved;
       } catch (error) {
         toast(error.message || '任务操作失败，请稍后重试', 'error');
@@ -626,7 +626,11 @@ export const WorkOrderLifecycleView = {
         action: 'SUBMIT',
         resultSummary: submission.value.resultSummary.trim(),
         evidenceRefs
-      }), '结果已提交，正在等待管理员验收');
+      }), (result) => result?.hardwareAction?.status === 'PENDING'
+        ? '结果已提交，真实硬件指令已发送，正在等待板卡回执与管理员验收'
+        : result?.hardwareAction?.status === 'NO_CHANGE'
+          ? `结果已提交；${result.hardwareAction.message || '硬件无需重复操作'}`
+          : '结果已提交，正在等待管理员验收');
       if (saved) showSubmitModal.value = false;
     };
 

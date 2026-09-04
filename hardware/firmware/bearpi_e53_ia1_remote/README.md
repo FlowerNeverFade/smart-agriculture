@@ -9,7 +9,7 @@ Accepted commands:
 ```text
 AT+AGRI=<commandId>,FAN,ON,<1..3600 seconds>
 AT+AGRI=<commandId>,FAN,OFF,0
-AT+AGRI=<commandId>,LIGHT,ON,<1..3600 seconds>
+AT+AGRI=<commandId>,LIGHT,ON,<0..3600 seconds>
 AT+AGRI=<commandId>,LIGHT,OFF,0
 ```
 
@@ -23,11 +23,11 @@ AGRI_ACK <commandId> LIGHT OFF FAILED INVALID_COMMAND
 AGRI_STATE FAN ON LIGHT OFF REASON COMMAND
 ```
 
-Outputs default to OFF after boot. ON commands always have a bounded duration;
-the firmware switches the output off and publishes a state line when the
-deadline is reached. The eight most recent command IDs are retained for
-idempotent retries. A successful boot prints
-`AGRI_BOOT READY REMOTE_ACTUATORS_V2`.
+Outputs default to OFF after boot. FAN ON commands always have a bounded
+duration. LIGHT ON with duration `0` is continuous and remains on until an
+explicit OFF command; a positive duration keeps the previous bounded mode.
+The eight most recent command IDs are retained for idempotent retries. A
+successful boot prints `AGRI_BOOT READY REMOTE_ACTUATORS_V3`.
 
 `deploy-source.ps1` copies this tracked source into the existing BearPi SDK
 sample tree before running the normal SDK build.

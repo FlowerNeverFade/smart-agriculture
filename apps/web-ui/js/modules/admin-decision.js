@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-manager-plot-order-v1';
+import { api } from '../api.js?v=20260904-alert-hardware-v1';
 import { adminMetricLabel } from '../admin-state.js?v=20260902-performance-v1';
 import { canExecuteIrrigation } from '../roles.js?v=20260902-v5911-zhcn-v1';
 import { decisionEvidenceLabel, decisionReadinessLabel, metricLabel, metricStatusLabel, provenanceLabel, sourceLabel, statusLabel } from '../live-data.js?v=20260903-v5923-work-order-zhcn-v1';

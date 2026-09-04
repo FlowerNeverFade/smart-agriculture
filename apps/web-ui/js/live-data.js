@@ -1293,7 +1293,7 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
       seenAlertKeys.add(dedupeKey);
     }
     const plotName = plotMap.get(plotId)?.name || plotId || '相关地块';
-    const alertId = text(alert.alertId || alert.id, `${plotId}:${alert.createdAt || alert.raisedAt}`);
+    const alertId = text(alert.alertId || alert.id, `${plotId}:${alert.raisedAt || alert.updatedAt || alert.createdAt}`);
     const title = text(alert.title, `${plotName}出现${levelLabel(alert.level, '提示')}告警`);
     const message = text(alert.message || alert.summary, '请打开告警详情查看后端提供的处理建议。');
     const linkedWorkOrderId = findLinkedWorkOrder(tasks, alert);
@@ -1310,7 +1310,7 @@ export function buildFarmerMessages({ alerts = [], tasks = [], inspections = [],
         linkedWorkOrderId ? `关联任务：${linkedWorkOrderId}` : '关闭与派单由农场管理员在告警台账处理'
       ],
       sender: '农智闭环规则引擎',
-      at: alert.updatedAt || alert.createdAt || alert.raisedAt,
+      at: alert.raisedAt || alert.updatedAt || alert.createdAt,
       plotId,
       plotName,
       alertId,
@@ -1401,8 +1401,8 @@ export function buildLiveFeedItems({ alerts = [], workOrders = [], inspections =
       titleLabel: displayText(title),
       summary,
       summaryLabel: displayText(summary),
-      timestamp: relativeTime(alert.createdAt || alert.raisedAt),
-      timestampIso: alert.createdAt || alert.raisedAt || alert.updatedAt || null,
+      timestamp: relativeTime(alert.raisedAt || alert.updatedAt || alert.createdAt),
+      timestampIso: alert.raisedAt || alert.updatedAt || alert.createdAt || null,
       badge: { color: 'amber' },
       actions: [],
       dataOrigin: 'BACKEND'
@@ -1511,7 +1511,7 @@ export function mapAdminAlert(alert = {}, plotMap = new Map()) {
   return {
     ...alert,
     id: text(alert.alertId || alert.id, `alert-${Date.now()}`),
-    time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+    time: relativeTime(alert.raisedAt || alert.updatedAt || alert.createdAt),
     level: text(alert.level, 'INFO').toUpperCase(),
     source: plotMap.get(String(alert.plotId))?.name || text(alert.source || alert.plotId, '系统'),
     summary: text(alert.message || alert.summary || alert.title, '后端告警记录'),

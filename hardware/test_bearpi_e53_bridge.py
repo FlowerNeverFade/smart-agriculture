@@ -88,6 +88,33 @@ class BearPiParserTest(unittest.TestCase):
         self.assertEqual(publisher.actuator_status()["FAN"]["state"], "ON")
         self.assertEqual(publisher.actuator_status()["FAN"]["status"], "SUCCEEDED")
 
+    def test_zero_duration_is_reserved_for_continuous_grow_light(self):
+        class SerialCapture:
+            def __init__(self):
+                self.written = bytearray()
+
+            def write(self, value):
+                self.written.extend(value)
+
+            def flush(self):
+                return None
+
+        args = argparse.Namespace(mqtt=False, farm_id="farm-demo", plot_id="plot-a01", device_id="bearpi-test")
+        publisher = Publisher(args)
+        self.assertIsNone(publisher.apply_control_payload({
+            "commandId": "light-continuous", "deviceId": "bearpi-test", "type": "LIGHT_SET",
+            "targetState": "ON", "durationSeconds": 0,
+        }))
+        serial_capture = SerialCapture()
+        publisher.flush_serial_commands(serial_capture)
+        self.assertEqual(bytes(serial_capture.written), b"AT+AGRI=light-continuous,LIGHT,ON,0\r\n")
+        fan = publisher.apply_control_payload({
+            "commandId": "fan-unbounded", "deviceId": "bearpi-test", "type": "FAN_SET",
+            "targetState": "ON", "durationSeconds": 0,
+        })
+        self.assertEqual(fan["status"], "FAILED")
+        self.assertEqual(fan["reason"], "INVALID_COMMAND")
+
 
 if __name__ == "__main__":
     unittest.main()

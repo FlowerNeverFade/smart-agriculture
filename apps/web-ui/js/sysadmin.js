@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260902-manager-plot-order-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS } from './api.js?v=20260904-alert-hardware-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260902-v5911-zhcn-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { canExecuteIrrigation as canExecuteIrrigationRole, presentRoleUser, roleCan, roleDefinition, roleViews } from './roles.js?v=20260902-v5911-zhcn-v1';
@@ -6,14 +6,14 @@ import { buildAccountProfile } from './account-profile.js';
 import { agentRolePresentation } from './agent-presentation.js?v=20260902-v5911-zhcn-v1';
 import { ACCENT_OPTIONS, DEFAULT_USER_SETTINGS, SURFACE_STYLE_OPTIONS, applyUserSettings, readUserSettings, saveUserSettings, resolveTheme } from './user-settings.js?v=20260902-v5911-zhcn-v1';
 import { AdminAlertCenter } from './admin-alerts.js?v=20260902-v5911-zhcn-v1';
-import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260903-v5923-work-order-zhcn-v1';
-import { AdminDecisionView } from './modules/admin-decision.js?v=20260903-v5923-work-order-zhcn-v1';
-import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260902-ai-direct-v2';
+import { WorkOrderLifecycleView } from './work-order-lifecycle.js?v=20260904-alert-hardware-v1';
+import { AdminDecisionView } from './modules/admin-decision.js?v=20260904-alert-hardware-v1';
+import { AdminAiChatView } from './modules/admin-ai-chat.js?v=20260904-alert-hardware-v1';
 import { createWorkspaceSettingsView } from './modules/workspace-settings.js?v=20260902-shell-fixes-v1';
-import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260902-v5911-zhcn-v1';
-import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260903-v5923-work-order-zhcn-v1';
-import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260902-v5911-zhcn-v1';
-import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260902-v5911-zhcn-v1';
+import { AdminResourcePlanningView } from './modules/admin-resource-planning.js?v=20260904-alert-hardware-v1';
+import { AdminWorkManagementView } from './modules/admin-work-management.js?v=20260904-alert-hardware-v1';
+import { AdminResourceCenterView } from './modules/admin-resource-center.js?v=20260904-alert-hardware-v1';
+import { AdminMemberManagementView } from './modules/admin-member-management.js?v=20260904-alert-hardware-v1';
 import { adminHealthTone, adminMetricLabel, adminPlotFarmOptions, adminPlotsForFarm, adminPlotStatusSummary, adminSummary, domainsForEventType, formatHealthScore, hasFarmPlotRefresh, isLatestFarmResponse, legacyAdminTabTarget, managerSummaryTarget, mergeFarmPlots, routeHash, selectAuthorizedFarm } from './admin-state.js?v=20260903-v5924-system-farm-scope-v1';
 import {
   agentResponseSource,
@@ -708,8 +708,8 @@ const AdminOpsView = {
       if (alertLevel.value !== 'all') alerts = alerts.filter(a => a.level === alertLevel.value);
       // 按时间倒序（最新在前）：优先原始时间戳，缺失时保持原序（demo 固定顺序）
       return [...alerts].sort((a, b) => {
-        const ta = new Date(a.createdAt || a.raisedAt || a.updatedAt || 0).getTime() || 0;
-        const tb = new Date(b.createdAt || b.raisedAt || b.updatedAt || 0).getTime() || 0;
+        const ta = new Date(a.raisedAt || a.updatedAt || a.createdAt || 0).getTime() || 0;
+        const tb = new Date(b.raisedAt || b.updatedAt || b.createdAt || 0).getTime() || 0;
         return tb - ta;
       });
     });
@@ -2467,12 +2467,12 @@ const app = createApp({
         state.value.resourceRequests = fulfilled('resourceRequests') ? (results.resourceRequests.value || []) : state.value.resourceRequests;
         state.value.resourceProfiles = fulfilled('resourceProfiles') ? (results.resourceProfiles.value || []) : state.value.resourceProfiles;
         const recentEvents = [...alerts]
-          .sort((a, b) => (new Date(b.createdAt || b.raisedAt || b.updatedAt || 0).getTime() || 0) - (new Date(a.createdAt || a.raisedAt || a.updatedAt || 0).getTime() || 0))
+          .sort((a, b) => (new Date(b.raisedAt || b.updatedAt || b.createdAt || 0).getTime() || 0) - (new Date(a.raisedAt || a.updatedAt || a.createdAt || 0).getTime() || 0))
           .slice(0, 8).map((alert, index) => ({
           id: `alert:${alert.alertId || alert.id || index}`,
           category: 'alert', icon: 'warning',
           title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
-          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          time: relativeTime(alert.raisedAt || alert.updatedAt || alert.createdAt),
           traceId: alert.alertId || alert.id, dataOrigin: 'BACKEND'
         }));
         const nextOverview = adminOverviewFromLive({
@@ -2659,7 +2659,7 @@ const app = createApp({
           category: 'alert',
           icon: 'warning',
           title: `${alert.plotId ? `${alert.plotId} · ` : ''}${alert.title || alert.message || alert.source || '平台告警'}`,
-          time: relativeTime(alert.createdAt || alert.raisedAt || alert.updatedAt),
+          time: relativeTime(alert.raisedAt || alert.updatedAt || alert.createdAt),
           traceId: alert.alertId || alert.id,
           dataOrigin: 'BACKEND'
         })));

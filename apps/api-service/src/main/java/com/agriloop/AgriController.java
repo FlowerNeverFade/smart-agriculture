@@ -830,12 +830,20 @@ class AgriController {
     ResponseEntity<?> alerts(@RequestParam(required = false) String farmId, Authentication a) {
         UserPrincipal p = principal(a);
         if (farmId != null && !farmId.isBlank() && !p.canAccessFarm(farmId)) throw new ApiException(HttpStatus.FORBIDDEN, "FARM_FORBIDDEN", "无权查看该农场");
+        Map<String, Map<String, Object>> plotsById = new LinkedHashMap<>();
+        for (Map<String, Object> plot : store.list("plot")) {
+            plotsById.put(Jsons.text(plot, "plotId", ""), plot);
+        }
         return ok(store.list("alert").stream().filter(alert -> {
             String plotId = Jsons.text(alert, "plotId", "");
-            Map<String, Object> plot = store.find("plot", plotId);
+            Map<String, Object> plot = plotsById.get(plotId);
             String recordFarmId = Jsons.text(alert, "farmId", plot == null ? "" : Jsons.text(plot, "farmId", ""));
-            return (farmId == null || farmId.isBlank() || farmId.equals(recordFarmId)) && engine.canAccessPlot(p, plotId);
-        }).toList());
+            if (farmId != null && !farmId.isBlank() && !farmId.equals(recordFarmId)) return false;
+            if (p.isSystemAdmin()) return true;
+            if (plot == null || recordFarmId.isBlank() || !p.canAccessFarm(recordFarmId)) return false;
+            return p.isFarmAdmin() || p.canAccessPlot(plotId);
+        }).sorted(Comparator.comparing((Map<String, Object> alert) -> Jsons.instant(alert.get("raisedAt"),
+                Jsons.instant(alert.get("updatedAt"), Jsons.instant(alert.get("createdAt"), Instant.EPOCH)))).reversed()).toList());
     }
 
     @PostMapping("/alerts/{alertId}/ack")

@@ -59,11 +59,11 @@ static void SetActuator(const char *actuator, int enabled, unsigned int duration
     if (strcmp(actuator, "FAN") == 0) {
         Motor_StatusSet(enabled ? ON : OFF);
         g_fan_on = enabled;
-        g_fan_deadline = enabled ? DeadlineAfterSeconds(duration_seconds) : 0U;
+        g_fan_deadline = enabled && duration_seconds > 0U ? DeadlineAfterSeconds(duration_seconds) : 0U;
     } else {
         Light_StatusSet(enabled ? ON : OFF);
         g_light_on = enabled;
-        g_light_deadline = enabled ? DeadlineAfterSeconds(duration_seconds) : 0U;
+        g_light_deadline = enabled && duration_seconds > 0U ? DeadlineAfterSeconds(duration_seconds) : 0U;
     }
 }
 
@@ -154,7 +154,8 @@ static hi_u32 AgriControlCommand(hi_s32 argc, const hi_char **argv)
     }
     if ((strcmp(actuator, "FAN") != 0 && strcmp(actuator, "GROW_LIGHT") != 0) ||
         (strcmp(state, "ON") != 0 && strcmp(state, "OFF") != 0) ||
-        (strcmp(state, "ON") == 0 && (duration_seconds == 0U || duration_seconds > MAX_RUN_SECONDS)) ||
+        (strcmp(state, "ON") == 0 && duration_seconds > MAX_RUN_SECONDS) ||
+        (strcmp(state, "ON") == 0 && strcmp(actuator, "FAN") == 0 && duration_seconds == 0U) ||
         (strcmp(state, "OFF") == 0 && duration_seconds != 0U)) {
         RejectCommand(command_id, actuator, state, "INVALID_COMMAND");
         return HI_ERR_SUCCESS;
@@ -236,7 +237,7 @@ static void ExampleEntry(void)
         printf("AGRI_BOOT FAILED THREAD\r\n");
         return;
     }
-    printf("AGRI_BOOT READY REMOTE_ACTUATORS_V2\r\n");
+    printf("AGRI_BOOT READY REMOTE_ACTUATORS_V3\r\n");
 }
 
 APP_FEATURE_INIT(ExampleEntry);

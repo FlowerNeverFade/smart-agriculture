@@ -1,4 +1,4 @@
-import { api } from './api.js?v=20260902-manager-plot-order-v1';
+import { api } from './api.js?v=20260904-alert-hardware-v1';
 import { adminMetricLabel } from './admin-state.js?v=20260902-performance-v1';
 import { sourceLabel as localizedSourceLabel } from './live-data.js?v=20260902-performance-v1';
 
@@ -190,7 +190,7 @@ export const AdminAlertCenter = {
     const sortedAlerts = computed(() => [...(props.state.alerts || [])].sort((a, b) => {
       const rank = { CRITICAL: 4, HIGH: 3, MEDIUM: 2, LOW: 1 };
       return (rank[normalized(b.level)] || 0) - (rank[normalized(a.level)] || 0)
-        || new Date(b.raisedAt || b.createdAt || 0) - new Date(a.raisedAt || a.createdAt || 0);
+        || new Date(b.raisedAt || b.updatedAt || b.createdAt || 0) - new Date(a.raisedAt || a.updatedAt || a.createdAt || 0);
     }));
     const reviewAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && !isDispatched(alert)));
     const dispatchedAlerts = computed(() => sortedAlerts.value.filter(alert => !isClosed(alert) && isDispatched(alert)));

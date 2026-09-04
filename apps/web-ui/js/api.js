@@ -5833,9 +5833,10 @@ export class ApiService {
       ...device,
       actuatorPolicy: {
         ...(device.actuatorPolicy || {}), ...payload,
-        heatOnCelsius: 35, heatOffCelsius: 33, lightOnLux: 50, lightOffLux: 60,
-        fanMaxRunSeconds: 900, lightMaxRunSeconds: 1800,
-        policyVersion: 'bearpi-actuator-policy-v1', updatedAt: new Date().toISOString()
+        heatOnCelsius: 35, heatOffCelsius: 32, lightOnLux: 50,
+        automaticTriggerCycles: 5, lightContinuous: true,
+        fanMaxRunSeconds: 900, lightMaxRunSeconds: 0,
+        policyVersion: 'bearpi-actuator-policy-v2', updatedAt: new Date().toISOString()
       }
     };
     this.demoDevices.set(id, saved);
@@ -5848,9 +5849,12 @@ export class ApiService {
     const targetState = String(input.targetState || '').trim().toUpperCase();
     if (!['FAN', 'GROW_LIGHT'].includes(kind)) throw new ApiError('执行器类型无效', { status: 400, code: 'ACTUATOR_TYPE_INVALID' });
     if (!['ON', 'OFF'].includes(targetState)) throw new ApiError('执行器目标状态无效', { status: 400, code: 'ACTUATOR_TARGET_INVALID' });
+    const requestedDuration = input.durationSeconds === undefined || input.durationSeconds === null
+      ? (kind === 'FAN' ? 900 : 0)
+      : Number(input.durationSeconds);
     const payload = {
       targetState,
-      durationSeconds: targetState === 'ON' ? Number(input.durationSeconds || (kind === 'FAN' ? 900 : 1800)) : 0,
+      durationSeconds: targetState === 'ON' ? requestedDuration : 0,
       confirmed: Boolean(input.confirmed),
       idempotencyKey: String(input.idempotencyKey || '').trim()
     };
@@ -5867,7 +5871,11 @@ export class ApiService {
     const commandId = `bearpi-cmd-${Date.now().toString(36)}`;
     const now = new Date().toISOString();
     const actuatorStates = { ...(device.actuatorStates || {}) };
-    actuatorStates[kind] = { ...(actuatorStates[kind] || {}), state: targetState, desiredState: targetState, status: 'SUCCEEDED', commandId, updatedAt: now };
+    actuatorStates[kind] = {
+      ...(actuatorStates[kind] || {}), state: targetState, desiredState: targetState,
+      status: 'SUCCEEDED', commandId, updatedAt: now,
+      continuous: targetState === 'ON' && kind === 'GROW_LIGHT' && payload.durationSeconds === 0
+    };
     const saved = { ...device, actuatorStates, lastActuatorCommandId: commandId, lastActuatorCommandAt: now };
     this.demoDevices.set(id, saved);
     return { commandId, deviceId: id, actuator: kind, targetState, commandStatus: 'SUCCEEDED', status: 'SUCCEEDED', device: { ...saved } };

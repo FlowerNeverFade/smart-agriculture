@@ -1,4 +1,4 @@
-import { ApiError, api } from './api.js?v=20260902-manager-plot-order-v1';
+import { ApiError, api } from './api.js?v=20260904-alert-hardware-v1';
 import { createAmbientLiquidField } from './login-webgl.js';
 import { DEMO_ACCOUNTS, presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
 

@@ -57,21 +57,21 @@ py hardware/bearpi_e53_bridge.py --port COM5 --baud 115200 --mqtt --mqtt-host 12
 
 | 执行器 | 开启条件 | 恢复条件 | 最长单次运行 |
 |---|---|---|---:|
-| 风扇 | `REAL/HARDWARE/OBSERVED/GOOD` 温度连续触发且 `>= 35°C` | 温度 `<= 33°C` | 15 分钟 |
-| 补光灯 | 白天 `REAL/HARDWARE/OBSERVED/GOOD` 光照连续触发且 `< 50 lux` | 光照 `>= 60 lux` | 30 分钟 |
+| 风扇 | `REAL/HARDWARE/OBSERVED/GOOD` 温度告警完成 5 个有效周期且 `>= 35°C` | 温度 `<= 32°C` | 15 分钟 |
+| 补光灯 | 白天 `REAL/HARDWARE/OBSERVED/GOOD` 缺光告警完成 5 个有效周期且 `< 50 lux` | 人工关闭 | 持续运行 |
 
-设备离线、绑定不符、遥测超过 30 秒、数据质量异常或已有待回执命令时不会自动开启。农场管理员手动开启需要明确确认与幂等键；关闭仍通过同一真实 ACK 链路。前端只在设备详情中显示该 BearPi 的联动设置，不会把规则应用到其他硬件。
+同一来源和地块的告警每 30 秒最多刷新一次并复用原告警编号；第 5 次有效触发后才允许自动联动。设备离线、绑定不符、遥测超过 30 秒、数据质量异常或已有待回执命令时不会自动开启。农场管理员下发的告警处置任务由农户提交成功结果时，也会经过相同安全门并把硬件 ACK 回写任务。农场管理员手动开启需要明确确认与幂等键；关闭仍通过同一真实 ACK 链路。前端只在设备详情中显示该 BearPi 的联动设置，不会把规则应用到其他硬件。
 
 固件源码位于 `hardware/firmware/bearpi_e53_ia1_remote/`。使用 HiBurn 时只选择一次生成的 `Hi3861_wifiiot_app_allinone.bin`，列表应只有 loader、app burn 和 boot signed 三行；勾选 `Select all` 与 `Auto burn`，不要勾选 `Formal`。固件通过 Hi3861 AT 白名单接受：
 
 ```text
 AT+AGRI=<commandId>,FAN,ON,<seconds>
 AT+AGRI=<commandId>,FAN,OFF,0
-AT+AGRI=<commandId>,LIGHT,ON,<seconds>
+AT+AGRI=<commandId>,LIGHT,ON,<seconds-or-0-for-continuous>
 AT+AGRI=<commandId>,LIGHT,OFF,0
 ```
 
-成功启动会输出 `AGRI_BOOT READY REMOTE_ACTUATORS_V2`；GPIO 应用后输出 `AGRI_ACK ... SUCCEEDED APPLIED` 和 `AGRI_STATE ...`。输出默认关闭，固件也会按命令时长自动关闭。
+成功启动会输出 `AGRI_BOOT READY REMOTE_ACTUATORS_V3`；GPIO 应用后输出 `AGRI_ACK ... SUCCEEDED APPLIED` 和 `AGRI_STATE ...`。输出默认关闭；风扇和正时补光按命令时长关闭，持续补光必须收到明确 OFF 指令才关闭。
 
 ## 先做无硬件解析测试
 

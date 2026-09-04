@@ -230,7 +230,8 @@ class Publisher:
             if (
                 not command_id
                 or target_state not in {"ON", "OFF"}
-                or (target_state == "ON" and not 1 <= duration_seconds <= 3600)
+                or (target_state == "ON" and actuator == "FAN" and not 1 <= duration_seconds <= 3600)
+                or (target_state == "ON" and actuator == "GROW_LIGHT" and not 0 <= duration_seconds <= 3600)
                 or (target_state == "OFF" and duration_seconds != 0)
             ):
                 return self._failed_actuator_ack(payload, actuator, "INVALID_COMMAND")

@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-manager-plot-order-v1';
+import { api } from '../api.js?v=20260904-alert-hardware-v1';
 import {
   adminDeviceMatchesFilters,
   adminDeviceSummary,
@@ -286,8 +286,9 @@ export const AdminResourceCenterView = {
       if (!isBearPiActuatorDevice(device) || actuatorBusy.value || actuatorPending(device, actuator)) return;
       const targetState = actuatorOn(device, actuator) ? 'OFF' : 'ON';
       const label = actuator === 'FAN' ? '风扇' : '补光灯';
-      const durationSeconds = actuator === 'FAN' ? 900 : 1800;
-      if (targetState === 'ON' && !window.confirm(`确认开启 BearPi ${label}？设备将在收到真实指令后运行，最长 ${durationSeconds / 60} 分钟。`)) return;
+      const durationSeconds = actuator === 'FAN' ? 900 : 0;
+      const runDescription = actuator === 'FAN' ? '最长运行 15 分钟，并在温度降至 32°C 时停止' : '持续运行，直到手动关闭';
+      if (targetState === 'ON' && !window.confirm(`确认开启 BearPi ${label}？设备将在收到真实指令后${runDescription}。`)) return;
       actuatorBusy.value = actuator;
       try {
         const randomKey = globalThis.crypto?.randomUUID ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -466,13 +467,13 @@ export const AdminResourceCenterView = {
               </header>
               <div class="admin-actuator-bindings">
                 <article :class="{running: actuatorOn(activeDevice, 'FAN'), pending: actuatorPending(activeDevice, 'FAN')}">
-                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">mode_fan</span><div><strong>高温胁迫 -> 风扇</strong><small>高于 35°C 开启，降至 33°C 关闭</small></div></div>
+                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">mode_fan</span><div><strong>高温胁迫 -> 风扇</strong><small>第 5 次告警后开启，降至 32°C 关闭</small></div></div>
                   <div class="admin-actuator-binding-state"><i></i><span>{{ actuatorStateLabel(activeDevice, 'FAN') }}</span><em>{{ actuatorState(activeDevice, 'FAN').error || '最长连续运行 15 分钟' }}</em></div>
                   <footer><label><input v-model="actuatorPolicyDraft.fanAlertEnabled" type="checkbox"><span>绑定高温告警</span></label><button type="button" class="g-btn compact" :disabled="String(activeDevice.status || '').toUpperCase() !== 'ONLINE' || actuatorPending(activeDevice, 'FAN') || actuatorBusy" @click="controlActuator(activeDevice, 'FAN')">{{ actuatorBusy === 'FAN' ? '发送中…' : (actuatorOn(activeDevice, 'FAN') ? '关闭风扇' : '开启风扇') }}</button></footer>
                 </article>
                 <article :class="{running: actuatorOn(activeDevice, 'GROW_LIGHT'), pending: actuatorPending(activeDevice, 'GROW_LIGHT')}">
-                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">lightbulb</span><div><strong>光照不足 -> 补光灯</strong><small>白天低于 50 lux 开启，恢复到 60 lux 关闭</small></div></div>
-                  <div class="admin-actuator-binding-state"><i></i><span>{{ actuatorStateLabel(activeDevice, 'GROW_LIGHT') }}</span><em>{{ actuatorState(activeDevice, 'GROW_LIGHT').error || '最长连续运行 30 分钟' }}</em></div>
+                  <div class="admin-actuator-binding-head"><span class="material-symbols-outlined">lightbulb</span><div><strong>光照不足 -> 补光灯</strong><small>第 5 次低于 50 lux 告警后开启</small></div></div>
+                  <div class="admin-actuator-binding-state"><i></i><span>{{ actuatorStateLabel(activeDevice, 'GROW_LIGHT') }}</span><em>{{ actuatorState(activeDevice, 'GROW_LIGHT').error || '开启后持续运行，需手动关闭' }}</em></div>
                   <footer><label><input v-model="actuatorPolicyDraft.lightAlertEnabled" type="checkbox"><span>绑定缺光告警</span></label><button type="button" class="g-btn compact" :disabled="String(activeDevice.status || '').toUpperCase() !== 'ONLINE' || actuatorPending(activeDevice, 'GROW_LIGHT') || actuatorBusy" @click="controlActuator(activeDevice, 'GROW_LIGHT')">{{ actuatorBusy === 'GROW_LIGHT' ? '发送中…' : (actuatorOn(activeDevice, 'GROW_LIGHT') ? '关闭补光灯' : '开启补光灯') }}</button></footer>
                 </article>
               </div>

@@ -1083,7 +1083,30 @@ class AgriApplicationTest {
             assertThat(Jsons.map(new ObjectMapper(), atHeatBoundary.get("ruleResult"))).containsEntry("risk", "HEAT_STRESS");
 
             Map<String, Object> policy = Jsons.map(new ObjectMapper(), engine.bearPiActuatorPolicy(deviceId, admin).get("policy"));
-            assertThat(policy).containsEntry("heatOnCelsius", 35.0).containsEntry("lightOnLux", 50.0);
+            assertThat(policy).containsEntry("heatOnCelsius", 35.0).containsEntry("heatOffCelsius", 32.0)
+                    .containsEntry("lightOnLux", 50.0).containsEntry("automaticTriggerCycles", 5L)
+                    .containsEntry("lightContinuous", true).containsEntry("lightMaxRunSeconds", 0);
+
+            Map<String, Object> controllableDevice = store.find("device", deviceId);
+            controllableDevice.put("plotId", plotId);
+            controllableDevice.put("farmId", "farm-demo");
+            controllableDevice.put("bindingState", "BOUND");
+            controllableDevice.put("status", "ONLINE");
+            controllableDevice.put("lastSeen", Instant.now().toString());
+            store.save("device", deviceId, controllableDevice);
+            Map<String, Object> continuousLight = engine.controlBearPiActuator(deviceId, "GROW_LIGHT", Map.of(
+                    "targetState", "ON", "confirmed", true,
+                    "idempotencyKey", "continuous-light-" + System.nanoTime()), admin);
+            String continuousCommandId = Jsons.text(continuousLight, "commandId", "");
+            Map<String, Object> continuousCommand = store.find("command", continuousCommandId);
+            assertThat(continuousCommand).containsEntry("durationSeconds", 0).containsEntry("continuous", true);
+            engine.handleBearPiActuatorAck(continuousCommand, Map.of(
+                    "deviceId", deviceId, "actuator", "GROW_LIGHT", "targetState", "ON",
+                    "actualState", "ON", "status", "SUCCEEDED", "result", "APPLIED"));
+            Map<String, Object> lightState = Jsons.map(new ObjectMapper(),
+                    Jsons.map(new ObjectMapper(), store.find("device", deviceId).get("actuatorStates")).get("GROW_LIGHT"));
+            assertThat(lightState).containsEntry("state", "ON").containsEntry("continuous", true)
+                    .doesNotContainKey("autoOffAt");
 
             store.save("device", unsupportedDeviceId, new LinkedHashMap<>(Map.of(
                     "deviceId", unsupportedDeviceId, "farmId", "farm-demo", "plotId", plotId,
@@ -1149,9 +1172,17 @@ class AgriApplicationTest {
                     "actualState", "OFF", "status", "SUCCEEDED", "result", "APPLIED"));
 
             Map<String, Object> highTemperatureResult = Map.of();
-            for (int sample = 0; sample < 3; sample++) {
+            for (int sample = 0; sample < 5; sample++) {
                 highTemperatureResult = engine.ingest(bearPiTelemetry(
                         plotId, deviceId, "AIR_TEMPERATURE", 36.0, now.plusSeconds(2 + sample)));
+                if (sample < 4) {
+                    Map<String, Object> alert = store.list("alert").stream()
+                            .filter(item -> plotId.equals(Jsons.text(item, "plotId", "")))
+                            .filter(item -> "HEAT_STRESS_RULE".equals(Jsons.text(item, "source", "")))
+                            .findFirst().orElseThrow();
+                    alert.put("lastNotifiedAt", Instant.now().minusSeconds(31).toString());
+                    store.save("alert", Jsons.text(alert, "alertId", ""), alert);
+                }
             }
             Map<String, Object> highTemperatureRule = Jsons.map(new ObjectMapper(), highTemperatureResult.get("ruleResult"));
             Map<String, Object> automatic = Jsons.map(new ObjectMapper(), highTemperatureRule.get("actuatorAutomation"));
@@ -1161,7 +1192,7 @@ class AgriApplicationTest {
                     "deviceId", deviceId, "actuator", "FAN", "targetState", "ON",
                     "actualState", "ON", "status", "SUCCEEDED", "result", "APPLIED"));
 
-            engine.ingest(bearPiTelemetry(plotId, deviceId, "AIR_TEMPERATURE", 32.5, now.plusSeconds(5)));
+            engine.ingest(bearPiTelemetry(plotId, deviceId, "AIR_TEMPERATURE", 32.0, now.plusSeconds(7)));
 
             Map<String, Object> afterAutomaticRecoveryReading = store.find("device", deviceId);
             Map<String, Object> automaticFanState = Jsons.map(new ObjectMapper(),
@@ -1177,6 +1208,76 @@ class AgriApplicationTest {
             store.deleteWhere("idempotency", item -> String.valueOf(item.get("idempotencyKey")).contains("recovery-"));
             store.deleteTelemetryForPlot(plotId);
             store.delete("plot", plotId);
+            if (previousDevice == null) store.delete("device", deviceId); else store.save("device", deviceId, previousDevice);
+        }
+    }
+
+    @Test
+    void successfulAlertFollowUpSubmissionRequestsRealHardwareAndPersistsAck() {
+        String plotId = "plot-alert-task-" + System.nanoTime();
+        String deviceId = "bearpi-e53-ia1-a01";
+        String alertId = "alert-task-" + System.nanoTime();
+        String username = "alertfarmer" + System.nanoTime();
+        Map<String, Object> previousDevice = store.find("device", deviceId);
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of("*"));
+        String memberId = "";
+        String workOrderId = "";
+        try {
+            store.save("plot", plotId, new LinkedHashMap<>(Map.of(
+                    "plotId", plotId, "farmId", "farm-demo", "name", "告警任务联动田",
+                    "status", "ACTIVE", "cropCode", "tomato", "stageCode", "fruiting")));
+            Map<String, Object> member = adminManagement.createFarmMember(new LinkedHashMap<>(Map.of(
+                    "farmId", "farm-demo", "username", username, "password", "AlertTask2026",
+                    "displayName", "告警联动农户", "plotIds", List.of(plotId))), admin);
+            memberId = Jsons.text(member, "userId", "");
+            UserPrincipal farmer = new UserPrincipal(memberId, username, "FARMER", List.of("farm-demo"), List.of(plotId));
+
+            store.save("device", deviceId, bearPiTestDevice(deviceId, plotId, Instant.now()));
+            Map<String, Object> alert = new LinkedHashMap<>();
+            alert.put("alertId", alertId);
+            alert.put("farmId", "farm-demo");
+            alert.put("plotId", plotId);
+            alert.put("source", "HEAT_STRESS_RULE");
+            alert.put("status", "ACTIVE");
+            alert.put("title", "高温胁迫");
+            alert.put("ruleVersion", "test-rule-v1");
+            alert.put("createdAt", Instant.now().toString());
+            alert.put("raisedAt", Instant.now().toString());
+            alert.put("lastNotifiedAt", Instant.now().toString());
+            alert.put("alertObjectId", plotId);
+            store.save("alert", alertId, alert);
+            engine.ingest(bearPiTelemetry(plotId, deviceId, "AIR_TEMPERATURE", 36.0, Instant.now()));
+
+            Map<String, Object> created = engine.createWorkOrder(new LinkedHashMap<>(Map.of(
+                    "farmId", "farm-demo", "plotId", plotId, "title", "处置高温告警",
+                    "reason", "完成后启动真实风扇", "sourceType", "ALERT", "sourceRef", alertId,
+                    "taskPurpose", "ALERT_FOLLOW_UP", "actionType", "FIELD_OPERATION")), admin);
+            workOrderId = Jsons.text(created, "workOrderId", "");
+            engine.assignWorkOrder(workOrderId, Map.of("assigneeId", memberId), admin);
+            engine.transitionWorkOrder(workOrderId, Map.of("action", "START"), farmer);
+            Map<String, Object> submitted = engine.transitionWorkOrder(workOrderId, Map.of(
+                    "action", "SUBMIT", "resultSummary", "高温处置完成", "outcome", "SUCCEEDED"), farmer);
+            Map<String, Object> hardwareAction = Jsons.map(new ObjectMapper(), submitted.get("hardwareAction"));
+            assertThat(hardwareAction).containsEntry("status", "PENDING").containsEntry("actuator", "FAN")
+                    .containsEntry("durationSeconds", 900);
+            String commandId = Jsons.text(hardwareAction, "commandId", "");
+            Map<String, Object> command = store.find("command", commandId);
+            assertThat(command).containsEntry("source", "ALERT_TASK_COMPLETION")
+                    .containsEntry("workOrderId", workOrderId).containsEntry("targetState", "ON");
+
+            engine.handleBearPiActuatorAck(command, Map.of(
+                    "deviceId", deviceId, "actuator", "FAN", "targetState", "ON",
+                    "actualState", "ON", "status", "SUCCEEDED", "result", "APPLIED"));
+            Map<String, Object> ackedAction = Jsons.map(new ObjectMapper(), store.find("work-order", workOrderId).get("hardwareAction"));
+            assertThat(ackedAction).containsEntry("status", "SUCCEEDED").containsEntry("executionConfirmed", true);
+        } finally {
+            if (!workOrderId.isBlank()) store.delete("work-order", workOrderId);
+            store.deleteWhere("alert", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteWhere("command", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteWhere("idempotency", item -> String.valueOf(item.get("idempotencyKey")).contains("work-order:"));
+            store.deleteTelemetryForPlot(plotId);
+            store.delete("plot", plotId);
+            if (!memberId.isBlank()) adminManagement.deleteFarmMember(memberId, "farm-demo", admin);
             if (previousDevice == null) store.delete("device", deviceId); else store.save("device", deviceId, previousDevice);
         }
     }
@@ -2937,10 +3038,24 @@ class AgriApplicationTest {
                 "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 11.0, "unit", "%",
                 "scenarioId", "drought", "ts", Instant.now().toString()));
         Map<String, Object> secondAlert = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), second.get("ruleResult")).get("alert"));
-        assertThat(secondAlert).containsEntry("alertId", alertId).containsEntry("reused", true);
-        assertThat(Jsons.whole(secondAlert, "occurrenceCount", 0)).isEqualTo(2);
+        assertThat(secondAlert).containsEntry("alertId", alertId).containsEntry("reused", true)
+                .containsEntry("suppressedByCooldown", true);
+        assertThat(Jsons.whole(secondAlert, "occurrenceCount", 0)).isEqualTo(1);
         assertThat(store.list("alert").stream().filter(alert -> plotId.equals(Jsons.text(alert, "plotId", ""))
                 && "WATER_DEFICIT_RULE".equals(Jsons.text(alert, "source", ""))).count()).isEqualTo(1);
+
+        Map<String, Object> aged = store.find("alert", alertId);
+        aged.put("lastNotifiedAt", Instant.now().minusSeconds(31).toString());
+        store.save("alert", alertId, aged);
+        Map<String, Object> refreshed = engine.ingest(Map.of(
+                "eventId", "cool-refresh-" + System.nanoTime(), "farmId", "farm-demo", "plotId", plotId,
+                "deviceId", "mock-" + plotId, "metric", "SOIL_MOISTURE", "value", 10.5, "unit", "%",
+                "scenarioId", "drought", "ts", Instant.now().toString()));
+        Map<String, Object> refreshedAlert = Jsons.map(new ObjectMapper(), Jsons.map(new ObjectMapper(), refreshed.get("ruleResult")).get("alert"));
+        assertThat(refreshedAlert).containsEntry("alertId", alertId).containsEntry("refreshed", true)
+                .containsEntry("suppressedByCooldown", false);
+        assertThat(Jsons.whole(refreshedAlert, "occurrenceCount", 0)).isEqualTo(2);
+        assertThat(Jsons.whole(refreshedAlert, "triggerCycle", 0)).isEqualTo(2);
 
         engine.transitionAlert(alertId, "CLOSED", admin);
         Map<String, Object> suppressed = engine.ingest(Map.of(

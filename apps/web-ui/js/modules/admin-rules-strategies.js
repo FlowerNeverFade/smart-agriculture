@@ -1,4 +1,4 @@
-import { api } from '../api.js?v=20260902-manager-plot-order-v1';
+import { api } from '../api.js?v=20260904-alert-hardware-v1';
 import { adminMetricLabel } from '../admin-state.js';
 
 const { ref, computed, inject, onMounted, watch } = Vue;

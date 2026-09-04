@@ -1,4 +1,4 @@
-import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
+import { api, DEFAULT_SIMULATION_TIME_SCALE, PLOT_SIMULATION_DEFAULTS, PLOT_SIMULATION_SCENARIOS, moistureDeltaFromWater } from './api.js?v=20260904-alert-hardware-v1';
 import { ICON_CLASS } from './modules/icon-map.js?v=20260903-v5921-farmer-plot-drag-chart-fix-v1';
 import { MOCK_DATA } from './mock-data.js?v=20260902-v5911-zhcn-v1';
 import { presentRoleUser } from './roles.js?v=20260902-v5911-zhcn-v1';
@@ -5202,11 +5202,18 @@ const app = createApp({
           });
         }
         suggestion_result.value = saved;
+        const hardwareAction = active.kind === 'TASK' ? saved?.hardwareAction : null;
         suggestion_recovery_status.value = active.kind === 'IRRIGATION'
           ? '复测结果已记录；系统执行回执和效果评价仍以设备与遥测为准。'
-          : (active.kind === 'TASK' ? '结果已提交，等待管理员验收。' : '结果已记录，等待现场复测或设备心跳恢复。');
+          : (active.kind === 'TASK'
+              ? (hardwareAction?.status === 'PENDING'
+                  ? '结果已提交，真实硬件指令已发送；等待板卡回执和管理员验收。'
+                  : hardwareAction?.status === 'NO_CHANGE'
+                    ? `结果已提交；${hardwareAction.message || '硬件已处于目标状态'}。`
+                    : '结果已提交，等待管理员验收。')
+              : '结果已记录，等待现场复测或设备心跳恢复。');
         suggestion_flow_stage.value = 'RECOVERY';
-        show_toast('处理结果已记录');
+        show_toast(hardwareAction?.status === 'PENDING' ? '处理结果已记录，真实硬件指令已发送' : '处理结果已记录');
       } catch (error) {
         show_toast(error?.message || '结果提交失败', 'error');
       } finally {
@@ -6268,7 +6275,10 @@ const app = createApp({
           patch_task_state(task, { ...(saved || {}), status: saved?.status || 'SUBMITTED' });
           close_task();
           await load_live_workspace({ announce: false });
-          show_toast(`已提交完成：${displayText(task.title, '未命名任务')}，等待管理员验收`);
+          const hardwareMessage = saved?.hardwareAction?.status === 'PENDING'
+            ? '，真实硬件指令已发送并等待板卡回执'
+            : saved?.hardwareAction?.status === 'NO_CHANGE' ? `，${saved.hardwareAction.message || '硬件无需重复操作'}` : '';
+          show_toast(`已提交完成：${displayText(task.title, '未命名任务')}${hardwareMessage}，等待管理员验收`);
         } catch (error) { show_toast(error.message || '提交任务失败', 'error'); }
         return;
       }
