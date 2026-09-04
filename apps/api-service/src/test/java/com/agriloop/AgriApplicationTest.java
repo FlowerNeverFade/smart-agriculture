@@ -1104,6 +1104,108 @@ class AgriApplicationTest {
     }
 
     @Test
+    void bearPiRecoveryOnlyStopsActuatorsStartedByAlertAutomation() {
+        String plotId = "plot-bearpi-recovery-" + System.nanoTime();
+        String deviceId = "bearpi-e53-ia1-a01";
+        Map<String, Object> previousDevice = store.find("device", deviceId);
+        UserPrincipal admin = new UserPrincipal("user-admin", "admin", "FARM_ADMIN", List.of("farm-demo"), List.of(plotId));
+        Instant now = Instant.now();
+        store.save("plot", plotId, new LinkedHashMap<>(Map.of(
+                "plotId", plotId, "farmId", "farm-demo", "name", "BearPi 恢复测试田",
+                "status", "ACTIVE", "cropCode", "tomato", "stageCode", "fruiting")));
+        try {
+            store.save("device", deviceId, bearPiTestDevice(deviceId, plotId, now));
+            Map<String, Object> manual = engine.controlBearPiActuator(deviceId, "FAN", Map.of(
+                    "targetState", "ON", "durationSeconds", 300, "confirmed", true,
+                    "idempotencyKey", "manual-recovery-" + System.nanoTime()), admin);
+            String manualCommandId = Jsons.text(manual, "commandId", "");
+            engine.handleBearPiActuatorAck(store.find("command", manualCommandId), Map.of(
+                    "deviceId", deviceId, "actuator", "FAN", "targetState", "ON",
+                    "actualState", "ON", "status", "SUCCEEDED", "result", "APPLIED"));
+
+            engine.ingest(bearPiTelemetry(plotId, deviceId, "AIR_TEMPERATURE", 32.5, now.plusSeconds(1)));
+
+            Map<String, Object> afterManualRecoveryReading = store.find("device", deviceId);
+            Map<String, Object> manualFanState = Jsons.map(new ObjectMapper(),
+                    Jsons.map(new ObjectMapper(), afterManualRecoveryReading.get("actuatorStates")).get("FAN"));
+            assertThat(manualFanState).containsEntry("state", "ON").containsEntry("desiredState", "ON")
+                    .containsEntry("commandId", manualCommandId);
+            assertThat(store.list("command").stream().noneMatch(command ->
+                    "ALERT_RECOVERY".equals(Jsons.text(command, "source", ""))
+                            && Jsons.text(command, "idempotencyKey", "").contains(manualCommandId))).isTrue();
+
+            manualFanState.put("autoOffAt", now.minusSeconds(1).toString());
+            Map<String, Object> states = new LinkedHashMap<>(Jsons.map(new ObjectMapper(), afterManualRecoveryReading.get("actuatorStates")));
+            states.put("FAN", manualFanState);
+            afterManualRecoveryReading.put("actuatorStates", states);
+            store.save("device", deviceId, afterManualRecoveryReading);
+            engine.enforceBearPiActuatorRunLimits();
+            Map<String, Object> safetyState = Jsons.map(new ObjectMapper(),
+                    Jsons.map(new ObjectMapper(), store.find("device", deviceId).get("actuatorStates")).get("FAN"));
+            Map<String, Object> safetyCommand = store.find("command", Jsons.text(safetyState, "commandId", ""));
+            assertThat(safetyCommand).containsEntry("source", "MAX_RUN_SAFETY").containsEntry("targetState", "OFF");
+            engine.handleBearPiActuatorAck(safetyCommand, Map.of(
+                    "deviceId", deviceId, "actuator", "FAN", "targetState", "OFF",
+                    "actualState", "OFF", "status", "SUCCEEDED", "result", "APPLIED"));
+
+            Map<String, Object> highTemperatureResult = Map.of();
+            for (int sample = 0; sample < 3; sample++) {
+                highTemperatureResult = engine.ingest(bearPiTelemetry(
+                        plotId, deviceId, "AIR_TEMPERATURE", 36.0, now.plusSeconds(2 + sample)));
+            }
+            Map<String, Object> highTemperatureRule = Jsons.map(new ObjectMapper(), highTemperatureResult.get("ruleResult"));
+            Map<String, Object> automatic = Jsons.map(new ObjectMapper(), highTemperatureRule.get("actuatorAutomation"));
+            String automaticCommandId = Jsons.text(automatic, "commandId", "");
+            assertThat(automaticCommandId).isNotBlank();
+            engine.handleBearPiActuatorAck(store.find("command", automaticCommandId), Map.of(
+                    "deviceId", deviceId, "actuator", "FAN", "targetState", "ON",
+                    "actualState", "ON", "status", "SUCCEEDED", "result", "APPLIED"));
+
+            engine.ingest(bearPiTelemetry(plotId, deviceId, "AIR_TEMPERATURE", 32.5, now.plusSeconds(5)));
+
+            Map<String, Object> afterAutomaticRecoveryReading = store.find("device", deviceId);
+            Map<String, Object> automaticFanState = Jsons.map(new ObjectMapper(),
+                    Jsons.map(new ObjectMapper(), afterAutomaticRecoveryReading.get("actuatorStates")).get("FAN"));
+            assertThat(automaticFanState).containsEntry("state", "ON").containsEntry("desiredState", "OFF")
+                    .containsEntry("status", "PENDING");
+            Map<String, Object> recoveryCommand = store.find("command", Jsons.text(automaticFanState, "commandId", ""));
+            assertThat(recoveryCommand).containsEntry("source", "ALERT_RECOVERY")
+                    .containsEntry("targetState", "OFF");
+        } finally {
+            store.deleteWhere("alert", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteWhere("command", item -> plotId.equals(Jsons.text(item, "plotId", "")));
+            store.deleteWhere("idempotency", item -> String.valueOf(item.get("idempotencyKey")).contains("recovery-"));
+            store.deleteTelemetryForPlot(plotId);
+            store.delete("plot", plotId);
+            if (previousDevice == null) store.delete("device", deviceId); else store.save("device", deviceId, previousDevice);
+        }
+    }
+
+    private Map<String, Object> bearPiTestDevice(String deviceId, String plotId, Instant lastSeen) {
+        Map<String, Object> device = new LinkedHashMap<>();
+        device.put("deviceId", deviceId);
+        device.put("farmId", "farm-demo");
+        device.put("plotId", plotId);
+        device.put("type", "ENVIRONMENTAL_SENSOR");
+        device.put("sourceMode", "REAL");
+        device.put("dataOrigin", "HARDWARE");
+        device.put("bindingState", "BOUND");
+        device.put("status", "ONLINE");
+        device.put("lastSeen", lastSeen.toString());
+        return device;
+    }
+
+    private Map<String, Object> bearPiTelemetry(String plotId, String deviceId, String metric, double value, Instant observedAt) {
+        return Map.ofEntries(
+                Map.entry("eventId", "bearpi-recovery-reading-" + System.nanoTime()),
+                Map.entry("farmId", "farm-demo"), Map.entry("plotId", plotId), Map.entry("deviceId", deviceId),
+                Map.entry("metric", metric), Map.entry("value", value), Map.entry("unit", "°C"),
+                Map.entry("ts", observedAt.toString()), Map.entry("sourceMode", "REAL"),
+                Map.entry("provenance", "OBSERVED"), Map.entry("dataOrigin", "HARDWARE"),
+                Map.entry("quality", Map.of("status", "GOOD")));
+    }
+
+    @Test
     void nightLightingUsesRestBandAndDoesNotOpenFillLight() {
         Instant night = Instant.parse("2026-09-01T18:00:00Z"); // 02:00 Asia/Shanghai
         Map<String, Object> reading = engine.ingest(Map.ofEntries(

@@ -2466,6 +2466,12 @@ class AgriEngine {
         String desired = Jsons.text(state, "desiredState", actual).toUpperCase(Locale.ROOT);
         if (!"ON".equals(actual) && !"ON".equals(desired)) return Map.of("status", "NO_CHANGE", "reason", "ALREADY_OFF");
         String stateCommandId = Jsons.text(state, "commandId", "unknown");
+        Map<String, Object> stateCommand = store.find("command", stateCommandId);
+        if (stateCommand == null
+                || !"ALERT_AUTOMATION".equalsIgnoreCase(Jsons.text(stateCommand, "source", ""))
+                || !"ON".equalsIgnoreCase(Jsons.text(stateCommand, "targetState", ""))) {
+            return Map.of("status", "NO_CHANGE", "reason", "NON_AUTOMATIC_ACTUATOR_STATE");
+        }
         try {
             Map<String, Object> response = requestBearPiActuatorCommand(device, actuator, "OFF", 0,
                     "recovery:" + actuator + ":" + stateCommandId, "SYSTEM_ALERT_AUTOMATION",
