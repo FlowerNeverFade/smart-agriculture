@@ -1,0 +1,67 @@
+name: Build Spectral Camera Windows EXE
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'tools/spectral_build/**'
+      - '.github/workflows/build-spectral-camera-windows.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  build-windows-exe:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: 'x64'
+
+      - name: Reconstruct application source
+        shell: pwsh
+        run: |
+          @'
+          from pathlib import Path
+          import base64, gzip
+          root = Path('tools/spectral_build')
+          encoded = ''.join((root / f'payload.part{i}').read_text(encoding='utf-8').strip() for i in range(1, 5))
+          source = gzip.decompress(base64.b64decode(encoded))
+          Path('deep_camera_ui.py').write_bytes(source)
+          text = Path('deep_camera_ui.py').read_text(encoding='utf-8')
+          needle = '        self.cb.clear()\n        if toupcam is not None:'
+          replacement = '''        self.cb.clear()\n        for device in QMediaDevices.videoInputs():\n            self.cb.addItem(f"{t['camera_device_prefix']}{device.description()}", device)\n        if toupcam is not None:'''
+          if needle in text:
+              text = text.replace(needle, replacement, 1)
+              Path('deep_camera_ui.py').write_text(text, encoding='utf-8')
+          print('Reconstructed', Path('deep_camera_ui.py').stat().st_size, 'bytes')
+          '@ | Set-Content reconstruct.py -Encoding UTF8
+          python reconstruct.py
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller PyQt6 matplotlib
+
+      - name: Build single-file EXE
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name SpectralCamera --collect-all matplotlib --hidden-import PyQt6.QtMultimedia deep_camera_ui.py
+          if (!(Test-Path 'dist/SpectralCamera.exe')) { throw 'EXE was not generated' }
+          Get-Item dist/SpectralCamera.exe | Format-List Name,Length,FullName
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: SpectralCamera-Windows-x64
+          path: dist/SpectralCamera.exe
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
